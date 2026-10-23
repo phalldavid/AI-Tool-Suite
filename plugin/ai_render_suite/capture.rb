@@ -17,7 +17,9 @@ module AIRenderSuite
       model = Sketchup.active_model
       raise 'Open a model first.' unless model
       view = model.active_view
-      w, h = output_size(view, (opts['size'] || 1600).to_i)
+      ratio = opts['ratio'].to_f
+      ratio = nil unless ratio > 0
+      w, h, frame = output_size(view, (opts['size'] || 1600).to_i, ratio)
 
       dir = Dir.mktmpdir('airs')
       result = {}
@@ -38,6 +40,7 @@ module AIRenderSuite
           result['mask'] = encode(mask_path, 'image/png', w, h)
         end
 
+        result['frame'] = frame
         result['facts'] = facts(model, view)
       ensure
         FileUtils.rm_rf(dir)
@@ -45,16 +48,18 @@ module AIRenderSuite
       result
     end
 
-    # Keeps the viewport's proportions, with the long side at `long_side` px.
-    def self.output_size(view, long_side)
+    # Export size for the whole viewport, scaled so the render frame inside
+    # it has its long side at `long_side` px. Returns [w, h, frame] where
+    # frame is [x, y, w, h] in exported pixels; the panel crops to it.
+    def self.output_size(view, long_side, ratio = nil)
       long_side = [[long_side, 512].max, 4096].min
       vw = view.vpwidth.to_f
       vh = view.vpheight.to_f
-      if vw >= vh
-        [long_side, (long_side * vh / vw).round]
-      else
-        [(long_side * vw / vh).round, long_side]
-      end
+      fx, fy, fw, fh = Frame.rect(vw, vh, ratio)
+      scale = long_side / [fw, fh].max
+      scale = [scale, 8192.0 / [vw, vh].max].min
+      frame = [fx, fy, fw, fh].map { |v| (v * scale).round }
+      [(vw * scale).round, (vh * scale).round, frame]
     end
 
     def self.write(view, path, w, h, transparent: false)
@@ -108,6 +113,7 @@ module AIRenderSuite
       out['northAngleDeg'] = si['NorthAngle'].to_f.round(1) unless si['NorthAngle'].nil?
       place = [si['City'], si['Country']].compact.map(&:to_s).reject(&:empty?)
       out['location'] = place.join(', ') unless place.empty?
+      out['lights'] = Lights.summary(model) if defined?(Lights)
       out
     end
 

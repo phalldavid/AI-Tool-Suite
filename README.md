@@ -13,6 +13,9 @@ Plan and roadmap: see the project plan doc (architecture, tools, phases).
 | Spot edit | Paint over part of a render and describe the change. Only the painted area is replaced; everything else stays pixel-exact. |
 | Presets | 10 built-in presets (borey villa, shophouse row, New Khmer civic, condo tower, resort pavilion, masterplan aerial, living room, condo lobby, cafe, iPad sketch). Save your own and share them as a JSON file. |
 | History | Every result with a before and after slider and the exact prompt used. Kept on your computer only. |
+| Frame | Pick the render's aspect ratio (16:9, 3:2, 4:3, 21:9, 1:1, 4:5, 3:4, 9:16 or the whole view). SketchUp 2023+ shows it as a dimmed safe frame with thirds in the viewport; every capture is cropped to it. |
+| Lights | Place spotlight beams (8 beam shapes) on walls and ceilings, or LED glow along selected edges. 2700K to 6500K, intensity and size in mm. They sit on an `AI Lights` tag, cast no shadows, and the prompt tells the AI to render them as real fittings. |
+| Mirror | Click a mirror face: SketchUp renders the room from the mirror and lays that image on it, so the AI has a real reflection to work from. |
 
 The prompt is built from the preset (project type, lighting, environment, materials), your notes, and facts read from SketchUp: lens (35 mm equivalent from the camera's field of view), scene name and shadow time.
 

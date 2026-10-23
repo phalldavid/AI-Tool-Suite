@@ -19,6 +19,16 @@ export interface SceneFacts {
   location?: string;
   modelName?: string;
   sceneName?: string;
+  lights?: LightSummary;
+}
+
+/** AI light previews and mirrors placed in the model. */
+export interface LightSummary {
+  spots: number;
+  leds: number;
+  mirrors: number;
+  kelvin: number[];
+  visible: boolean;
 }
 
 /** What the SketchUp plugin (or an upload) hands to the interface. */
@@ -29,6 +39,8 @@ export interface Capture {
   /** View with transparent background; alpha marks the building. */
   mask?: ImageData64;
   facts?: SceneFacts;
+  /** Render frame inside `view`, [x, y, w, h] px. The panel crops to it. */
+  frame?: [number, number, number, number];
   source: "sketchup" | "upload";
 }
 

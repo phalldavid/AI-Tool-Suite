@@ -7,6 +7,10 @@ export interface Option {
   id: string;
   label: string;
   text: string;
+  /** Short line under the label, e.g. a time of day. */
+  sub?: string;
+  /** Sky colours for the picker card, top to bottom. */
+  swatch?: [string, string];
 }
 
 export const PROJECT_TYPES: Record<ProjectType, Option> = {
@@ -36,41 +40,57 @@ export const PROJECT_TYPES: Record<ProjectType, Option> = {
 export const LIGHTING: Option[] = [
   {
     id: "morning",
+    sub: "06:30 – 08:30",
+    swatch: ["#9cc7e8", "#f3c98b"],
     label: "Morning, 07:00",
     text: "early morning sun from the east, soft warm light, long gentle shadows, clear sky with light haze",
   },
   {
     id: "noon",
+    sub: "11:00 – 13:00",
+    swatch: ["#4f9be0", "#cfe6f7"],
     label: "Midday, 12:00",
     text: "midday tropical sun almost directly overhead, short crisp shadows under the overhangs, bright clear sky",
   },
   {
     id: "afternoon",
+    sub: "16:00 – 17:30",
+    swatch: ["#e9a45a", "#f6dca6"],
     label: "Late afternoon, 16:30",
     text: "low late-afternoon sun from the west, warm golden light, long shadows across the ground",
   },
   {
     id: "blue-hour",
+    sub: "18:15 – 18:45",
+    swatch: ["#1d2c5a", "#4b6aa8"],
     label: "Blue hour",
     text: "blue hour just after sunset, deep blue sky, warm 2700K to 3000K interior lights glowing through the windows",
   },
   {
     id: "overcast",
+    sub: "Rainy season",
+    swatch: ["#8e979f", "#c9cfd4"],
     label: "Overcast monsoon",
     text: "overcast monsoon sky, soft even daylight, wet ground with light reflections, no hard shadows",
   },
   {
     id: "night",
+    sub: "After 19:00",
+    swatch: ["#0b0f1c", "#2a2f45"],
     label: "Night",
     text: "night scene, dark sky, warm 2700K interior and facade lighting, realistic light falloff, no lens flare",
   },
   {
     id: "interior-day",
+    sub: "Daylight + 3000K",
+    swatch: ["#d9c7a4", "#f4ead6"],
     label: "Interior daylight",
     text: "natural daylight entering through the windows, balanced with warm 3000K ceiling lights, no blown-out windows",
   },
   {
     id: "interior-evening",
+    sub: "Lamps at 2700K",
+    swatch: ["#3a2a1c", "#c98a4a"],
     label: "Interior evening",
     text: "evening interior, warm 2700K lamps and cove lighting, soft shadows, dark exterior visible through the glass",
   },
@@ -114,6 +134,55 @@ export const ENVIRONMENTS: Option[] = [
   },
 ];
 
+/** Lighting text taken from the SketchUp shadow time. */
+export function sketchUpSunText(facts?: SceneFacts): string | null {
+  const iso = facts?.shadowTime;
+  if (!iso) return null;
+  const hour = Number(iso.slice(11, 13)) + Number(iso.slice(14, 16)) / 60;
+  const month = Number(iso.slice(5, 7));
+  const hh = iso.slice(11, 16);
+  // About 11.5 degrees north: sun to the south Sep to Apr, to the north May to Aug.
+  const side = month >= 5 && month <= 8 ? "slightly to the north" : "to the south";
+  if (hour < 6 || hour >= 19) return `night at ${hh}, dark sky, warm 2700K artificial light only`;
+  if (hour < 9) return `morning sun at ${hh}, low from the east and ${side}, warm soft light, long shadows`;
+  if (hour < 15) return `tropical sun at ${hh}, high in the sky and ${side}, short crisp shadows`;
+  if (hour < 18) return `afternoon sun at ${hh}, low from the west and ${side}, warm golden light, long shadows`;
+  return `dusk at ${hh}, sun just set in the west, glowing sky, interior lights starting to show`;
+}
+
+export const SKETCHUP_SUN: Option = {
+  id: "sketchup",
+  label: "SketchUp sun",
+  sub: "Uses shadow time",
+  swatch: ["#6f8fb3", "#f1d29b"],
+  text: "",
+};
+
+export function lightingText(id: string, facts?: SceneFacts): string | null {
+  if (id === "sketchup") return sketchUpSunText(facts) ?? findOption(LIGHTING, "morning")!.text;
+  return findOption(LIGHTING, id)?.text ?? null;
+}
+
+/** Prompt lines describing light previews and mirrors placed in the model. */
+export function fixtureLines(facts?: SceneFacts): string[] {
+  const l = facts?.lights;
+  if (!l || !l.visible) return [];
+  const out: string[] = [];
+  const kinds: string[] = [];
+  if (l.spots) kinds.push("spotlights washing the walls");
+  if (l.leds) kinds.push("LED strips");
+  if (kinds.length) {
+    const temp = l.kelvin.length ? ` at about ${l.kelvin.join("K and ")}K` : "";
+    out.push(
+      `The glowing shapes in the first image are light fixtures: ${kinds.join(" and ")}${temp}. Render them as real switched-on lights with the glow, falloff and soft spill on nearby surfaces that real fittings give, not as flat painted graphics.`,
+    );
+  }
+  if (l.mirrors) {
+    out.push("Faces showing a reflected picture of the room are mirrors or glass. Render them as clean silver mirrors with accurate reflections.");
+  }
+  return out;
+}
+
 export function findOption(list: Option[], id: string): Option | undefined {
   return list.find((o) => o.id === id);
 }
@@ -142,7 +211,7 @@ export interface RenderPromptInput {
 export function buildRenderPrompt(input: RenderPromptInput): string {
   const { preset, notes, facts, hasLinePass } = input;
   const type = PROJECT_TYPES[preset.projectType];
-  const lighting = findOption(LIGHTING, preset.lighting);
+  const lighting = lightingText(preset.lighting, facts);
   const env = findOption(ENVIRONMENTS, preset.environment);
 
   const lines: string[] = [];
@@ -156,7 +225,8 @@ export function buildRenderPrompt(input: RenderPromptInput): string {
     );
   }
   if (preset.style.trim()) lines.push(`Materials and style: ${preset.style.trim()}.`);
-  if (lighting) lines.push(`Lighting: ${lighting.text}.`);
+  if (lighting) lines.push(`Lighting: ${lighting}.`);
+  lines.push(...fixtureLines(facts));
   if (env && env.id !== "keep") lines.push(`Surroundings: ${env.text}.`);
   lines.push(`Camera: ${lensHint(preset.projectType, facts)}.`);
   if (notes?.trim()) lines.push(`Additional notes: ${notes.trim()}.`);
@@ -166,11 +236,11 @@ export function buildRenderPrompt(input: RenderPromptInput): string {
   return lines.join("\n");
 }
 
-export function buildLightingPrompt(lightingId: string, notes?: string): string {
-  const lighting = findOption(LIGHTING, lightingId);
+export function buildLightingPrompt(lightingId: string, notes?: string, facts?: SceneFacts): string {
+  const lighting = lightingText(lightingId, facts);
   const lines = [
     "Change only the lighting and sky of this image.",
-    `New lighting: ${lighting ? lighting.text : lightingId}.`,
+    `New lighting: ${lighting ?? lightingId}.`,
     "Keep every building, material, object and the camera exactly as they are. Shadows must fall consistently with the new sun position.",
   ];
   if (notes?.trim()) lines.push(`Additional notes: ${notes.trim()}.`);

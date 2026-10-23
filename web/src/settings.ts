@@ -14,6 +14,8 @@ export interface Settings {
   comfyWorkflow: string;
   captureSize: number;
   linePass: boolean;
+  /** Last chosen render frame (aspect ratio) id. */
+  frameId?: string;
   userPresets: Preset[];
 }
 

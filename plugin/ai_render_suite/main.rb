@@ -2,10 +2,18 @@ require 'json'
 require_relative 'store'
 require_relative 'capture'
 require_relative 'bridge'
+require_relative 'frame'
+require_relative 'lights'
+require_relative 'mirror'
 
 module AIRenderSuite
   def self.dialog
     @dialog ||= create_dialog
+  end
+
+  # The panel if it has been opened, without creating it.
+  def self.open_dialog
+    @dialog if @dialog && @dialog.visible?
   end
 
   def self.create_dialog
@@ -67,6 +75,9 @@ module AIRenderSuite
     toolbar.add_item(open_cmd)
     toolbar.add_item(capture_cmd)
     toolbar.restore
+
+    Sketchup.add_observer(Frame::ModelWatcher.new)
+    Frame.install(Sketchup.active_model)
 
     file_loaded(__FILE__)
   end

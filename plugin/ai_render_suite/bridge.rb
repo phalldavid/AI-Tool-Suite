@@ -23,8 +23,23 @@ module AIRenderSuite
       when 'getSetting' then Store.get(payload['key'])
       when 'setSetting' then Store.set(payload['key'], payload['value']) && nil
       when 'openFolder' then open_folder
+      when 'setFrame' then Frame.set(payload['ratio'], payload['visible'])
+      when 'placeSpots' then Lights.start_spot_tool(payload['settings'], payload['texture'])
+      when 'addLeds' then Lights.add_leds(payload['settings'], payload['texture'])
+      when 'lightsSummary' then Lights.summary(Sketchup.active_model)
+      when 'toggleLights' then Lights.toggle(Sketchup.active_model)
+      when 'removeSelectedLights' then Lights.remove_selected(Sketchup.active_model)
+      when 'pickMirror' then Mirror.start_pick_tool(payload['settings'] || {})
+      when 'refreshMirrors' then Mirror.refresh_all
       else raise "Unknown request: #{action}"
       end
+    end
+
+    # Pushes an unrequested event to the panel, e.g. after a light is placed.
+    def self.notify(name, payload)
+      d = AIRenderSuite.open_dialog
+      return unless d
+      d.execute_script("window.AIRS && window.AIRS.event && window.AIRS.event(#{JSON.generate(name)}, #{JSON.generate(payload)})")
     end
 
     def self.reply(dialog, message)
