@@ -39,6 +39,8 @@ module AIRenderSuite
       when 'browserRender' then Browser.render(payload, id)
       when 'browserGrab' then Browser.grab
       when 'browserCancel' then Browser.cancel
+      when 'kieHttp' then Kie.http(payload, id)
+      when 'kieDownload' then Kie.download(payload)
       else raise "Unknown request: #{action}"
       end
     end

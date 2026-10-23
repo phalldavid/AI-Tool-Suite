@@ -6,6 +6,7 @@ require_relative 'frame'
 require_relative 'lights'
 require_relative 'mirror'
 require_relative 'browser'
+require_relative 'kie'
 
 module AIRenderSuite
   def self.dialog

@@ -522,3 +522,27 @@ input[type="password"]:hover, input[type="url"]:hover, input[type="text"]:hover,
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .scan { animation: none; }
 }
+
+/* AI model picker */
+.model-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.model-card { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.15s; }
+.model-card:hover { border-color: var(--line-2); }
+.model-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.model-card.active { border-color: var(--accent); background: var(--accent-soft); }
+.model-card.locked { opacity: 0.5; filter: grayscale(0.6); }
+.model-card.locked:hover { opacity: 0.7; }
+.model-card strong { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.model-card small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.model-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 2px; }
+.model-mark { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 5px; border-radius: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.02em; color: #fff; }
+.model-mark.nano { background: linear-gradient(135deg, #f5c542, #e98b2a); color: #2a1a00; }
+.model-mark.gpt { background: linear-gradient(135deg, #3c4148, #15171a); border: 1px solid var(--line-2); }
+.model-mark.seedream { background: linear-gradient(135deg, #4f8cff, #7a5cff); }
+.model-badge { font-size: 9.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.model-card.active .model-badge { color: var(--accent); border-color: var(--accent); }
+.model-sub { margin-top: 4px; width: 100%; min-width: 0; height: 28px; padding: 0 6px; font-size: 11px; border-radius: 6px; }
+.model-res { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.model-res .seg { flex: 1; min-width: 150px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+@media (max-width: 380px) { .model-grid { grid-template-columns: 1fr; } }

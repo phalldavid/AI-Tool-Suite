@@ -39,6 +39,8 @@ import {
   type Option,
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
+import { KIE_KEY_PAGE } from "./providers/kie";
+import { findKieModel, KIE_FAMILIES, modelsIn, priceText, type KieFamilyId, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
@@ -67,6 +69,8 @@ interface LedSettings {
 interface State {
   tab: Tab;
   settingsOpen: boolean;
+  /** Settings opened from the model picker: show the Kie.ai key first. */
+  settingsKie: boolean;
   /** Open dynamic prompt generator, by id. */
   dynOpen: string | null;
   lookOpen: boolean;
@@ -121,6 +125,7 @@ export async function start(el: HTMLElement): Promise<void> {
   state = {
     tab: "render",
     settingsOpen: false,
+    settingsKie: false,
     dynOpen: null,
     lookOpen: false,
     ctxOpen: false,
@@ -316,9 +321,12 @@ function presetSwatches(p: Preset): string[] {
 function backendPill(): HTMLElement {
   const s = state.settings;
   const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
-  const ready = s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : Boolean(s.geminiKey);
-  const platform = s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? site.label : "Gemini API";
-  const title = s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : "Backend settings";
+  const ready =
+    s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : s.backend === "kie" ? Boolean(s.kieKey) : Boolean(s.geminiKey);
+  const platform =
+    s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? site.label : s.backend === "kie" ? findKieModel(s.kieModel).label : "Gemini API";
+  const title =
+    s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : s.backend === "kie" ? `Kie.ai, ${findKieModel(s.kieModel).label}` : "Backend settings";
   return h(
     "button",
     { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title, type: "button" },
@@ -718,6 +726,7 @@ function lightingOptions(): Option[] {
 function renderTab(body: HTMLElement): void {
   const p = state.preset;
   body.append(stage());
+  body.append(modelSection());
   body.append(frameSection());
 
   const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
@@ -1797,12 +1806,104 @@ function historyDetail(item: HistoryItem): HTMLElement {
   );
 }
 
+
+// ---------- AI model picker (Kie.ai) ----------
+
+const FAMILY_MARK: Record<KieFamilyId, string> = { nano: "NB", gpt: "GPT", seedream: "SD" };
+
+function modelSection(): HTMLElement {
+  const s = state.settings;
+  const hasKey = Boolean(s.kieKey.trim());
+  const usingKie = s.backend === "kie" && hasKey;
+  const current = findKieModel(s.kieModel);
+  const pick = async (id: string) => {
+    if (!hasKey) {
+      state.settingsKie = true;
+      return openSettings();
+    }
+    s.kieModel = id;
+    s.backend = "kie";
+    await persist();
+    render();
+  };
+  const cards = KIE_FAMILIES.map((f) => {
+    const list = modelsIn(f.id);
+    const chosen = current.family === f.id ? current : list[0];
+    const active = usingKie && current.family === f.id;
+    const sel = h(
+      "select",
+      { class: "model-sub", "aria-label": `${f.label} version`, disabled: !hasKey, onclick: (e: Event) => e.stopPropagation() },
+      list.map((m) => h("option", { value: m.id, selected: m.id === chosen.id }, `${m.label} · ${priceText(m, s.kieResolution)}`)),
+    ) as HTMLSelectElement;
+    sel.addEventListener("change", () => pick(sel.value));
+    return h(
+      "div",
+      {
+        class: `model-card${active ? " active" : ""}${hasKey ? "" : " locked"}`,
+        role: "button",
+        tabindex: 0,
+        "aria-pressed": active,
+        title: hasKey ? `${chosen.label}: ${chosen.note}` : "Add your Kie.ai key in Settings to use this model",
+        onclick: () => pick(chosen.id),
+        onkeydown: (e: Event) => {
+          const k = (e as KeyboardEvent).key;
+          if (k !== "Enter" && k !== " ") return;
+          e.preventDefault();
+          pick(chosen.id);
+        },
+      },
+      h(
+        "div",
+        { class: "model-top" },
+        h("span", { class: `model-mark ${f.id}` }, FAMILY_MARK[f.id]),
+        h("span", { class: "model-badge" }, f.badge),
+      ),
+      h("strong", {}, f.label),
+      h("small", {}, `${f.maker} · ${priceText(chosen, s.kieResolution)} / image`),
+      sel,
+    );
+  });
+  const resolution = usingKie
+    ? h(
+        "div",
+        { class: "model-res" },
+        h("span", { class: "muted" }, "Output size"),
+        segmented(
+          (["1K", "2K", "4K"] as KieResolution[]).map((r) => ({ id: r, label: r })),
+          current.resolutions.includes(s.kieResolution) ? s.kieResolution : current.resolutions[0],
+          async (v) => {
+            s.kieResolution = v;
+            await persist();
+            render();
+          },
+        ),
+        current.resolutions.length < 3 ? h("small", { class: "muted" }, `${current.label}: ${current.resolutions.join(" / ")} only`) : null,
+      )
+    : null;
+  const aside = hasKey
+    ? usingKie
+      ? h("span", { class: "muted small" }, "Kie.ai")
+      : button("Use", null, () => pick(current.id), "ghost small")
+    : button("Add Kie key", "key", () => {
+        state.settingsKie = true;
+        openSettings();
+      }, "ghost small");
+  return sectionWith(
+    t("AI model"),
+    aside,
+    h("div", { class: "model-grid" }, cards),
+    resolution,
+    !hasKey ? h("p", { class: "hint" }, "One Kie.ai key unlocks all of these. You pay Kie directly, per image.") : null,
+  );
+}
+
 // ---------- Settings sheet ----------
 
 function settingsSheet(): HTMLElement {
   const s = state.settings;
   const close = () => {
     state.settingsOpen = false;
+    state.settingsKie = false;
     render();
   };
   const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true" });
@@ -1812,13 +1913,15 @@ function settingsSheet(): HTMLElement {
       t("AI backend"),
       segmented(
         [
-          { id: "gemini", label: "Gemini API key", icon: "key" },
+          { id: "kie", label: "Kie.ai key", icon: "key" },
+          { id: "gemini", label: "Gemini key", icon: "key" },
           { id: "browser", label: "Your account", icon: "eye" },
           { id: "comfyui", label: "ComfyUI (local)", icon: "gear" },
         ],
-        s.backend,
+        state.settingsKie ? "kie" : s.backend,
         async (v) => {
           s.backend = v as Settings["backend"];
+          state.settingsKie = false;
           await persist();
           render();
         },
@@ -1826,7 +1929,45 @@ function settingsSheet(): HTMLElement {
     ),
   );
 
-  if (s.backend === "browser") {
+  const view = state.settingsKie ? "kie" : s.backend;
+  if (view === "kie") {
+    const key = h("input", { type: "password", value: s.kieKey, placeholder: "Paste your Kie.ai API key", autocomplete: "off" }) as HTMLInputElement;
+    key.addEventListener("change", async () => {
+      s.kieKey = key.value.trim();
+      // Adding a key means "render with Kie".
+      if (s.kieKey) s.backend = "kie";
+      state.settingsKie = false;
+      await persist();
+      render();
+    });
+    sheet.append(
+      section(
+        "Kie.ai",
+        h("label", { class: "field" }, h("span", {}, "API key"), key),
+        h(
+          "p",
+          { class: "hint" },
+          "One key for Nano Banana, GPT Image and Seedream. Get it at ",
+          h("a", { href: KIE_KEY_PAGE, target: "_blank", rel: "noopener" }, "kie.ai/api-key"),
+          ". Images are billed to your own Kie credits. The key stays on this computer only; it is never put in history or presets.",
+        ),
+        h("p", { class: "hint" }, "Pick the model on the Render tab, under AI model."),
+        button("Test key", "check", async () => {
+          try {
+            s.kieKey = key.value.trim();
+            if (s.kieKey) s.backend = "kie";
+            state.settingsKie = false;
+            await persist();
+            toast("Checking the key...");
+            toast(await makeProvider(s, host).test(), "ok");
+            render();
+          } catch (e) {
+            toast((e as Error).message, "error");
+          }
+        }, "ghost"),
+      ),
+    );
+  } else if (view === "browser") {
     sheet.append(
       section(
         "Your own account, in a browser window",
@@ -1858,7 +1999,7 @@ function settingsSheet(): HTMLElement {
           : h("p", { class: "hint" }, "This mode works inside the SketchUp plugin only."),
       ),
     );
-  } else if (s.backend === "gemini") {
+  } else if (view === "gemini") {
     const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Paste your Gemini API key", autocomplete: "off" }) as HTMLInputElement;
     key.addEventListener("change", async () => {
       s.geminiKey = key.value.trim();
@@ -2621,11 +2762,12 @@ function onboarding(): HTMLElement {
     { id: "b-gemini", label: "Gemini", sub: "Your Google account", iconName: "render", apply: () => ((s.backend = "browser"), (s.browserSite = "gemini")) },
     { id: "b-chatgpt", label: "ChatGPT", sub: "Your OpenAI account", iconName: "wand", apply: () => ((s.backend = "browser"), (s.browserSite = "chatgpt")) },
     { id: "b-flow", label: "Google Flow", sub: "Your Google account", iconName: "aerial", apply: () => ((s.backend = "browser"), (s.browserSite = "flow")) },
+    { id: "kie", label: "Kie.ai key", sub: "Nano Banana, GPT, Seedream", iconName: "key", apply: () => (s.backend = "kie") },
     { id: "key", label: "Gemini API key", sub: "From Google AI Studio", iconName: "key", apply: () => (s.backend = "gemini") },
     { id: "comfy", label: "ComfyUI", sub: "Local models on this PC", iconName: "gear", apply: () => (s.backend = "comfyui") },
   ];
   const picked =
-    s.backend === "browser" ? `b-${s.browserSite}` : s.backend === "comfyui" ? "comfy" : s.backend === "gemini" && state.onboardStep > 0 ? "key" : state.onboardPick;
+    s.backend === "browser" ? `b-${s.browserSite}` : s.backend === "comfyui" ? "comfy" : s.backend === "kie" ? "kie" : s.backend === "gemini" && state.onboardStep > 0 ? "key" : state.onboardPick;
   const finish = async () => {
     s.onboarded = true;
     await persist();
@@ -2684,6 +2826,35 @@ function onboarding(): HTMLElement {
             }, false, "wide")
           : h("p", { class: "hint warn" }, "Account sign-in works inside the SketchUp plugin. In the web app, pick Gemini API key instead."),
         h("div", { class: "row" }, back, h("span", { class: "grow" }), button("I've signed in", "check", finish, "primary")),
+      );
+    } else if (s.backend === "kie") {
+      const key = h("input", { type: "password", value: s.kieKey, placeholder: "Paste your Kie.ai API key", autocomplete: "off" }) as HTMLInputElement;
+      card.append(
+        h(
+          "p",
+          { class: "hint" },
+          "Get a key at ",
+          h("a", { href: KIE_KEY_PAGE, target: "_blank", rel: "noopener" }, "kie.ai/api-key"),
+          ". One key covers Nano Banana, GPT Image and Seedream, billed to your own Kie credits.",
+        ),
+        key,
+        h(
+          "div",
+          { class: "row" },
+          back,
+          h("span", { class: "grow" }),
+          button("Test and finish", "check", async () => {
+            s.kieKey = key.value.trim();
+            if (!s.kieKey) return toast("Paste a key first.", "error");
+            try {
+              toast("Checking the key...");
+              toast(await makeProvider(s, host).test(), "ok");
+              await finish();
+            } catch (e) {
+              toast((e as Error).message, "error");
+            }
+          }, "primary"),
+        ),
       );
     } else if (s.backend === "gemini") {
       const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Paste your Gemini API key", autocomplete: "off" }) as HTMLInputElement;

@@ -7,14 +7,21 @@ import type { Preset } from "./types";
 import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "./providers/gemini";
 import { ComfyProvider } from "./providers/comfyui";
 import { BrowserProvider } from "./providers/browser";
+import { fetchTransport, hostTransport, KieProvider } from "./providers/kie";
+import { DEFAULT_KIE_MODEL, type KieResolution } from "./providers/kie-models";
 import type { Provider } from "./providers/types";
 
 export interface Settings {
   /** "browser" renders through the user's own signed-in chat site, no API key. */
-  backend: "gemini" | "comfyui" | "browser";
+  /** "kie" renders through the user's own Kie.ai key (Nano Banana, GPT Image, Seedream). */
+  backend: "gemini" | "comfyui" | "browser" | "kie";
   browserSite: BrowserSite;
   geminiKey: string;
   geminiModel: string;
+  /** The user's own Kie.ai key. Kept in settings on this computer only, never in history or presets. */
+  kieKey: string;
+  kieModel: string;
+  kieResolution: KieResolution;
   comfyUrl: string;
   comfyWorkflow: string;
   captureSize: number;
@@ -52,6 +59,9 @@ export const DEFAULT_SETTINGS: Settings = {
   backend: "gemini",
   geminiKey: "",
   geminiModel: DEFAULT_GEMINI_MODEL,
+  kieKey: "",
+  kieModel: DEFAULT_KIE_MODEL,
+  kieResolution: "2K",
   comfyUrl: "http://127.0.0.1:8188",
   comfyWorkflow: "",
   captureSize: 1600,
@@ -71,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const KEY = "settings";
+const LEGACY_GEMINI_MODEL = "gemini-2.5-flash-image";
 
 export async function loadSettings(host: Host): Promise<Settings> {
   try {
@@ -79,7 +90,9 @@ export async function loadSettings(host: Host): Promise<Settings> {
     const saved = JSON.parse(raw) as Partial<Settings>;
     const s = { ...DEFAULT_SETTINGS, ...saved, fixtures: { ...DEFAULT_SETTINGS.fixtures, ...(saved.fixtures ?? {}) } };
     // People who set up a backend before first-run setup existed skip it.
-    if (saved.onboarded === undefined) s.onboarded = Boolean(saved.geminiKey || (saved.backend && saved.backend !== "gemini"));
+    if (saved.onboarded === undefined) s.onboarded = Boolean(saved.geminiKey || saved.kieKey || (saved.backend && saved.backend !== "gemini"));
+    // The old default image model is retired; move people who never changed it.
+    if (s.geminiModel === LEGACY_GEMINI_MODEL) s.geminiModel = DEFAULT_GEMINI_MODEL;
     return s;
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -94,6 +107,10 @@ export function makeProvider(s: Settings, host?: Host): Provider & { modelName?:
   if (s.backend === "browser" && host) {
     const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
     return new BrowserProvider(host, site.id, site.label);
+  }
+  if (s.backend === "kie") {
+    const transport = host && host.kind === "sketchup" ? hostTransport(host) : fetchTransport;
+    return new KieProvider(s.kieKey.trim(), s.kieModel, s.kieResolution, transport);
   }
   if (s.backend === "comfyui") return new ComfyProvider(s.comfyUrl, s.comfyWorkflow);
   return new GeminiProvider(s.geminiKey.trim(), s.geminiModel.trim() || DEFAULT_GEMINI_MODEL);
