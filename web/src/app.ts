@@ -1086,10 +1086,10 @@ function kelvinPicker(value: number, onPick: (k: number) => void): HTMLElement {
   );
 }
 
-function beamCanvas(beamId: string, w: number, h2: number, kelvin: number, intensity: number, flip = false): HTMLCanvasElement {
+function beamCanvas(beamId: string, w: number, h2: number, s: { kelvin: number; intensity: number; widthMm: number; lengthMm: number }, flip = false): HTMLCanvasElement {
   const c = h("canvas", { width: w, height: h2 }) as HTMLCanvasElement;
   const beam = BEAMS.find((b) => b.id === beamId) ?? BEAMS[0];
-  paintBeam(c.getContext("2d")!, w, h2, beam, kelvin, intensity, true, flip);
+  paintBeam(c.getContext("2d")!, w, h2, beam, { ...s, onBlack: true, flipUp: flip });
   return c;
 }
 
@@ -1100,8 +1100,8 @@ function beamTexture(s: SpotSettings): { id: string; data: string } {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = hh;
-  paintBeam(c.getContext("2d")!, w, hh, beam, s.kelvin, s.intensity);
-  return { id: settingsId("spot", { b: s.beam, k: s.kelvin, i: s.intensity, r: hh }), data: c.toDataURL("image/png").split(",")[1] };
+  paintBeam(c.getContext("2d")!, w, hh, beam, s);
+  return { id: settingsId("spot", { b: s.beam, k: s.kelvin, i: s.intensity, w: s.widthMm, l: s.lengthMm, v: 2 }), data: c.toDataURL("image/png").split(",")[1] };
 }
 
 function ledTexture(s: LedSettings): { id: string; data: string } {
@@ -1109,8 +1109,8 @@ function ledTexture(s: LedSettings): { id: string; data: string } {
   const c = document.createElement("canvas");
   c.width = 8;
   c.height = 256;
-  paintLed(c.getContext("2d")!, 8, 256, profile, s.kelvin, s.intensity);
-  return { id: settingsId("led", { p: s.profile, k: s.kelvin, i: s.intensity }), data: c.toDataURL("image/png").split(",")[1] };
+  paintLed(c.getContext("2d")!, 8, 256, profile, s);
+  return { id: settingsId("led", { p: s.profile, k: s.kelvin, i: s.intensity, w: s.widthMm, v: 2 }), data: c.toDataURL("image/png").split(",")[1] };
 }
 
 function lightsTab(body: HTMLElement): void {
@@ -1142,7 +1142,7 @@ function spotPanel(body: HTMLElement): void {
   const draw = () => {
     clear(preview);
     const flip = s.orientation === "up";
-    const c = beamCanvas(s.beam, 300, Math.round(Math.min(360, (300 * s.lengthMm) / s.widthMm)), s.kelvin, s.intensity, flip);
+    const c = beamCanvas(s.beam, 300, Math.round(Math.min(380, (300 * s.lengthMm) / s.widthMm)), s, flip);
     if (s.orientation === "left" || s.orientation === "right") c.style.transform = `rotate(${s.orientation === "left" ? 90 : -90}deg)`;
     preview.append(c, h("span", { class: "badge" }, `${s.widthMm} × ${s.lengthMm} mm · ${s.kelvin}K`));
   };
@@ -1167,7 +1167,7 @@ function spotPanel(body: HTMLElement): void {
                 render();
               },
             },
-            beamCanvas(b.id, 64, 84, s.kelvin, 80),
+            beamCanvas(b.id, 72, 96, { kelvin: s.kelvin, intensity: 75, widthMm: 900, lengthMm: 1200 }),
             h("span", {}, b.name),
           ),
         ),
@@ -1234,7 +1234,7 @@ function ledPanel(body: HTMLElement): void {
     const gh = Math.max(12, Math.round((s.widthMm / 600) * 120));
     const c = h("canvas", { width: 300, height: gh, style: `height:${gh}px` }) as HTMLCanvasElement;
     const profile = LED_PROFILES.find((p) => p.id === s.profile) ?? LED_PROFILES[0];
-    paintLed(c.getContext("2d")!, 300, gh, profile, s.kelvin, s.intensity, true);
+    paintLed(c.getContext("2d")!, 300, gh, profile, { ...s, onBlack: true });
     preview.append(c, h("span", { class: "badge" }, `${s.widthMm} mm glow · ${s.kelvin}K`));
   };
   draw();

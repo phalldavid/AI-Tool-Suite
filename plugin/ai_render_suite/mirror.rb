@@ -86,8 +86,7 @@ module AIRenderSuite
       f = group.entities.add_face(bl, br, tr_pt, tl)
       # Camera-right is world `right`, so the image maps without flipping:
       # something to the mirror's right shows on the mirror's right.
-      f.position_material(mat, [bl, [0, 0], br, [1, 0], tr_pt, [1, 1]], true)
-      Lights.finish_face(f, normal)
+      Lights.finish_face(f, normal, mat, [bl, [0, 0], br, [1, 0], tr_pt, [1, 1]])
     end
 
     def self.render_reflection(model, view, group, center, normal, up, aspect, settings)

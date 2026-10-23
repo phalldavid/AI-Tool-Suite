@@ -89,7 +89,7 @@ test("Gemini status messages are plain", () => {
 });
 
 import { frameRect, FRAMES } from "../src/frame";
-import { beamIntensity, BEAMS, kelvinToRgb, ledIntensity, LED_PROFILES, settingsId } from "../src/lightgen";
+import { beamIrradiance, BEAMS, candela, kelvinToRgb, ledIrradiance, LED_PROFILES, settingsId } from "../src/lightgen";
 import { fixtureLines, sketchUpSunText, lightingText, ASPECT_RATIOS } from "../src/prompt";
 
 test("frame rect fits the ratio inside the viewport, centred", () => {
@@ -117,10 +117,19 @@ test("colour temperature runs warm to cool", () => {
 
 test("beams are brightest at the source and fade with distance", () => {
   for (const b of BEAMS) {
-    assert.ok(beamIntensity(b, 0, 0.05) > beamIntensity(b, 0, 0.8), b.id);
-    assert.ok(beamIntensity(b, 0, 0.3) >= beamIntensity(b, 0.95, 0.3), b.id);
+    // half intensity at the beam angle, nothing behind the fitting
+    assert.ok(Math.abs(candela({ ...b, ring: 0 }, (b.angle * Math.PI) / 180) - 0.5) < 1e-9, b.id);
+    assert.equal(candela(b, Math.PI / 2), 0);
+    // on the wall: centre line brighter than far off to the side, and it fades far down
+    // a point well inside the scallop, where the cone meets the wall
+    const y = (1.5 * b.offsetMm) / Math.tan((b.angle * Math.PI) / 180);
+    assert.ok(beamIrradiance(b, 0, y) > beamIrradiance(b, y, y), b.id);
+    assert.ok(beamIrradiance(b, 0, y) > beamIrradiance(b, 0, y * 20), b.id);
   }
-  for (const p of LED_PROFILES) assert.ok(ledIntensity(p, 0) > ledIntensity(p, 0.9));
+  for (const p of LED_PROFILES) {
+    assert.equal(ledIrradiance(p, 0), 1);
+    assert.ok(ledIrradiance(p, 10) > ledIrradiance(p, 200));
+  }
   assert.equal(settingsId("spot", { a: 1 }), settingsId("spot", { a: 1 }));
   assert.notEqual(settingsId("spot", { a: 1 }), settingsId("spot", { a: 2 }));
 });

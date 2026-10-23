@@ -1,49 +1,51 @@
-// Draws the light textures placed in SketchUp: spotlight beams (the kind
-// of wall-wash shape a downlight throws) and LED glow strips. Everything is
-// generated here, so the plugin ships no image assets for lights.
+// Draws the light textures placed in SketchUp: spotlight beams and LED glow.
+// Both are lit the way real light lands on a wall: a point (or line) source
+// a short distance from the surface, with a beam profile like a photometric
+// (IES) file. Irradiance = I(angle) x cos(incidence) / distance^2. That gives
+// the bright source, the curved scallop and the soft tail real photos show.
+// Everything is generated here; the plugin ships no image assets for lights.
 
 export interface Beam {
   id: string;
   name: string;
-  /** half-width of the cone at the top and at the bottom, in texture widths */
-  top: number;
-  spread: number;
-  /** how fast it fades with distance (higher = shorter throw) */
-  falloff: number;
-  /** 0 soft edge .. 1 crisp edge */
+  /** beam half-angle in degrees (to the 50% point) */
+  angle: number;
+  /** how crisp the beam edge is: 1.5 soft .. 10 hard cut-off */
   edge: number;
-  /** strength of the bright spot at the source */
-  hot: number;
-  /** curved, scalloped end of the beam */
-  scallop: number;
-  /** inner streaks typical of reflector downlights */
-  streaks: number;
+  /** fitting distance from the wall, mm */
+  offsetMm: number;
+  /** aim toward the wall: 0 straight down, 0.4 tilted to wash the wall */
+  tilt: number;
+  /** bright reflector ring near the beam edge, 0..1 */
+  ring: number;
+  /** glare at the fitting, 0..1 */
+  glare: number;
 }
 
 export const BEAMS: Beam[] = [
-  { id: "wash", name: "Wall wash", top: 0.08, spread: 0.95, falloff: 1.1, edge: 0.15, hot: 0.55, scallop: 0.15, streaks: 0 },
-  { id: "medium", name: "Medium beam", top: 0.05, spread: 0.62, falloff: 1.4, edge: 0.45, hot: 0.8, scallop: 0.35, streaks: 0.15 },
-  { id: "narrow", name: "Narrow beam", top: 0.04, spread: 0.32, falloff: 1.25, edge: 0.55, hot: 0.9, scallop: 0.2, streaks: 0.1 },
-  { id: "scallop", name: "Scallop", top: 0.05, spread: 0.85, falloff: 2.3, edge: 0.7, hot: 0.9, scallop: 0.9, streaks: 0.35 },
-  { id: "pin", name: "Pin spot", top: 0.03, spread: 0.16, falloff: 1.0, edge: 0.65, hot: 1, scallop: 0.1, streaks: 0 },
-  { id: "grazer", name: "Wall grazer", top: 0.03, spread: 0.12, falloff: 0.7, edge: 0.3, hot: 0.6, scallop: 0, streaks: 0 },
-  { id: "cone", name: "Downlight cone", top: 0.06, spread: 0.75, falloff: 1.8, edge: 0.8, hot: 1, scallop: 0.5, streaks: 0.5 },
-  { id: "pool", name: "Soft pool", top: 0.12, spread: 0.7, falloff: 2.6, edge: 0.05, hot: 0.35, scallop: 0.6, streaks: 0 },
+  { id: "scallop", name: "Scallop", angle: 26, edge: 6, offsetMm: 110, tilt: 0.12, ring: 0.45, glare: 0.7 },
+  { id: "medium", name: "Medium beam", angle: 22, edge: 3.5, offsetMm: 90, tilt: 0.12, ring: 0.2, glare: 0.8 },
+  { id: "narrow", name: "Narrow beam", angle: 12, edge: 4.5, offsetMm: 70, tilt: 0.08, ring: 0.3, glare: 0.9 },
+  { id: "wash", name: "Wall wash", angle: 38, edge: 2.2, offsetMm: 160, tilt: 0.3, ring: 0, glare: 0.5 },
+  { id: "pin", name: "Pin spot", angle: 6, edge: 5, offsetMm: 50, tilt: 0.04, ring: 0.2, glare: 1 },
+  { id: "grazer", name: "Wall grazer", angle: 9, edge: 2.5, offsetMm: 25, tilt: 0.02, ring: 0, glare: 0.6 },
+  { id: "cone", name: "Downlight cone", angle: 32, edge: 8, offsetMm: 130, tilt: 0.08, ring: 0.6, glare: 0.6 },
+  { id: "pool", name: "Soft pool", angle: 48, edge: 1.6, offsetMm: 220, tilt: 0.25, ring: 0, glare: 0.4 },
 ];
 
 export interface LedProfile {
   id: string;
   name: string;
-  /** glow decay across the strip width */
-  decay: number;
-  /** bright core width, as a share of the strip width */
-  core: number;
+  /** strip distance from the lit surface, mm: small = tight bright line */
+  offsetMm: number;
+  /** visible bright core of the strip itself, mm */
+  coreMm: number;
 }
 
 export const LED_PROFILES: LedProfile[] = [
-  { id: "soft", name: "Soft glow", decay: 3.2, core: 0.03 },
-  { id: "sharp", name: "Sharp line", decay: 7.5, core: 0.08 },
-  { id: "wide", name: "Wide wash", decay: 1.7, core: 0.02 },
+  { id: "soft", name: "Soft glow", offsetMm: 35, coreMm: 4 },
+  { id: "sharp", name: "Sharp line", offsetMm: 10, coreMm: 6 },
+  { id: "wide", name: "Wide wash", offsetMm: 55, coreMm: 3 },
 ];
 
 export const KELVINS = [2700, 3000, 3500, 4000, 5000, 6500];
@@ -80,113 +82,137 @@ export function rgbCss([r, g, b]: [number, number, number]): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-const smooth = (a: number, b: number, x: number) => {
-  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
+const DEG = Math.PI / 180;
 
-/** Beam brightness 0..1 at u in [-1, 1] across, v in [0, 1] from the source down. */
-export function beamIntensity(beam: Beam, u: number, v: number): number {
-  const half = beam.top + beam.spread * v;
-  const across = Math.abs(u) / Math.max(half, 1e-3);
-  const soft = 0.05 + (1 - beam.edge) * 0.6;
-  let edge = 1 - smooth(1 - soft, 1, across);
-  // inner streaks: two brighter lines inside the cone
-  if (beam.streaks > 0) {
-    const s = Math.exp(-Math.pow((across - 0.62) / 0.08, 2));
-    edge *= 1 + beam.streaks * s;
-  }
-  const end = 1 - beam.scallop * 0.35 * across * across; // scalloped bottom
-  const along = Math.pow(Math.max(0, 1 - v / Math.max(end, 0.2)), beam.falloff) * smooth(0, 0.05, v);
-  const hot = beam.hot * Math.exp(-(Math.pow(u / (beam.top * 2.2 + 0.04), 2) + Math.pow((v - 0.035) / 0.07, 2)));
-  return Math.max(0, Math.min(1, edge * along * 0.85 + hot));
+/** Relative candela of a beam at `theta` radians off its axis. */
+export function candela(beam: Beam, theta: number): number {
+  if (theta >= Math.PI / 2) return 0;
+  const half = beam.angle * DEG;
+  // ln(2) puts the 50% point at the beam angle; `edge` sets the cut-off.
+  let i = Math.exp(-Math.LN2 * Math.pow(theta / half, beam.edge));
+  if (beam.ring > 0) i *= 1 + beam.ring * Math.exp(-Math.pow((theta - half * 0.92) / (half * 0.07), 2));
+  return i;
 }
 
 /**
- * Paints a beam into a canvas context of size w x h. With `onBlack`, it is
- * drawn as light on a dark wall (for previews); otherwise as colour with
- * transparency (the texture SketchUp uses).
+ * Light falling on the wall at (x, y) mm, where x runs across from the
+ * fitting and y runs down the wall from the fitting's height.
  */
-export function paintBeam(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  beam: Beam,
-  kelvin: number,
-  intensity: number,
-  onBlack = false,
-  flipUp = false,
-): void {
+export function beamIrradiance(beam: Beam, x: number, y: number): number {
+  const d = beam.offsetMm;
+  // axis: down, tilted toward the wall
+  const ax = 0;
+  const ay = 1;
+  const az = -beam.tilt;
+  const an = Math.hypot(ax, ay, az);
+  const vx = x;
+  const vy = y;
+  const vz = -d;
+  const r = Math.hypot(vx, vy, vz);
+  const cosT = (vx * ax + vy * ay + vz * az) / (an * r);
+  const theta = Math.acos(Math.max(-1, Math.min(1, cosT)));
+  return (candela(beam, theta) * (d / r)) / (r * r);
+}
+
+export interface PaintOptions {
+  kelvin: number;
+  intensity: number;
+  widthMm: number;
+  lengthMm: number;
+  /** draw as light on a dark wall (previews) instead of colour + alpha */
+  onBlack?: boolean;
+  flipUp?: boolean;
+}
+
+function tone(e: number, exposure: number): number {
+  return 1 - Math.exp(-exposure * e);
+}
+
+function writePixel(data: Uint8ClampedArray, p: number, rgb: [number, number, number], lum: number, onBlack: boolean): void {
+  const white = Math.pow(lum, 2.2) * 0.75; // bright parts burn toward white, like a photo
+  const cr = rgb[0] + (255 - rgb[0]) * white;
+  const cg = rgb[1] + (255 - rgb[1]) * white;
+  const cb = rgb[2] + (255 - rgb[2]) * white;
+  if (onBlack) {
+    data[p] = 16 + cr * lum;
+    data[p + 1] = 17 + cg * lum;
+    data[p + 2] = 20 + cb * lum;
+    data[p + 3] = 255;
+  } else {
+    data[p] = cr;
+    data[p + 1] = cg;
+    data[p + 2] = cb;
+    data[p + 3] = Math.round(255 * lum);
+  }
+}
+
+export function paintBeam(ctx: CanvasRenderingContext2D, w: number, h: number, beam: Beam, o: PaintOptions): void {
   const img = ctx.createImageData(w, h);
-  const [r, g, b] = kelvinToRgb(kelvin);
-  const k = Math.max(0, Math.min(1, intensity / 100));
+  const rgb = kelvinToRgb(o.kelvin);
+  const k = Math.max(0, Math.min(1, o.intensity / 100));
+  const field = new Float32Array(w * h);
+  // Exposure is set on the beam's centre line a third of the way down, so the
+  // fitting end burns out bright and the far end fades, as in a photograph.
+  // Wide beams are capped against their own peak so they keep a visible shape.
+  let peak = 0;
+  for (let i = 1; i <= 200; i++) peak = Math.max(peak, beamIrradiance(beam, 0, (i / 200) * o.lengthMm));
+  const ref = Math.max(beamIrradiance(beam, 0, Math.max(o.lengthMm * 0.33, beam.offsetMm * 1.5)), peak * 0.45);
   for (let y = 0; y < h; y++) {
-    const vRaw = (y + 0.5) / h;
-    const v = flipUp ? 1 - vRaw : vRaw;
+    const yFrac = (y + 0.5) / h;
+    const yMm = (o.flipUp ? 1 - yFrac : yFrac) * o.lengthMm;
     for (let x = 0; x < w; x++) {
-      const u = ((x + 0.5) / w) * 2 - 1;
-      let i = beamIntensity(beam, u, v);
-      i *= 0.35 + 0.65 * k;
-      const white = Math.pow(i, 3) * 0.6; // hot centre goes toward white
-      const p = (y * w + x) * 4;
-      const cr = r + (255 - r) * white;
-      const cg = g + (255 - g) * white;
-      const cb = b + (255 - b) * white;
-      if (onBlack) {
-        img.data[p] = 18 + cr * i;
-        img.data[p + 1] = 19 + cg * i;
-        img.data[p + 2] = 22 + cb * i;
-        img.data[p + 3] = 255;
-      } else {
-        img.data[p] = cr;
-        img.data[p + 1] = cg;
-        img.data[p + 2] = cb;
-        img.data[p + 3] = Math.round(255 * Math.min(1, i * (0.6 + 0.5 * k)));
-      }
+      const xMm = ((x + 0.5) / w - 0.5) * o.widthMm;
+      field[y * w + x] = beamIrradiance(beam, xMm, yMm) / ref;
+    }
+  }
+  const exposure = 0.35 + 1.4 * k;
+  const glareR = Math.max(10, beam.offsetMm * 0.18);
+  for (let y = 0; y < h; y++) {
+    const yFrac = (y + 0.5) / h;
+    const yMm = (o.flipUp ? 1 - yFrac : yFrac) * o.lengthMm;
+    for (let x = 0; x < w; x++) {
+      const xMm = ((x + 0.5) / w - 0.5) * o.widthMm;
+      let lum = tone(field[y * w + x], exposure);
+      // soft glow just below the fitting
+      lum += beam.glare * (0.4 + 0.6 * k) * Math.exp(-(xMm * xMm + yMm * yMm) / (2 * glareR * glareR));
+      // fade the texture edges so the quad never shows a hard border
+      const ex = Math.min(1, (0.5 - Math.abs((x + 0.5) / w - 0.5)) * 12);
+      const ey = Math.min(1, (1 - yFrac) * 10, o.flipUp ? 1 : yFrac * 60 + 0.4);
+      lum = Math.max(0, Math.min(1, lum)) * Math.max(0, ex) * Math.max(0, Math.min(1, ey));
+      writePixel(img.data, (y * w + x) * 4, rgb, lum, Boolean(o.onBlack));
     }
   }
   ctx.putImageData(img, 0, 0);
 }
 
-/** LED glow: brightest along the edge (top of the texture), fading across. */
-export function ledIntensity(profile: LedProfile, t: number): number {
-  if (t < profile.core) return 1;
-  return Math.exp(-profile.decay * (t - profile.core));
+/** Light from a strip at `y` mm across the surface, from a line source offset from it. */
+export function ledIrradiance(profile: LedProfile, y: number): number {
+  const d = profile.offsetMm;
+  // line source: E ~ cos(incidence) / r, normalised to 1 at the strip
+  return (d * d) / (d * d + y * y);
 }
 
-export function paintLed(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  profile: LedProfile,
-  kelvin: number,
-  intensity: number,
-  onBlack = false,
-): void {
+export interface LedPaintOptions {
+  kelvin: number;
+  intensity: number;
+  widthMm: number;
+  onBlack?: boolean;
+}
+
+/** LED glow: the strip at the top edge of the texture, glow falling off across. */
+export function paintLed(ctx: CanvasRenderingContext2D, w: number, h: number, profile: LedProfile, o: LedPaintOptions): void {
   const img = ctx.createImageData(w, h);
-  const [r, g, b] = kelvinToRgb(kelvin);
-  const k = Math.max(0, Math.min(1, intensity / 100));
+  const rgb = kelvinToRgb(o.kelvin);
+  const k = Math.max(0, Math.min(1, o.intensity / 100));
+  const exposure = 0.5 + 1.7 * k;
   for (let y = 0; y < h; y++) {
-    const t = (y + 0.5) / h;
-    const i = ledIntensity(profile, t) * (0.35 + 0.65 * k);
-    const white = Math.pow(i, 3) * 0.7;
-    for (let x = 0; x < w; x++) {
-      const p = (y * w + x) * 4;
-      const cr = r + (255 - r) * white;
-      const cg = g + (255 - g) * white;
-      const cb = b + (255 - b) * white;
-      if (onBlack) {
-        img.data[p] = 18 + cr * i;
-        img.data[p + 1] = 19 + cg * i;
-        img.data[p + 2] = 22 + cb * i;
-        img.data[p + 3] = 255;
-      } else {
-        img.data[p] = cr;
-        img.data[p + 1] = cg;
-        img.data[p + 2] = cb;
-        img.data[p + 3] = Math.round(255 * Math.min(1, i));
-      }
-    }
+    const yMm = ((y + 0.5) / h) * o.widthMm;
+    let lum = tone(ledIrradiance(profile, yMm), exposure);
+    if (yMm < profile.coreMm) lum = Math.max(lum, 0.97);
+    // fade out before the far edge of the ribbon
+    lum *= Math.min(1, (1 - (y + 0.5) / h) * 6);
+    lum = Math.max(0, Math.min(1, lum));
+    for (let x = 0; x < w; x++) writePixel(img.data, (y * w + x) * 4, rgb, lum, Boolean(o.onBlack));
   }
   ctx.putImageData(img, 0, 0);
 }

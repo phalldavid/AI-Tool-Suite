@@ -56,8 +56,19 @@ module AIRenderSuite
       v.length > 1e-6 ? v.normalize : v
     end
 
-    def self.finish_face(face, normal)
+    # Orients the face to `normal` first, then maps the texture on both sides.
+    # Reversing after mapping used to leave the texture on the hidden side, and
+    # an unpainted back showed as a grey or blue face from some angles.
+    def self.finish_face(face, normal, mat = nil, mapping = nil)
       face.reverse! if face.normal % normal < 0
+      if mat
+        face.material = mat
+        face.back_material = mat
+        if mapping
+          face.position_material(mat, mapping, true)
+          face.position_material(mat, mapping, false)
+        end
+      end
       face.edges.each { |e| e.hidden = true }
       face.casts_shadows = false
       face.receives_shadows = false
@@ -106,8 +117,7 @@ module AIRenderSuite
       begin
         group = light_group(model, 'spot', settings)
         f = group.entities.add_face(tl, tr_pt, br, bl)
-        f.position_material(mat, [tl, [0, 1], tr_pt, [1, 1], br, [1, 0]], true)
-        finish_face(f, normal)
+        finish_face(f, normal, mat, [tl, [0, 1], tr_pt, [1, 1], br, [1, 0]])
         model.commit_operation
       rescue StandardError
         model.abort_operation
@@ -236,8 +246,7 @@ module AIRenderSuite
       d = a.offset(into, width)
       f = entities.add_face(a, b, c, d)
       return unless f
-      f.position_material(mat, [a, [0, 1], b, [1, 1], c, [1, 0]], true)
-      finish_face(f, normal)
+      finish_face(f, normal, mat, [a, [0, 1], b, [1, 1], c, [1, 0]])
     end
 
     # ---------- managing ----------
