@@ -1,0 +1,5 @@
+node_modules/
+dist/
+plugin/ai_render_suite/ui/
+*.rbz
+.DS_Store
