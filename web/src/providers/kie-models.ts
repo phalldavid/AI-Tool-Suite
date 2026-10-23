@@ -1,6 +1,6 @@
 // Image models on Kie.ai that the model picker offers: two per family, so the
 // choice stays simple. This list is the one place to edit (for example to
-// swap Nano Banana 2 for Nano Banana Pro if Kie retires it). Ids, inputs and
+// add or swap a model when Kie releases a new one). Ids, inputs and
 // prices come from docs.kie.ai and kie.ai model pages (checked 2026-10-23).
 // Prices are Kie's list price per image in USD and change often, so they are
 // shown as "about".
@@ -40,7 +40,7 @@ export const KIE_FAMILIES: KieFamily[] = [
   { id: "seedream", label: "Seedream", maker: "ByteDance", badge: "2K" },
 ];
 
-// Google's list for Nano Banana 2.
+// Google's list for Nano Banana Pro.
 const GOOGLE_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
 
 const GPT_RATIOS = ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "2:1", "1:2", "3:1", "1:3", "21:9", "9:21", "5:4", "4:5"];
@@ -65,11 +65,11 @@ export const KIE_MODELS: KieModel[] = [
     input: nanoInput,
   },
   {
-    id: "nano-banana-2",
+    id: "nano-banana-pro",
     family: "nano",
-    label: "Nano Banana 2",
-    note: "Previous version, may be retired soon",
-    price: { "1K": 0.04, "2K": 0.06, "4K": 0.09 },
+    label: "Nano Banana Pro",
+    note: "Best detail and text, slower",
+    price: { "1K": 0.09, "2K": 0.09, "4K": 0.12 },
     resolutions: ["1K", "2K", "4K"],
     ratios: GOOGLE_RATIOS,
     input: nanoInput,

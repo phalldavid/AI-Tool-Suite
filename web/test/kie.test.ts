@@ -73,7 +73,7 @@ test("kie model helpers: prices, resolutions, ratios, results", () => {
   const nb = findKieModel("nano-banana-2-1");
   assert.equal(priceText(nb, "1K"), "~$0.02");
   assert.equal(priceText(nb, "4K"), "~$0.045");
-  assert.equal(priceText(findKieModel("nano-banana-2"), "2K"), "~$0.06");
+  assert.equal(priceText(findKieModel("nano-banana-pro"), "4K"), "~$0.12");
   assert.equal(priceText(findKieModel("seedream/5-flash-image-to-image"), "2K"), "price on kie.ai");
   assert.equal(resolutionFor(findKieModel("seedream/5-pro-image-to-image"), "4K"), "2K");
   assert.equal(ratioFor(nb, "21:9"), "21:9");
