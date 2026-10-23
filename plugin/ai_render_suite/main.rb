@@ -5,6 +5,7 @@ require_relative 'bridge'
 require_relative 'frame'
 require_relative 'lights'
 require_relative 'mirror'
+require_relative 'browser'
 
 module AIRenderSuite
   def self.dialog
@@ -60,6 +61,11 @@ module AIRenderSuite
     menu = UI.menu('Extensions').add_submenu('AI Render Suite')
     menu.add_item('Open panel') { show_panel }
     menu.add_item('Capture view and open panel') { capture_now }
+    menu.add_separator
+    Browser::SITES.each_key do |site|
+      label = { 'gemini' => 'Gemini', 'chatgpt' => 'ChatGPT', 'flow' => 'Google Flow' }[site]
+      menu.add_item("Open browser: #{label}") { Browser.open(site) }
+    end
 
     open_cmd = UI::Command.new('AI Render Suite') { show_panel }
     open_cmd.tooltip = 'AI Render Suite'

@@ -30,7 +30,8 @@ import {
   type Option,
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
-import { loadSettings, makeProvider, saveSettings, type Settings } from "./settings";
+import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
+import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings } from "./settings";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, ToolId } from "./types";
 
 type Tab = "render" | "edit" | "lights" | "mirror" | "history";
@@ -54,6 +55,8 @@ interface LedSettings {
 interface State {
   tab: Tab;
   settingsOpen: boolean;
+  /** Open dynamic prompt generator, by id. */
+  dynOpen: string | null;
   settings: Settings;
   /** Source before cropping (uploads keep it so the frame can change). */
   original: ImageData64 | null;
@@ -92,7 +95,8 @@ export async function start(el: HTMLElement): Promise<void> {
   const settings = await loadSettings(host);
   state = {
     tab: "render",
-    settingsOpen: !(settings.geminiKey || settings.backend === "comfyui"),
+    settingsOpen: !(settings.geminiKey || settings.backend !== "gemini"),
+    dynOpen: null,
     settings,
     original: null,
     capture: null,
@@ -118,6 +122,19 @@ export async function start(el: HTMLElement): Promise<void> {
   };
   document.body.dataset.host = host.kind;
   host.onEvent((name, payload) => {
+    if (name === "browserStatus") {
+      const p = payload as { text: string; kind: string };
+      toast(p.text, p.kind === "error" ? "error" : p.kind === "ok" ? "ok" : "info");
+    }
+    if (name === "browserResult" && !state.busy) {
+      // A result pulled back with no render waiting, e.g. a second try on the site.
+      const img = payload as ImageData64;
+      const before = state.capture?.view ?? img;
+      state.result = img;
+      state.tab = "render";
+      record("render", currentRenderPrompt(), before, img).then(render);
+      toast("Result added to history.", "ok");
+    }
     if (name === "lightsChanged") {
       state.lights = payload as LightSummary;
       if (state.tab === "lights" || state.tab === "mirror") render();
@@ -255,8 +272,10 @@ function presetSwatches(p: Preset): string[] {
 
 function backendPill(): HTMLElement {
   const s = state.settings;
-  const ready = s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : Boolean(s.geminiKey);
-  const label = s.backend === "comfyui" ? "ComfyUI" : s.geminiModel.replace(/^gemini-/, "Gemini ").replace(/-/g, " ");
+  const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
+  const ready = s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : Boolean(s.geminiKey);
+  const label =
+    s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? `${site.label} · your account` : s.geminiModel.replace(/^gemini-/, "Gemini ").replace(/-/g, " ");
   return h(
     "button",
     { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title: "Backend settings", type: "button" },
@@ -319,6 +338,10 @@ function render(): void {
   if (state.tab === "render") root.append(renderBar());
   root.append(h("div", { id: "status", class: "toast", role: "status", "aria-live": "polite" }));
   if (state.settingsOpen) root.append(settingsSheet());
+  if (state.dynOpen) {
+    const g = findGenerator(state.dynOpen);
+    if (g) root.append(dynamicSheet(g));
+  }
 }
 
 // ---------- Render tab ----------
@@ -551,6 +574,8 @@ function renderTab(body: HTMLElement): void {
     ),
   );
 
+  body.append(dynamicSection());
+
   const presetCards = h(
     "div",
     { class: "preset-grid" },
@@ -655,6 +680,9 @@ function renderBar(): HTMLElement {
     "div",
     { class: "render-bar" },
     btn,
+    state.busy && state.settings.backend === "browser"
+      ? button("Bring result back", "arrowDown", () => host.call("browserGrab").catch((e: Error) => toast(e.message, "error")), "ghost")
+      : null,
     state.busy && state.abort ? iconButton("close", "Cancel", () => state.abort?.abort(), "ghost") : null,
   );
 }
@@ -665,6 +693,7 @@ function currentRenderPrompt(): string {
     notes: state.notes,
     facts: state.capture?.facts,
     hasLinePass: Boolean(state.capture?.lines),
+    extras: dynamicLines(state.settings.dynamic),
   });
 }
 
@@ -741,13 +770,14 @@ function setBusy(on: boolean): void {
     state.busySince = Date.now();
     busyTimer = window.setInterval(() => {
       const label = document.getElementById("render-label");
-      if (label) label.textContent = `Rendering... ${Math.round((Date.now() - state.busySince) / 1000)} s`;
+      const waitText = state.settings.backend === "browser" ? "Press Send in the browser" : "Rendering...";
+      if (label) label.textContent = `${waitText} ${Math.round((Date.now() - state.busySince) / 1000)} s`;
     }, 1000);
   }
 }
 
 async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: string): Promise<ImageData64 | null> {
-  const provider = makeProvider(state.settings);
+  const provider = makeProvider(state.settings, host);
   setBusy(true);
   // Older SketchUp versions embed a Chromium without AbortController.
   state.abort = typeof AbortController === "undefined" ? null : new AbortController();
@@ -768,7 +798,7 @@ async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: 
 }
 
 async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64): Promise<void> {
-  const provider = makeProvider(state.settings);
+  const provider = makeProvider(state.settings, host);
   await addHistory({
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     createdAt: Date.now(),
@@ -1388,7 +1418,8 @@ function settingsSheet(): HTMLElement {
       "AI backend",
       segmented(
         [
-          { id: "gemini", label: "Gemini (your key)", icon: "key" },
+          { id: "gemini", label: "Gemini API key", icon: "key" },
+          { id: "browser", label: "Your account", icon: "eye" },
           { id: "comfyui", label: "ComfyUI (local)", icon: "gear" },
         ],
         s.backend,
@@ -1401,7 +1432,39 @@ function settingsSheet(): HTMLElement {
     ),
   );
 
-  if (s.backend === "gemini") {
+  if (s.backend === "browser") {
+    sheet.append(
+      section(
+        "Your own account, in a browser window",
+        segmented(
+          BROWSER_SITES.map((x) => ({ id: x.id, label: x.label })),
+          s.browserSite,
+          async (v) => {
+            s.browserSite = v;
+            await persist();
+            render();
+          },
+        ),
+        h(
+          "ol",
+          { class: "steps" },
+          h("li", {}, "Press Open browser and sign in to the site once. SketchUp keeps you signed in."),
+          h("li", {}, "Press Render. The captured view and the full prompt go into the chat box for you."),
+          h("li", {}, "Check them and press Send on the site. When the image is done, press Bring result back."),
+        ),
+        h("p", { class: "hint" }, "No API key needed: your plan on that site and its limits apply. The site sometimes changes its page; if the image does not go in by itself, it is put on the clipboard so you can paste it with Ctrl+V."),
+        host.kind === "sketchup"
+          ? button("Open browser", "eye", async () => {
+              try {
+                toast(await makeProvider(s, host).test(), "ok");
+              } catch (e) {
+                toast((e as Error).message, "error");
+              }
+            }, "ghost")
+          : h("p", { class: "hint" }, "This mode works inside the SketchUp plugin only."),
+      ),
+    );
+  } else if (s.backend === "gemini") {
     const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Paste your Gemini API key", autocomplete: "off" }) as HTMLInputElement;
     key.addEventListener("change", async () => {
       s.geminiKey = key.value.trim();
@@ -1453,7 +1516,7 @@ function settingsSheet(): HTMLElement {
         h("label", { class: "field" }, h("span", {}, "Workflow (API format)"), wf),
         button("Test connection", "check", async () => {
           try {
-            toast(await makeProvider(s).test(), "ok");
+            toast(await makeProvider(s, host).test(), "ok");
           } catch (e) {
             toast((e as Error).message, "error");
           }
@@ -1471,4 +1534,109 @@ export async function captureFromHost(): Promise<void> {
   state.tab = "render";
   render();
   await doCapture();
+}
+
+// ---------- Dynamic prompts ----------
+
+function dynamicSection(): HTMLElement {
+  const all = state.settings.dynamic;
+  const total = GENERATORS.reduce((n, g) => n + (dynamicLines({ [g.id]: all[g.id] ?? {} }).length ? 1 : 0), 0);
+  return sectionWith(
+    "Dynamic prompts",
+    total ? button("Clear all", null, async () => {
+      state.settings.dynamic = {};
+      await persist();
+      render();
+    }, "ghost small") : null,
+    h(
+      "div",
+      { class: "dyn-grid" },
+      GENERATORS.map((g) => {
+        const n = countSet(all[g.id]);
+        return h(
+          "button",
+          {
+            class: n ? "dyn-card active" : "dyn-card",
+            type: "button",
+            onclick: () => {
+              state.dynOpen = g.id;
+              render();
+            },
+          },
+          icon(g.icon, 18),
+          h("strong", {}, g.name),
+          h("small", {}, n ? `${n} set` : g.blurb),
+        );
+      }),
+    ),
+  );
+}
+
+function dynamicSheet(g: DynGenerator): HTMLElement {
+  const values: DynValues = { ...(state.settings.dynamic[g.id] ?? {}) };
+  const preview = h("pre", { class: "dyn-preview" });
+  const refresh = () => {
+    preview.textContent = g.build(values) ?? "Nothing set yet. Fields left at No change stay out of the prompt.";
+  };
+  const close = async (save: boolean) => {
+    if (save) {
+      state.settings.dynamic = { ...state.settings.dynamic, [g.id]: values };
+      await persist();
+    }
+    state.dynOpen = null;
+    render();
+  };
+  const fields = h("div", { class: "dyn-fields" });
+  for (const f of g.fields) {
+    if (f.kind === "one") {
+      const sel = h(
+        "select",
+        {},
+        f.choices.map((c) => h("option", { value: c.id, selected: c.id === (values[f.id] ?? "") }, c.label)),
+      ) as HTMLSelectElement;
+      sel.value = (values[f.id] as string) ?? "";
+      sel.addEventListener("change", () => {
+        values[f.id] = sel.value;
+        refresh();
+      });
+      fields.append(h("label", { class: f.half ? "field half" : "field" }, h("span", {}, f.label), sel));
+    } else {
+      const chosen = new Set(Array.isArray(values[f.id]) ? (values[f.id] as string[]) : []);
+      const wrap = h("div", { class: "chips" });
+      for (const c of f.choices) {
+        const b = chip(c.label, chosen.has(c.id), () => {
+          if (chosen.has(c.id)) chosen.delete(c.id);
+          else chosen.add(c.id);
+          values[f.id] = [...chosen];
+          b.classList.toggle("active", chosen.has(c.id));
+          refresh();
+        });
+        wrap.append(b);
+      }
+      fields.append(h("div", { class: "field" }, h("span", {}, f.label), wrap));
+    }
+  }
+  refresh();
+  const sheet = h(
+    "div",
+    { class: "sheet" },
+    h("div", { class: "sheet-head" }, h("h2", {}, g.name), iconButton("close", "Close", () => close(false))),
+    h("p", { class: "hint" }, `${g.blurb} Any field left at No change is left out of the prompt.`),
+    fields,
+    h("div", { class: "field" }, h("span", {}, "Adds to the prompt"), preview),
+    h(
+      "div",
+      { class: "sheet-actions" },
+      button("Reset", "trash", () => {
+        for (const k of Object.keys(values)) delete values[k];
+        state.settings.dynamic = { ...state.settings.dynamic, [g.id]: {} };
+        persist().then(() => {
+          state.dynOpen = g.id;
+          render();
+        });
+      }, "ghost"),
+      primaryButton("Apply", "check", () => close(true)),
+    ),
+  );
+  return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close(false) }, sheet);
 }

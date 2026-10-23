@@ -148,3 +148,29 @@ test("placed lights and mirrors are described in the prompt", () => {
   assert.match(lines[1], /mirrors/);
   assert.deepEqual(fixtureLines({ lights: { spots: 2, leds: 0, mirrors: 0, kelvin: [], visible: false } }), []);
 });
+
+import { countSet, dynamicLines } from "../src/dynamic";
+
+test("dynamic prompts leave out fields at No change", () => {
+  assert.deepEqual(dynamicLines({}), []);
+  assert.deepEqual(dynamicLines({ time: { time: "", sky: "" } }), []);
+  const lines = dynamicLines({
+    time: { time: "golden", ground: "puddles" },
+    vehicles: { types: ["motorbikes", "tuktuks"], amount: "few", motion: "parked" },
+    people: { region: "sea", type: "adults", density: "few" },
+    material: { s1: "facade", m1: "laterite", f1: "" },
+  });
+  assert.equal(lines.length, 4);
+  assert.match(lines[0], /^Time and weather: golden hour.*puddles/);
+  assert.equal(lines[1], "Materials: the facade walls in local laterite block.");
+  assert.match(lines[2], /add a few parked motorbikes and scooters and Cambodian tuk-tuks \(remorque\)\./);
+  assert.match(lines[3], /^People: add a few people \(three to six\), Southeast Asian adults\./);
+  assert.equal(countSet({ a: "", b: "x", c: [], d: ["y"] }), 2);
+});
+
+test("render prompt carries dynamic lines before the camera line", () => {
+  const p = buildRenderPrompt({ preset: BUILT_IN_PRESETS[0], hasLinePass: false, extras: ["Vehicles: add one tuk-tuk."] });
+  const lines = p.split("\n");
+  const v = lines.indexOf("Vehicles: add one tuk-tuk.");
+  assert.ok(v > 0 && lines[v + 1].startsWith("Camera:"));
+});

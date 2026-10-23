@@ -15,6 +15,8 @@ Plan and roadmap: see the project plan doc (architecture, tools, phases).
 | History | Every result with a before and after slider and the exact prompt used. Kept on your computer only. |
 | Frame | Pick the render's aspect ratio (16:9, 3:2, 4:3, 21:9, 1:1, 4:5, 3:4, 9:16 or the whole view). SketchUp 2023+ shows it as a dimmed safe frame with thirds in the viewport; every capture is cropped to it. |
 | Lights | Place spotlight beams (8 beam shapes) on walls and ceilings, or LED glow along selected edges. 2700K to 6500K, intensity and size in mm. They sit on an `AI Lights` tag, cast no shadows, and the prompt tells the AI to render them as real fittings. |
+| Dynamic prompts | Five small forms that each add one plain line to the prompt: time, date and weather (Cambodian seasons, monsoon rain, wet ground), materials for up to three surfaces, vehicles (motorbikes, tuk-tuks, cars), people, and accessories. Fields left at "No change" stay out. |
+| Your account (browser) | No API key: a browser window inside SketchUp opens Gemini, ChatGPT or Google Flow with your own login. Render puts the captured view and the full prompt into the chat box; you press Send, then **Bring result back** adds the image to history. If the site will not take the image, it goes on the clipboard for Ctrl+V. These sites change their pages often, so the auto-fill in `browser_agent.js` may need updating now and then. |
 | Mirror | Click a mirror face: SketchUp renders the room from the mirror and lays that image on it, so the AI has a real reflection to work from. |
 
 The prompt is built from the preset (project type, lighting, environment, materials), your notes, and facts read from SketchUp: lens (35 mm equivalent from the camera's field of view), scene name and shadow time.

@@ -1,13 +1,17 @@
 // User settings, stored through the host.
 
 import type { Host } from "./host";
+import type { DynValues } from "./dynamic";
 import type { Preset } from "./types";
 import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "./providers/gemini";
 import { ComfyProvider } from "./providers/comfyui";
+import { BrowserProvider } from "./providers/browser";
 import type { Provider } from "./providers/types";
 
 export interface Settings {
-  backend: "gemini" | "comfyui";
+  /** "browser" renders through the user's own signed-in chat site, no API key. */
+  backend: "gemini" | "comfyui" | "browser";
+  browserSite: BrowserSite;
   geminiKey: string;
   geminiModel: string;
   comfyUrl: string;
@@ -17,7 +21,17 @@ export interface Settings {
   /** Last chosen render frame (aspect ratio) id. */
   frameId?: string;
   userPresets: Preset[];
+  /** Dynamic prompt generator values, by generator id. */
+  dynamic: Record<string, DynValues>;
 }
+
+export type BrowserSite = "gemini" | "chatgpt" | "flow";
+
+export const BROWSER_SITES: { id: BrowserSite; label: string; url: string }[] = [
+  { id: "gemini", label: "Gemini", url: "https://gemini.google.com/app" },
+  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/" },
+  { id: "flow", label: "Google Flow", url: "https://labs.google/fx/tools/flow" },
+];
 
 export const DEFAULT_SETTINGS: Settings = {
   backend: "gemini",
@@ -28,6 +42,8 @@ export const DEFAULT_SETTINGS: Settings = {
   captureSize: 1600,
   linePass: true,
   userPresets: [],
+  dynamic: {},
+  browserSite: "gemini",
 };
 
 const KEY = "settings";
@@ -46,7 +62,11 @@ export async function saveSettings(host: Host, s: Settings): Promise<void> {
   await host.setSetting(KEY, JSON.stringify(s));
 }
 
-export function makeProvider(s: Settings): Provider & { modelName?: string } {
+export function makeProvider(s: Settings, host?: Host): Provider & { modelName?: string } {
+  if (s.backend === "browser" && host) {
+    const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
+    return new BrowserProvider(host, site.id, site.label);
+  }
   if (s.backend === "comfyui") return new ComfyProvider(s.comfyUrl, s.comfyWorkflow);
   return new GeminiProvider(s.geminiKey.trim(), s.geminiModel.trim() || DEFAULT_GEMINI_MODEL);
 }

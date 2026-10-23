@@ -5,18 +5,21 @@ module AIRenderSuite
   # Handles requests from the panel. Each request carries an id; the answer
   # goes back through window.AIRS.receive with the same id.
   module Bridge
+    # Returned by a request that answers later (the browser render).
+    DEFERRED = Object.new.freeze
+
     def self.handle(dialog, json)
       req = JSON.parse(json)
       id = req['id']
       begin
-        result = dispatch(req['action'], req['payload'] || {})
-        reply(dialog, 'id' => id, 'ok' => true, 'result' => result)
+        result = dispatch(req['action'], req['payload'] || {}, id)
+        reply(dialog, 'id' => id, 'ok' => true, 'result' => result) unless result.equal?(DEFERRED)
       rescue StandardError => e
         reply(dialog, 'id' => id, 'ok' => false, 'error' => e.message)
       end
     end
 
-    def self.dispatch(action, payload)
+    def self.dispatch(action, payload, id = nil)
       case action
       when 'capture' then Capture.run(payload)
       when 'save' then save(payload)
@@ -31,6 +34,10 @@ module AIRenderSuite
       when 'removeSelectedLights' then Lights.remove_selected(Sketchup.active_model)
       when 'pickMirror' then Mirror.start_pick_tool(payload['settings'] || {})
       when 'refreshMirrors' then Mirror.refresh_all
+      when 'browserOpen' then Browser.open(payload['site'].to_s)
+      when 'browserRender' then Browser.render(payload, id)
+      when 'browserGrab' then Browser.grab
+      when 'browserCancel' then Browser.cancel
       else raise "Unknown request: #{action}"
       end
     end

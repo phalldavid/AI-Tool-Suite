@@ -233,3 +233,19 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16p
 @media (prefers-reduced-motion: reduce) {
   .scan, .sheet { animation: none; }
 }
+
+/* dynamic prompts */
+.dyn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.dyn-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--text); text-align: left; cursor: pointer; }
+.dyn-card .icon { color: var(--muted); }
+.dyn-card strong { font-size: 12.5px; }
+.dyn-card small { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.dyn-card:hover { border-color: var(--line-2); }
+.dyn-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.dyn-card.active .icon, .dyn-card.active small { color: var(--accent); }
+.dyn-fields { display: flex; flex-wrap: wrap; gap: 10px; }
+.dyn-fields .field { flex: 1 1 100%; }
+.dyn-fields .field.half { flex: 1 1 calc(50% - 5px); min-width: 140px; }
+.dyn-preview { white-space: pre-wrap; margin: 0; padding: 10px; border-radius: 8px; background: var(--field); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.sheet-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.steps { margin: 4px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }

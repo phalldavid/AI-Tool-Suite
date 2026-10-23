@@ -206,10 +206,12 @@ export interface RenderPromptInput {
   notes?: string;
   facts?: SceneFacts;
   hasLinePass: boolean;
+  /** Lines from the dynamic prompt generators. */
+  extras?: string[];
 }
 
 export function buildRenderPrompt(input: RenderPromptInput): string {
-  const { preset, notes, facts, hasLinePass } = input;
+  const { preset, notes, facts, hasLinePass, extras } = input;
   const type = PROJECT_TYPES[preset.projectType];
   const lighting = lightingText(preset.lighting, facts);
   const env = findOption(ENVIRONMENTS, preset.environment);
@@ -228,6 +230,7 @@ export function buildRenderPrompt(input: RenderPromptInput): string {
   if (lighting) lines.push(`Lighting: ${lighting}.`);
   lines.push(...fixtureLines(facts));
   if (env && env.id !== "keep") lines.push(`Surroundings: ${env.text}.`);
+  if (extras?.length) lines.push(...extras);
   lines.push(`Camera: ${lensHint(preset.projectType, facts)}.`);
   if (notes?.trim()) lines.push(`Additional notes: ${notes.trim()}.`);
   lines.push(
