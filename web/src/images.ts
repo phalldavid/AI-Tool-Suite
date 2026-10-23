@@ -79,6 +79,23 @@ export async function redOverlay(original: ImageData64, mask: HTMLCanvasElement)
   return canvasToImage(c, "image/jpeg", 0.92);
 }
 
+/** The original with each zone's mask painted over it in its own colour. */
+export async function zoneOverlay(original: ImageData64, layers: { mask: HTMLCanvasElement; colour: string }[]): Promise<ImageData64> {
+  const el = await loadImage(original);
+  const [c, ctx] = makeCanvas(el.naturalWidth, el.naturalHeight);
+  ctx.drawImage(el, 0, 0);
+  for (const l of layers) {
+    const [tint, tctx] = makeCanvas(c.width, c.height);
+    tctx.drawImage(l.mask, 0, 0, c.width, c.height);
+    tctx.globalCompositeOperation = "source-in";
+    tctx.fillStyle = l.colour;
+    tctx.fillRect(0, 0, c.width, c.height);
+    ctx.globalAlpha = 0.7;
+    ctx.drawImage(tint, 0, 0);
+  }
+  return canvasToImage(c, "image/jpeg", 0.92);
+}
+
 /**
  * Pastes the edited area from `result` onto `original`, using the painted
  * mask with a soft edge. Everything outside the mask stays pixel-exact.

@@ -97,6 +97,76 @@ export const LIGHTING: Option[] = [
   },
 ];
 
+// Extra relight presets for the Edit tab, beside the time-of-day ones.
+export const INTERIOR_RELIGHT: Option[] = [
+  { id: "interior-day", sub: "Daylight + 3000K", swatch: ["#d9c7a4", "#f4ead6"], label: "Interior daylight", text: "natural daylight entering through the windows, balanced with warm 3000K ceiling lights, no blown-out windows" },
+  { id: "interior-evening", sub: "Lamps at 2700K", swatch: ["#3a2a1c", "#c98a4a"], label: "Interior evening", text: "evening interior, warm 2700K lamps and cove lighting, soft shadows, dark exterior visible through the glass" },
+  { id: "int-morning-sun", sub: "Sun patches", swatch: ["#f3d6a6", "#fff3dc"], label: "Morning sun in", text: "low morning sun streaming in through the windows, crisp sun patches on the floor and walls, soft bounce light, lights off" },
+  { id: "int-overcast", sub: "Soft, even", swatch: ["#b7bcc2", "#e3e6e9"], label: "Overcast day", text: "soft even daylight from an overcast sky through the windows, no direct sun, gentle shadows, lights off" },
+  { id: "int-night-moody", sub: "Low, warm", swatch: ["#140e0a", "#6b4426"], label: "Moody night", text: "night, only warm 2700K accent lights, table lamps and LED strips on, deep soft shadows, dark windows with faint city lights" },
+  { id: "int-showroom", sub: "Bright 4000K", swatch: ["#e9eef3", "#ffffff"], label: "Bright showroom", text: "bright even 4000K ceiling lighting with track spotlights on displays, clean white light, minimal shadows" },
+];
+
+export const URBAN_RELIGHT: Option[] = [
+  { id: "urb-blue-street", sub: "Shops lit", swatch: ["#162650", "#d08a4a"], label: "Blue hour street", text: "blue hour on the street, shop signs and shophouse windows lit warm, street lights just on, car head and tail lights" },
+  { id: "urb-rain-night", sub: "Wet reflections", swatch: ["#0b0f1c", "#3b4a6b"], label: "Rainy night", text: "rainy night in the city, wet asphalt with long reflections of street lights and shop lights, light rain falling" },
+  { id: "urb-midday-busy", sub: "Hard sun", swatch: ["#3d8ad6", "#f0e3c4"], label: "Busy midday", text: "harsh midday tropical sun, short hard shadows, bright hazy sky, heat shimmer above the road" },
+  { id: "urb-golden-skyline", sub: "Low west sun", swatch: ["#58608c", "#f0a050"], label: "Golden skyline", text: "golden hour with the low sun from the west lighting the tops of the buildings, long shadows across the streets" },
+  { id: "urb-night-market", sub: "Festoon lights", swatch: ["#120a05", "#c9792f"], label: "Night market", text: "night with festoon string lights and stall lamps, warm pools of light, people and stalls in the glow" },
+  { id: "urb-monsoon", sub: "Storm sky", swatch: ["#38414c", "#8f9aa5"], label: "Monsoon storm", text: "dark monsoon storm clouds, heavy rain about to fall, flat grey light, wet ground" },
+];
+
+/** Prompt text for any relight option id from the Edit tab. */
+export function relightText(id: string, facts?: SceneFacts): string | null {
+  return lightingText(id, facts) ?? findOption([...INTERIOR_RELIGHT, ...URBAN_RELIGHT], id)?.text ?? null;
+}
+
+export interface FixtureSettings {
+  /** exterior fixtures: true on, false off, null not said */
+  exterior: boolean | null;
+  led: boolean;
+  strip: boolean;
+  cabinet: boolean;
+  kelvin: number;
+}
+
+/** One prompt line for the scene's light fixtures, by scene type. */
+export function fixtureSettingsLine(type: ProjectType, f?: FixtureSettings): string | null {
+  if (!f) return null;
+  if (type === "interior") {
+    const on: string[] = [];
+    if (f.led) on.push("recessed LED downlights in the ceiling");
+    if (f.strip) on.push("LED strip cove lighting along ceilings and shelves");
+    if (f.cabinet) on.push("under-cabinet and in-cabinet LED lights");
+    if (!on.length) return null;
+    return `Interior lights switched on at ${f.kelvin}K: ${on.join(", ")}. Show their real glow and soft falloff on nearby surfaces.`;
+  }
+  if (f.exterior === true) {
+    return `Exterior light fixtures switched on at ${f.kelvin}K: wall lights, entrance downlights, garden and facade uplights glowing, with soft pools of light on walls and paving.`;
+  }
+  if (f.exterior === false) return "All exterior light fixtures are switched off.";
+  return null;
+}
+
+export interface EditZone {
+  /** colour name used in the prompt, e.g. "red" */
+  colour: string;
+  instruction: string;
+}
+
+/** Spot edit with one or more coloured zones, each with its own change. */
+export function buildZoneEditPrompt(zones: EditZone[]): string {
+  const used = zones.filter((z) => z.instruction.trim());
+  const names = used.map((z) => z.colour);
+  const lines = [
+    "Edit the first image.",
+    `The second image is the same picture with ${used.length === 1 ? `one area painted ${names[0]}` : `areas painted in ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`}.`,
+    ...used.map((z) => `Inside the ${z.colour} area only: ${z.instruction.trim().replace(/\.$/, "")}.`),
+    "Everything outside the painted areas must stay exactly as it is. Match the perspective, lighting and photographic quality of the rest of the image. Do not include any paint colour in the result.",
+  ];
+  return lines.join("\n");
+}
+
 export const ENVIRONMENTS: Option[] = [
   {
     id: "keep",
@@ -319,7 +389,7 @@ export function buildRenderPrompt(input: RenderPromptInput): string {
 }
 
 export function buildLightingPrompt(lightingId: string, notes?: string, facts?: SceneFacts): string {
-  const lighting = lightingText(lightingId, facts);
+  const lighting = relightText(lightingId, facts);
   const lines = [
     "Change only the lighting and sky of this image.",
     `New lighting: ${lighting ?? lightingId}.`,

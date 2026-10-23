@@ -41,13 +41,34 @@ export const FONTS: FontChoice[] = [
 export interface Look {
   theme: Theme;
   accent: string;
+  /** used when accent is "custom" */
+  accentCustom?: string;
   font: string;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const n = m ? parseInt(m[1], 16) : 0xf0a24a;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function toHex([r, g, b]: number[]): string {
+  return `#${[r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Hover shade and readable text colour for any accent colour. */
+export function accentFrom(hex: string): Accent {
+  const rgb = hexToRgb(hex);
+  const lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+  const hover = toHex(rgb.map((v) => v + (255 - v) * 0.18));
+  const ink = lum > 0.5 ? toHex(rgb.map((v) => v * 0.12)) : "#ffffff";
+  return { id: "custom", label: "Custom", color: toHex(rgb), hover, ink };
 }
 
 export function applyLook(look: Look): void {
   const root = document.documentElement;
   root.dataset.theme = look.theme;
-  const a = ACCENTS.find((x) => x.id === look.accent) ?? ACCENTS[0];
+  const a = look.accent === "custom" && look.accentCustom ? accentFrom(look.accentCustom) : ACCENTS.find((x) => x.id === look.accent) ?? ACCENTS[0];
   root.style.setProperty("--accent", a.color);
   root.style.setProperty("--accent-2", a.hover);
   root.style.setProperty("--accent-ink", a.ink);
@@ -64,8 +85,8 @@ export function applyLook(look: Look): void {
 }
 
 /**
- * Switches theme with a circle that grows from the button in the new
- * background colour, then swaps the variables underneath it.
+ * Switches theme in place: colours cross-fade while a soft ring spreads from
+ * the button. The interface stays on screen the whole time.
  */
 export function animateTheme(from: HTMLElement | null, next: Theme, apply: () => void): void {
   const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -73,22 +94,23 @@ export function animateTheme(from: HTMLElement | null, next: Theme, apply: () =>
     apply();
     return;
   }
+  const root = document.documentElement;
   const r = from.getBoundingClientRect();
   const x = r.left + r.width / 2;
   const y = r.top + r.height / 2;
   const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
-  const wipe = document.createElement("div");
-  wipe.className = "theme-wipe";
-  wipe.style.background = next === "light" ? "#f4f3f0" : "#0f1012";
-  wipe.style.clipPath = `circle(0px at ${x}px ${y}px)`;
-  document.body.appendChild(wipe);
+  const ring = document.createElement("div");
+  ring.className = `theme-ring ${next}`;
+  ring.style.left = `${x}px`;
+  ring.style.top = `${y}px`;
+  ring.style.setProperty("--r", `${radius * 2}px`);
+  document.body.appendChild(ring);
   from.classList.add("spin");
-  requestAnimationFrame(() => {
-    wipe.style.clipPath = `circle(${radius}px at ${x}px ${y}px)`;
-  });
+  root.classList.add("theme-anim");
+  apply();
   window.setTimeout(() => {
-    apply();
-    wipe.style.opacity = "0";
-    window.setTimeout(() => wipe.remove(), 220);
-  }, 420);
+    ring.remove();
+    from.classList.remove("spin");
+    root.classList.remove("theme-anim");
+  }, 650);
 }

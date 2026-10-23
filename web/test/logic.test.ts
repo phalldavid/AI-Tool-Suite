@@ -207,3 +207,36 @@ test("site contexts combine, keep custom text, and default to keep", () => {
   assert.match(t, /gated borey.*; mango trees along the road/);
   assert.match(contextText("pp-street")!, /Phnom Penh street/);
 });
+
+import { findFrame, ratioFromPixels, swapFrameId } from "../src/frame";
+import { buildZoneEditPrompt, fixtureSettingsLine } from "../src/prompt";
+
+test("frames swap, accept custom ratios and come from pixel sizes", () => {
+  assert.equal(swapFrameId("4:5"), "5:4");
+  assert.equal(swapFrameId("1:1"), "1:1");
+  assert.equal(swapFrameId("free"), "free");
+  assert.equal(findFrame("7:3").ratio, 7 / 3);
+  assert.equal(findFrame("nonsense").id, "free");
+  assert.deepEqual(ratioFromPixels(2500, 2000), { exact: "5:4", simple: "5:4", ratio: 1.25 });
+  assert.equal(ratioFromPixels(1921, 1080)!.simple, "16:9");
+  assert.equal(ratioFromPixels(0, 10), null);
+});
+
+test("zone edit prompt names each colour with its own change", () => {
+  const p = buildZoneEditPrompt([
+    { colour: "red", instruction: "remove the car." },
+    { colour: "blue", instruction: "add a frangipani tree" },
+  ]);
+  assert.match(p, /areas painted in red and blue/);
+  assert.match(p, /Inside the red area only: remove the car\.\n/);
+  assert.match(p, /Inside the blue area only: add a frangipani tree\./);
+});
+
+test("fixture line follows the scene type", () => {
+  const f = { exterior: true, led: true, strip: false, cabinet: true, kelvin: 2700 };
+  assert.match(fixtureSettingsLine("exterior", f)!, /Exterior light fixtures switched on at 2700K/);
+  assert.match(fixtureSettingsLine("interior", f)!, /downlights.*cabinet/);
+  assert.equal(fixtureSettingsLine("exterior", { ...f, exterior: null }), null);
+  assert.equal(fixtureSettingsLine("interior", { ...f, led: false, cabinet: false }), null);
+  assert.match(dynamicLines({ plants: { kinds: ["frangipani", "lawn"], where: "front" } })[0], /^Plants: add frangipani trees and a neat green lawn in the front garden\./);
+});

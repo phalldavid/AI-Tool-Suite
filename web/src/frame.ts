@@ -25,8 +25,65 @@ export const FRAMES: FrameOption[] = [
   { id: "9:16", label: "9:16", ratio: 9 / 16, hint: "Stories, phone" },
 ];
 
+/** A listed frame, or any "W:H" ratio typed by the user. */
 export function findFrame(id: string): FrameOption {
-  return FRAMES.find((f) => f.id === id) ?? FRAMES[0];
+  const listed = FRAMES.find((f) => f.id === id);
+  if (listed) return listed;
+  const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(id);
+  if (m && Number(m[1]) > 0 && Number(m[2]) > 0) {
+    return { id, label: id, ratio: Number(m[1]) / Number(m[2]), hint: "Custom ratio" };
+  }
+  return FRAMES[0];
+}
+
+export function isListed(id: string): boolean {
+  return FRAMES.some((f) => f.id === id);
+}
+
+/** 4:5 becomes 5:4. The whole view and squares stay as they are. */
+export function swapFrameId(id: string): string {
+  const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(id);
+  if (!m || m[1] === m[2]) return id;
+  return `${m[2]}:${m[1]}`;
+}
+
+function gcd(a: number, b: number): number {
+  return b ? gcd(b, a % b) : a;
+}
+
+export interface PixelRatio {
+  /** exact ratio in lowest terms, e.g. 5:4 for 2500 x 2000 */
+  exact: string;
+  /** a short ratio within 1% when the exact one has big numbers, e.g. 16:9 for 1921 x 1080 */
+  simple: string;
+  ratio: number;
+}
+
+/** Works out the aspect ratio of a pixel size. */
+export function ratioFromPixels(width: number, height: number): PixelRatio | null {
+  const w = Math.round(width);
+  const hh = Math.round(height);
+  if (!(w > 0 && hh > 0)) return null;
+  const g = gcd(w, hh);
+  const exact = `${w / g}:${hh / g}`;
+  const ratio = w / hh;
+  let simple = exact;
+  if (w / g > 32 || hh / g > 32) {
+    let best = Infinity;
+    for (let b = 1; b <= 32; b++) {
+      const a = Math.round(ratio * b);
+      if (a < 1) continue;
+      const err = Math.abs(a / b / ratio - 1);
+      if (err < best - 1e-9) {
+        best = err;
+        const k = gcd(a, b);
+        simple = `${a / k}:${b / k}`;
+      }
+      if (best < 0.002) break;
+    }
+    if (best > 0.01) simple = exact;
+  }
+  return { exact, simple, ratio };
 }
 
 /** Largest rectangle of `ratio` inside width x height, centred. */

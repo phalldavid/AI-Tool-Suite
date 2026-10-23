@@ -313,8 +313,6 @@ export const GENERATORS: DynGenerator[] = [
     blurb: "Plants, soft furnishings and styling objects.",
     fields: [
       many("items", "Add", [
-        c("plants", "Tropical plants", "potted tropical plants such as monstera, areca palm and bird of paradise"),
-        c("trees", "Frangipani and palms", "frangipani trees and palms"),
         c("soft", "Cushions and throws", "cushions and throws"),
         c("rugs", "Rugs", "woven rugs"),
         c("table", "Tableware", "tableware and a bowl of fruit"),
@@ -346,6 +344,67 @@ export const GENERATORS: DynGenerator[] = [
       if (!items.length && !style) return null;
       const what = items.length ? join(items) : "styling objects";
       return `Accessories: add ${what}${style ? ` ${style}` : ""}${amount ? `, ${amount}` : ""}. Do not move walls, windows or built-in furniture.`;
+    },
+  },
+  {
+    id: "plants",
+    name: "Plants",
+    icon: "plant",
+    blurb: "Trees, palms, shrubs and indoor plants.",
+    fields: [
+      many("kinds", "Plants", [
+        c("frangipani", "Frangipani", "frangipani trees"),
+        c("areca", "Areca palms", "areca palms"),
+        c("foxtail", "Foxtail palms", "foxtail palms"),
+        c("coconut", "Coconut palms", "coconut palms"),
+        c("sugarpalm", "Sugar palms", "Cambodian sugar palms"),
+        c("raintree", "Rain trees", "large spreading rain trees"),
+        c("mango", "Mango trees", "mango trees"),
+        c("bougainvillea", "Bougainvillea", "bougainvillea in pink and magenta flower"),
+        c("banana", "Banana plants", "banana plants"),
+        c("bird", "Bird of paradise", "bird of paradise plants"),
+        c("bamboo", "Bamboo", "clumps of bamboo"),
+        c("ferns", "Ferns and ground cover", "ferns and low ground cover"),
+        c("hedge", "Clipped hedges", "clipped green hedges"),
+        c("lawn", "Lawn", "a neat green lawn"),
+        c("lotus", "Lotus pond", "a lotus pond"),
+        c("monstera", "Monstera (indoor)", "potted monstera"),
+        c("fiddle", "Fiddle-leaf fig (indoor)", "potted fiddle-leaf figs"),
+        c("pothos", "Hanging pothos (indoor)", "trailing pothos on shelves"),
+      ]),
+      one("where", "Where", [
+        c("front", "Front garden", "in the front garden"),
+        c("fence", "Along the boundary wall", "along the boundary wall"),
+        c("street", "As street trees", "as street trees along the road"),
+        c("balcony", "Planters on balconies", "in planters on the balconies"),
+        c("roof", "Roof garden", "on the roof garden"),
+        c("pool", "Around the pool", "around the pool"),
+        c("indoor", "Indoors in pots", "indoors in ceramic and woven pots"),
+        c("spread", "Spread through the scene", "spread naturally through the scene"),
+      ]),
+      one("density", "Density", [
+        c("sparse", "Sparse", "sparse"),
+        c("moderate", "Moderate", "moderate"),
+        c("lush", "Lush", "lush and full"),
+      ], true),
+      one("age", "Maturity", [
+        c("new", "Newly planted", "newly planted with stakes"),
+        c("established", "Established", "established"),
+        c("mature", "Mature", "mature and fully grown"),
+      ], true),
+      one("season", "Look", [
+        c("green", "Rainy season green", "deep rainy-season green"),
+        c("dry", "Dry season", "slightly dry, dusty dry-season leaves"),
+        c("flower", "In flower", "in full flower"),
+      ]),
+    ],
+    build(v) {
+      const g = GENERATORS[5];
+      const kinds = picks(g, v, "kinds");
+      const where = pick(g, v, "where");
+      if (!kinds.length && !where) return null;
+      const bits = [pick(g, v, "density"), pick(g, v, "age"), pick(g, v, "season")].filter(Boolean);
+      return `Plants: add ${kinds.length ? join(kinds) : "tropical planting"}${where ? ` ${where}` : ""}${bits.length ? `, ${bits.join(", ")}` : ""}. Real species at true size, never covering windows, doors or the main facade.`;
     },
   },
 ];

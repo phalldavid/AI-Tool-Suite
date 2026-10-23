@@ -1,11 +1,12 @@
 // The render suite interface. Same code in the SketchUp panel and the browser.
 
 import { clear, h } from "./dom";
-import { cropImage, cropToRatio, FRAMES, findFrame } from "./frame";
+import { cropImage, cropToRatio, FRAMES, findFrame, isListed, ratioFromPixels, swapFrameId } from "./frame";
 import { detectHost, type Host } from "./host";
 import { addHistory, listHistory, removeHistory } from "./history";
-import { icon, logo } from "./icons";
-import { compositeMasked, fileToImage, imageSize, redOverlay, resizeTo, toDataUrl } from "./images";
+import { icon, iconSvg, logo } from "./icons";
+import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOverlay } from "./images";
+import { ZONES, ZonePainter, type PaintTool } from "./zones";
 import {
   BEAMS,
   KELVINS,
@@ -25,8 +26,11 @@ import {
   SKETCHUP_SUN,
   buildLightingPrompt,
   buildRenderPrompt,
-  buildSpotEditPrompt,
+  buildZoneEditPrompt,
   dialTimeId,
+  fixtureSettingsLine,
+  INTERIOR_RELIGHT,
+  URBAN_RELIGHT,
   nearestAspectRatio,
   parseDialTime,
   sunPhase,
@@ -34,7 +38,7 @@ import {
   type Option,
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
-import { ACCENTS, FONTS, animateTheme, applyLook } from "./appearance";
+import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
@@ -68,6 +72,9 @@ interface State {
   /** Site context picker: open, which group is shown, search text. */
   ctxOpen: boolean;
   ctxGroup: string;
+  frameEditor: boolean;
+  onboardStep: number;
+  onboardPick: string;
   settings: Settings;
   /** Source before cropping (uploads keep it so the frame can change). */
   original: ImageData64 | null;
@@ -83,6 +90,9 @@ interface State {
   editMode: "spot" | "relight";
   editInstruction: string;
   relight: string;
+  relightGroup: "exterior" | "interior" | "urban";
+  zonePrompts: Record<string, string>;
+  brushSize: number;
   lightMode: "spot" | "led";
   spot: SpotSettings;
   led: LedSettings;
@@ -97,7 +107,7 @@ interface State {
 let host: Host;
 let state: State;
 let root: HTMLElement;
-let maskCanvas: HTMLCanvasElement | null = null;
+let painter: ZonePainter | null = null;
 let busyTimer: number | undefined;
 
 export async function start(el: HTMLElement): Promise<void> {
@@ -106,11 +116,14 @@ export async function start(el: HTMLElement): Promise<void> {
   const settings = await loadSettings(host);
   state = {
     tab: "render",
-    settingsOpen: !(settings.geminiKey || settings.backend !== "gemini"),
+    settingsOpen: false,
     dynOpen: null,
     lookOpen: false,
     ctxOpen: false,
     ctxGroup: CONTEXT_GROUPS[0].id,
+    frameEditor: false,
+    onboardStep: 0,
+    onboardPick: "",
     settings,
     original: null,
     capture: null,
@@ -124,6 +137,9 @@ export async function start(el: HTMLElement): Promise<void> {
     editMode: "spot",
     editInstruction: "",
     relight: "blue-hour",
+    relightGroup: "exterior",
+    zonePrompts: {},
+    brushSize: 40,
     lightMode: "spot",
     spot: { beam: "medium", kelvin: 3000, intensity: 70, lengthMm: 900, widthMm: 600, orientation: "down" },
     led: { profile: "soft", kelvin: 3000, intensity: 75, widthMm: 170 },
@@ -359,6 +375,7 @@ function render(): void {
   if (state.tab === "render") root.append(renderBar());
   root.append(h("div", { id: "status", class: "toast", role: "status", "aria-live": "polite" }));
   if (state.settingsOpen) root.append(settingsSheet());
+  if (!state.settings.onboarded) root.append(onboarding());
   if (state.lookOpen) root.append(lookSheet());
   if (state.ctxOpen) root.append(contextSheet());
   if (state.dynOpen) {
@@ -410,7 +427,7 @@ async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
   const img = await fileToImage(file);
   if (target === "edit") {
     state.editSource = img;
-    maskCanvas = null;
+    painter = null;
     render();
     return;
   }
@@ -478,38 +495,68 @@ function stage(): HTMLElement {
   );
 }
 
+async function chooseFrame(id: string): Promise<void> {
+  state.frameId = id;
+  state.settings.frameId = id;
+  persist();
+  syncFrame();
+  const f = findFrame(id);
+  if (state.original && state.capture?.source === "upload") {
+    state.capture = { ...state.capture, view: await cropToRatio(state.original, f.ratio) };
+    state.capturedFrameId = id;
+    state.result = null;
+  }
+  render();
+}
+
+function ratioShape(ratio: number): HTMLElement {
+  const r = ratio || 1.5;
+  const w = r >= 1 ? 22 : Math.round(22 * r);
+  const hh = r >= 1 ? Math.round(22 / r) : 22;
+  return h("span", { class: ratio ? "ratio-shape" : "ratio-shape free", style: `width:${w}px;height:${Math.max(6, hh)}px` });
+}
+
 function frameSection(): HTMLElement {
+  const current = findFrame(state.frameId);
+  const custom = !isListed(state.frameId);
   const picker = h(
     "div",
     { class: "frames" },
-    FRAMES.map((f) => {
-      const r = f.ratio || 1.5;
-      const w = r >= 1 ? 22 : Math.round(22 * r);
-      const hh = r >= 1 ? Math.round(22 / r) : 22;
-      const shape = h("span", { class: f.ratio ? "ratio-shape" : "ratio-shape free", style: `width:${w}px;height:${hh}px` });
-      return h(
+    FRAMES.map((f) =>
+      h(
         "button",
-        {
-          class: f.id === state.frameId ? "frame active" : "frame",
-          title: f.hint,
-          type: "button",
-          onclick: async () => {
-            state.frameId = f.id;
-            state.settings.frameId = f.id;
-            persist();
-            syncFrame();
-            if (state.original && state.capture?.source === "upload") {
-              state.capture = { ...state.capture, view: await cropToRatio(state.original, f.ratio) };
-              state.capturedFrameId = f.id;
-              state.result = null;
-            }
-            render();
-          },
-        },
-        h("span", { class: "frame-box" }, shape),
+        { class: f.id === state.frameId ? "frame active" : "frame", title: f.hint, type: "button", onclick: () => chooseFrame(f.id) },
+        h("span", { class: "frame-box" }, ratioShape(f.ratio)),
         h("span", {}, f.label),
-      );
-    }),
+      ),
+    ),
+    h(
+      "button",
+      {
+        class: custom || state.frameEditor ? "frame active custom" : "frame custom",
+        title: "Your own ratio or pixel size",
+        type: "button",
+        onclick: () => {
+          state.frameEditor = !state.frameEditor;
+          render();
+        },
+      },
+      h("span", { class: "frame-box" }, custom ? ratioShape(current.ratio) : icon("plus", 16)),
+      h("span", {}, custom ? current.label : "Custom"),
+    ),
+  );
+  const canSwap = Boolean(current.ratio) && swapFrameId(state.frameId) !== state.frameId;
+  const swap = h(
+    "button",
+    {
+      class: "icon-btn small ghost",
+      type: "button",
+      title: canSwap ? `Swap to ${swapFrameId(state.frameId)}` : "Pick a ratio to swap",
+      "aria-label": "Swap portrait and landscape",
+      disabled: !canSwap,
+      onclick: () => chooseFrame(swapFrameId(state.frameId)),
+    },
+    icon("swap", 16),
   );
   const toggle =
     host.kind === "sketchup"
@@ -528,7 +575,62 @@ function frameSection(): HTMLElement {
           t("Show in SketchUp"),
         )
       : null;
-  return sectionWith(t("Frame"), toggle, picker);
+  return sectionWith(
+    t("Frame"),
+    h("div", { class: "head-actions center" }, toggle, swap),
+    picker,
+    state.frameEditor || custom ? frameEditor() : null,
+  );
+}
+
+function frameEditor(): HTMLElement {
+  const cur = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(isListed(state.frameId) ? "" : state.frameId);
+  const rw = h("input", { type: "number", min: 1, step: 1, value: cur ? cur[1] : "", placeholder: "W", class: "num", "aria-label": "Ratio width" }) as HTMLInputElement;
+  const rh = h("input", { type: "number", min: 1, step: 1, value: cur ? cur[2] : "", placeholder: "H", class: "num", "aria-label": "Ratio height" }) as HTMLInputElement;
+  const pw = h("input", { type: "number", min: 1, step: 1, placeholder: "2500", class: "num wide", "aria-label": "Width in pixels" }) as HTMLInputElement;
+  const ph = h("input", { type: "number", min: 1, step: 1, placeholder: "2000", class: "num wide", "aria-label": "Height in pixels" }) as HTMLInputElement;
+  const result = h("div", { class: "conv-result" }, h("span", { class: "hint" }, "Type a pixel size to get its ratio."));
+  let found: { id: string; long: number } | null = null;
+  const useBtn = button("Use", "check", () => {
+    if (!found) return;
+    if (host.kind === "sketchup") state.settings.captureSize = found.long;
+    chooseFrame(found.id);
+    toast(host.kind === "sketchup" ? `Frame set to ${found.id}, captures at ${found.long} px on the long side.` : `Frame set to ${found.id}.`, "ok");
+  }, "primary small", true);
+  const convert = () => {
+    const r = ratioFromPixels(Number(pw.value), Number(ph.value));
+    clear(result);
+    found = null;
+    (useBtn as HTMLButtonElement).disabled = true;
+    if (!r) {
+      result.append(h("span", { class: "hint" }, "Type a pixel size to get its ratio."));
+      return;
+    }
+    const id = r.simple;
+    const near = nearestAspectRatio(Number(pw.value), Number(ph.value));
+    found = { id: FRAMES.some((f) => f.id === id) ? id : id, long: Math.max(Number(pw.value), Number(ph.value)) };
+    (useBtn as HTMLButtonElement).disabled = false;
+    result.append(
+      h("strong", {}, r.exact === r.simple ? r.exact : `${r.simple} (exactly ${r.exact})`),
+      h("span", { class: "hint" }, r.simple === near ? "A native AI ratio." : `AI renders at ${near}, then it is trimmed to ${r.simple}.`),
+    );
+  };
+  pw.addEventListener("input", convert);
+  ph.addEventListener("input", convert);
+  const apply = () => {
+    const a = Number(rw.value);
+    const b = Number(rh.value);
+    if (!(a > 0 && b > 0)) return toast("Type both sides of the ratio, e.g. 7 and 3.", "error");
+    chooseFrame(`${a}:${b}`);
+  };
+  rh.addEventListener("keydown", (e) => e.key === "Enter" && apply());
+  return h(
+    "div",
+    { class: "frame-editor" },
+    h("div", { class: "fe-row" }, h("span", { class: "fe-label" }, "Ratio"), rw, h("span", { class: "colon" }, ":"), rh, button("Set", null, apply, "ghost small")),
+    h("div", { class: "fe-row" }, h("span", { class: "fe-label" }, "Pixels"), pw, h("span", { class: "colon" }, "×"), ph, useBtn),
+    result,
+  );
 }
 
 function lightingCard(o: Option, active: boolean, onPick: () => void): HTMLElement {
@@ -564,6 +666,8 @@ function renderTab(body: HTMLElement): void {
       ),
     ),
   );
+
+  body.append(fixturesSection());
 
   body.append(
     section(
@@ -700,7 +804,7 @@ function currentRenderPrompt(): string {
     notes: state.notes,
     facts: state.capture?.facts,
     hasLinePass: Boolean(state.capture?.lines),
-    extras: dynamicLines(state.settings.dynamic),
+    extras: [fixtureSettingsLine(state.preset.projectType, state.settings.fixtures), ...dynamicLines(state.settings.dynamic)].filter((x): x is string => Boolean(x)),
     lineStrength: state.settings.lineStrength,
   });
 }
@@ -717,7 +821,7 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
     primaryButton(host.kind === "sketchup" ? "Save to model folder" : "Download", "save", () => saveImage(after, tool)),
     button("Edit", "edit", () => {
       state.editSource = after;
-      maskCanvas = null;
+      painter = null;
       state.tab = "edit";
       render();
     }, "ghost"),
@@ -852,7 +956,11 @@ async function runRender(): Promise<void> {
   const prompt = currentRenderPrompt();
   const images = [cap.view, ...(cap.lines ? [cap.lines] : [])];
   const size = await imageSize(cap.view);
-  const out = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height));
+  const raw = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height));
+  // A ratio the model cannot output (e.g. 7:3) comes back at the nearest one;
+  // trim it to the exact frame so it matches the capture.
+  const frame = findFrame(state.capturedFrameId || state.frameId);
+  const out = raw && frame.ratio && !isListed(frame.id) ? await cropToRatio(raw, frame.ratio) : raw;
   if (out) {
     state.result = out;
     await record("render", prompt, cap.view, out);
@@ -922,7 +1030,7 @@ function editTab(body: HTMLElement): void {
         { class: "empty" },
         icon("edit", 34),
         h("h2", {}, "Edit a render"),
-        h("p", {}, "Paint over part of an image and say what should change, or change its lighting. Pick a render from Render or History, or upload one."),
+        h("p", {}, "Paint zones over an image and say what should change in each, or change its lighting. Pick a render from Render or History, or upload one."),
         h("div", { class: "row center" }, primaryButton("Upload image", "upload", () => input.click()), state.history.length ? button("From history", "history", () => { state.tab = "history"; render(); }, "ghost") : null, input),
       ),
     );
@@ -932,8 +1040,8 @@ function editTab(body: HTMLElement): void {
   body.append(
     segmented(
       [
-        { id: "spot", label: "Spot edit", icon: "edit" },
-        { id: "relight", label: "Change lighting", icon: "lights" },
+        { id: "spot", label: t("Spot edit"), icon: "edit" },
+        { id: "relight", label: t("Change lighting"), icon: "lights" },
       ],
       state.editMode,
       (v) => {
@@ -942,131 +1050,226 @@ function editTab(body: HTMLElement): void {
       },
     ),
   );
-  if (state.editMode === "spot") {
-    body.append(
-      section(
-        "Paint the area to change",
-        paintArea(src),
-        h(
-          "label",
-          { class: "field" },
-          h("span", {}, "What should change"),
-          textarea(state.editInstruction, "e.g. replace the car with a frangipani tree in a concrete planter", 2, (v) => (state.editInstruction = v)),
-        ),
-        h("p", { class: "hint" }, "Only the painted area is replaced. Everything else stays exactly as it is."),
-        primaryButton(state.busy ? "Working..." : "Apply edit", "wand", runSpotEdit, state.busy, "wide"),
-      ),
-    );
-  } else {
-    body.append(
-      section(
-        "New lighting",
-        h("img", { class: "stage-img", src: toDataUrl(src), alt: "Image to relight" }),
-        h(
-          "div",
-          { class: "light-grid" },
-          lightingOptions().map((o) =>
-            lightingCard(o, o.id === state.relight, () => {
-              state.relight = o.id;
-              render();
-            }),
-          ),
-        ),
-        h(
-          "label",
-          { class: "field" },
-          h("span", {}, "Notes"),
-          textarea(state.editInstruction, "Optional, e.g. wet road after rain", 2, (v) => (state.editInstruction = v)),
-        ),
-        primaryButton(state.busy ? "Working..." : "Change lighting", "lights", runRelight, state.busy, "wide"),
-      ),
-    );
-  }
+  if (state.editMode === "spot") body.append(...spotEditor(src));
+  else body.append(...relightEditor(src));
   body.append(h("div", { class: "row" }, button("Use another image", "upload", () => input.click(), "ghost small"), input));
 }
 
-function paintArea(src: ImageData64): HTMLElement {
-  const img = h("img", { src: toDataUrl(src), alt: "Image to edit" }) as HTMLImageElement;
-  const canvas = maskCanvas ?? (h("canvas", { class: "paint" }) as HTMLCanvasElement);
-  canvas.className = "paint";
-  let brushSize = 40;
-  const wrap = h("div", { class: "paint-wrap" }, img, canvas);
-  img.addEventListener("load", () => {
-    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-    }
-  });
-  maskCanvas = canvas;
-
-  let drawing = false;
-  let last: [number, number] | null = null;
-  const point = (e: PointerEvent): [number, number] => {
-    const r = canvas.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * canvas.width, ((e.clientY - r.top) / r.height) * canvas.height];
-  };
-  const stroke = (to: [number, number]) => {
-    const ctx = canvas.getContext("2d")!;
-    const scale = canvas.width / canvas.getBoundingClientRect().width;
-    ctx.strokeStyle = "rgb(255,0,0)";
-    ctx.lineWidth = brushSize * scale;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    const from = last ?? to;
-    ctx.moveTo(from[0], from[1]);
-    ctx.lineTo(to[0], to[1]);
-    ctx.stroke();
-    last = to;
-  };
-  canvas.onpointerdown = (e) => {
-    drawing = true;
-    canvas.setPointerCapture(e.pointerId);
-    last = null;
-    stroke(point(e));
-  };
-  canvas.onpointermove = (e) => drawing && stroke(point(e));
-  canvas.onpointerup = () => {
-    drawing = false;
-    last = null;
-  };
-
-  return h(
-    "div",
-    { class: "paint-box" },
-    wrap,
-    h(
-      "div",
-      { class: "row" },
-      h("div", { class: "grow" }, slider("Brush", 5, 200, 1, brushSize, " px", (v) => (brushSize = v))),
-      button("Clear", "trash", () => canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height), "ghost small"),
-    ),
-  );
+function getPainter(): ZonePainter {
+  if (!painter) {
+    painter = new ZonePainter();
+    painter.size = state.brushSize;
+  }
+  return painter;
 }
 
-function maskIsEmpty(c: HTMLCanvasElement): boolean {
-  if (!c.width || !c.height) return true;
-  const data = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
-  for (let i = 3; i < data.length; i += 16) if (data[i] > 0) return false;
-  return true;
+function spotEditor(src: ImageData64): HTMLElement[] {
+  const p = getPainter();
+  const img = h("img", { src: toDataUrl(src), alt: "Image to edit", draggable: "false" }) as HTMLImageElement;
+  const surface = p.surface(img);
+  surface.dataset.tool = p.tool;
+  surface.classList.toggle("erasing", p.erase);
+
+  // tool bar
+  const toolIcons: Record<PaintTool, string> = { brush: "brush", rect: "rect", lasso: "lasso" };
+  const toolNames: Record<PaintTool, string> = { brush: "Brush", rect: "Rectangle select", lasso: "Lasso" };
+  const menu = h("div", { class: "tool-menu hidden" });
+  const toolBtn = h(
+    "button",
+    { class: "tool-pick", type: "button", "data-tip": toolNames[p.tool], "aria-label": `Tool: ${toolNames[p.tool]}` },
+    icon(toolIcons[p.tool], 18),
+    icon("chevron", 12),
+  );
+  toolBtn.addEventListener("click", () => menu.classList.toggle("hidden"));
+  for (const tl of ["brush", "rect", "lasso"] as PaintTool[]) {
+    menu.append(
+      h(
+        "button",
+        {
+          type: "button",
+          class: tl === p.tool ? "active" : "",
+          onclick: () => {
+            p.tool = tl;
+            p.erase = false;
+            render();
+          },
+        },
+        icon(toolIcons[tl], 16),
+        h("span", {}, toolNames[tl]),
+      ),
+    );
+  }
+  const sizeOut = h("output", {}, `${p.size}`);
+  const size = h("input", { type: "range", min: 4, max: 160, step: 1, value: p.size, class: "mini-range", "aria-label": "Brush size" }) as HTMLInputElement;
+  const fill = () => size.style.setProperty("--fill", `${((Number(size.value) - 4) / 156) * 100}%`);
+  size.addEventListener("input", () => {
+    p.size = Number(size.value);
+    state.brushSize = p.size;
+    sizeOut.textContent = size.value;
+    fill();
+  });
+  fill();
+  const undoBtn = h("button", { class: "tool-btn", type: "button", "data-tip": "Undo", "aria-label": "Undo", disabled: !p.canUndo(), onclick: () => p.undo() }, icon("undo", 17));
+  const redoBtn = h("button", { class: "tool-btn", type: "button", "data-tip": "Redo", "aria-label": "Redo", disabled: !p.canRedo(), onclick: () => p.redo() }, icon("redo", 17));
+  const eraseBtn = h(
+    "button",
+    {
+      class: p.erase ? "tool-btn active" : "tool-btn",
+      type: "button",
+      "data-tip": "Eraser",
+      "aria-label": "Eraser",
+      onclick: () => {
+        p.erase = !p.erase;
+        render();
+      },
+    },
+    icon("eraser", 17),
+  );
+  const bar = h(
+    "div",
+    { class: "paint-bar" },
+    h("div", { class: "tool-pick-wrap" }, toolBtn, menu),
+    eraseBtn,
+    h("div", { class: "size-wrap", "data-tip": "Brush size" }, h("span", { class: "size-dot", style: `--s:${Math.max(4, Math.min(16, p.size / 6))}px` }), size, sizeOut),
+    h("span", { class: "bar-gap" }),
+    undoBtn,
+    redoBtn,
+    h("button", { class: "tool-btn", type: "button", "data-tip": "Clear all zones", "aria-label": "Clear all zones", onclick: () => p.clearAll() }, icon("trash", 17)),
+  );
+
+  // zones
+  const zoneRow = h("div", { class: "zone-row" });
+  const fields = h("div", { class: "zone-fields" });
+  const drawZones = () => {
+    clear(zoneRow);
+    clear(fields);
+    const painted = new Set(p.paintedZones());
+    for (const z of ZONES) {
+      zoneRow.append(
+        h(
+          "button",
+          {
+            class: `zone${z.id === p.active ? " active" : ""}${painted.has(z.id) ? " painted" : ""}`,
+            type: "button",
+            style: `--z:${z.css}`,
+            onclick: () => {
+              p.active = z.id;
+              p.erase = false;
+              render();
+            },
+          },
+          h("i", {}),
+          h("span", {}, z.name),
+        ),
+      );
+      if (painted.has(z.id) || z.id === p.active || state.zonePrompts[z.id]) {
+        const ta = textarea(state.zonePrompts[z.id] ?? "", z.id === "A" ? "e.g. remove the car" : "e.g. add a frangipani tree in a concrete planter", 1, (v) => {
+          state.zonePrompts[z.id] = v;
+        }) as HTMLTextAreaElement;
+        ta.addEventListener("focus", () => {
+          if (p.active !== z.id) {
+            p.active = z.id;
+            zoneRow.querySelectorAll(".zone").forEach((b, k) => b.classList.toggle("active", ZONES[k].id === z.id));
+          }
+        });
+        fields.append(
+          h(
+            "label",
+            { class: `zone-field${z.id === p.active ? " active" : ""}`, style: `--z:${z.css}` },
+            h("span", { class: "zone-tag" }, h("i", {}), `${z.name}, ${z.colour}`, painted.has(z.id) ? null : h("em", {}, "not painted")),
+            ta,
+          ),
+        );
+      }
+    }
+    (undoBtn as HTMLButtonElement).disabled = !p.canUndo();
+    (redoBtn as HTMLButtonElement).disabled = !p.canRedo();
+  };
+  p.onChange = drawZones;
+  drawZones();
+
+  return [
+    sectionWith(
+      "Zone palette",
+      h("small", { class: "head-hint" }, "Pick a zone, paint, then describe it"),
+      zoneRow,
+      bar,
+      h("div", { class: "paint-box" }, surface),
+    ),
+    section(
+      "What should change",
+      fields,
+      h("p", { class: "hint" }, "Each colour is sent with its own instruction. Only painted areas are replaced; everything else stays pixel-exact."),
+      primaryButton(state.busy ? "Working..." : "Apply edit", "wand", runSpotEdit, state.busy, "wide"),
+    ),
+  ];
+}
+
+const RELIGHT_GROUPS: { id: "exterior" | "interior" | "urban"; label: string; icon: string }[] = [
+  { id: "exterior", label: "Exterior", icon: "exterior" },
+  { id: "interior", label: "Interior", icon: "interior" },
+  { id: "urban", label: "Urban", icon: "aerial" },
+];
+
+function relightOptions(group: State["relightGroup"]): Option[] {
+  if (group === "interior") return INTERIOR_RELIGHT;
+  if (group === "urban") return URBAN_RELIGHT;
+  return lightingOptions().filter((o) => !o.id.startsWith("interior"));
+}
+
+function relightEditor(src: ImageData64): HTMLElement[] {
+  const group = state.relightGroup;
+  return [
+    section(
+      "New lighting",
+      h("img", { class: "stage-img", src: toDataUrl(src), alt: "Image to relight" }),
+      segmented(RELIGHT_GROUPS, group, (v) => {
+        state.relightGroup = v;
+        render();
+      }),
+      group === "interior" ? null : sunDial(() => state.relight, (id) => (state.relight = id)),
+      h(
+        "div",
+        { class: "light-grid" },
+        relightOptions(group).map((o) =>
+          lightingCard(o, o.id === state.relight, () => {
+            state.relight = o.id;
+            render();
+          }),
+        ),
+      ),
+      h(
+        "label",
+        { class: "field" },
+        h("span", {}, "Notes"),
+        textarea(state.editInstruction, "Optional, e.g. wet road after rain", 2, (v) => (state.editInstruction = v)),
+      ),
+      primaryButton(state.busy ? "Working..." : t("Change lighting"), "lights", runRelight, state.busy, "wide"),
+    ),
+  ];
 }
 
 async function runSpotEdit(): Promise<void> {
   const src = state.editSource;
-  if (!src || !maskCanvas) return;
-  if (maskIsEmpty(maskCanvas)) return toast("Paint over the area you want to change first.", "error");
-  if (!state.editInstruction.trim()) return toast("Describe what should change.", "error");
-  const prompt = buildSpotEditPrompt(state.editInstruction);
-  const mask = maskCanvas;
-  const overlay = await redOverlay(src, mask);
+  const p = painter;
+  if (!src || !p) return;
+  const painted = p.paintedZones();
+  if (!painted.length) return toast("Paint at least one zone over the area you want to change.", "error");
+  const missing = painted.filter((id) => !(state.zonePrompts[id] ?? "").trim());
+  if (missing.length) return toast(`Describe what should change in ${missing.map((id) => `Zone ${id}`).join(", ")}.`, "error");
+  const zones = ZONES.filter((z) => painted.includes(z.id));
+  const prompt = buildZoneEditPrompt(zones.map((z) => ({ colour: z.colour, instruction: state.zonePrompts[z.id] })));
+  const overlay = await zoneOverlay(src, zones.map((z) => ({ mask: p.canvases[z.id], colour: z.css })));
+  const union = p.union();
   const size = await imageSize(src);
   const out = await runProvider(prompt, [src, overlay], nearestAspectRatio(size.width, size.height));
   if (out) {
     const fitted = await resizeTo(out, size.width, size.height);
-    const merged = await compositeMasked(src, fitted, mask);
+    const merged = await compositeMasked(src, fitted, union);
     await record("spot-edit", prompt, src, merged);
     state.editSource = merged;
-    maskCanvas = null;
+    painter = null;
+    state.zonePrompts = {};
     showEditResult(src, merged, "spot-edit");
     return;
   }
@@ -1684,7 +1887,10 @@ function themeButton(): HTMLElement {
       state.settings.theme = next;
       applyLook(state.settings);
       persist();
-      render();
+      // Swap only the icon; the rest of the panel stays where it is.
+      const ic = btn.querySelector(".icon");
+      if (ic) ic.innerHTML = iconSvg(next === "dark" ? "moon" : "sun", 18);
+      btn.title = next === "dark" ? "Switch to light mode" : "Switch to dark mode";
     });
   }, "theme-btn");
   return btn;
@@ -1742,6 +1948,7 @@ function lookSheet(): HTMLElement {
             h("span", {}, a.label),
           ),
         ),
+        customAccent(),
       ),
     ),
     section(
@@ -1834,8 +2041,7 @@ const CARD_HOURS: Record<string, number> = { morning: 7, noon: 12, afternoon: 16
 const DIAL_START = 5.5;
 const DIAL_END = 19.5;
 
-function dialHour(): { hour: number; live: boolean } {
-  const id = state.preset.lighting;
+function dialHour(id: string): { hour: number; live: boolean } {
   const t0 = parseDialTime(id);
   if (t0 !== null) return { hour: t0, live: true };
   if (id === "sketchup" && state.capture?.facts?.shadowTime) {
@@ -1873,7 +2079,11 @@ function sunColour(phase: string): [string, string, string] {
   }
 }
 
-function sunDial(): HTMLElement {
+let dialCount = 0;
+
+/** Draggable sun. `get` and `set` read and write a lighting id. */
+function sunDial(get: () => string = () => state.preset.lighting, set: (id: string) => void = (id) => (state.preset.lighting = id)): HTMLElement {
+  const uid = `d${++dialCount}`;
   const W = 320;
   const H = 150;
   const cx = W / 2;
@@ -1887,17 +2097,17 @@ function sunDial(): HTMLElement {
   };
   const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "dial-svg", role: "slider", "aria-label": "Time of day" }) as SVGSVGElement;
   const defs = el("defs", {});
-  const grad = el("linearGradient", { id: "dial-sky", x1: 0, y1: 0, x2: 0, y2: 1 });
+  const grad = el("linearGradient", { id: `${uid}-sky`, x1: 0, y1: 0, x2: 0, y2: 1 });
   const stopTop = el("stop", { offset: "0%" });
   const stopBot = el("stop", { offset: "100%" });
   grad.append(stopTop, stopBot);
-  const glow = el("radialGradient", { id: "dial-glow" });
+  const glow = el("radialGradient", { id: `${uid}-glow` });
   const g0 = el("stop", { offset: "0%", "stop-opacity": 0.9 });
   const g1 = el("stop", { offset: "100%", "stop-opacity": 0 });
   glow.append(g0, g1);
   defs.append(grad, glow);
   svg.append(defs);
-  svg.append(el("rect", { x: 0, y: 0, width: W, height: cy, rx: 10, fill: "url(#dial-sky)", class: "dial-sky" }));
+  svg.append(el("rect", { x: 0, y: 0, width: W, height: cy, rx: 10, fill: `url(#${uid}-sky)`, class: "dial-sky" }));
   svg.append(el("rect", { x: 0, y: cy, width: W, height: H - cy, fill: "var(--field)" }));
   svg.append(el("path", { d: `M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`, fill: "none", stroke: "rgba(255,255,255,0.35)", "stroke-width": 1.2, "stroke-dasharray": "3 5" }));
   svg.append(el("line", { x1: 8, y1: cy, x2: W - 8, y2: cy, stroke: "rgba(255,255,255,0.45)", "stroke-width": 1 }));
@@ -1918,7 +2128,7 @@ function sunDial(): HTMLElement {
   const west = el("text", { x: W - 12, y: cy + 16, "text-anchor": "end", class: "dial-dir" });
   west.textContent = "W";
   svg.append(east, west);
-  const halo = el("circle", { r: 26, fill: "url(#dial-glow)" });
+  const halo = el("circle", { r: 26, fill: `url(#${uid}-glow)` });
   const sun = el("circle", { r: 9, class: "dial-sun" });
   const label = el("text", { x: cx, y: cy - 34, "text-anchor": "middle", class: "dial-phase" });
   const time = el("text", { x: cx, y: cy - 16, "text-anchor": "middle", class: "dial-time" });
@@ -1944,7 +2154,7 @@ function sunDial(): HTMLElement {
     svg.classList.toggle("dim", !live);
     caption.textContent = live ? `${sunText(hour, month)}.` : "This light has no fixed sun position. Drag the sun to pick a time.";
   };
-  const start = dialHour();
+  const start = dialHour(get());
   draw(start.hour, start.live);
 
   let dragging = false;
@@ -1958,7 +2168,7 @@ function sunDial(): HTMLElement {
   };
   const setFrom = (e: PointerEvent) => {
     const id = dialTimeId(hourAt(e));
-    state.preset.lighting = id;
+    set(id);
     draw(parseDialTime(id)!, true);
     updatePromptPreview();
   };
@@ -2145,4 +2355,189 @@ function contextSheet(): HTMLElement {
     ),
   );
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close(false) }, sheet);
+}
+
+function customAccent(): HTMLElement {
+  const s = state.settings;
+  const input = h("input", { type: "color", value: s.accentCustom, "aria-label": "Pick your own accent colour" }) as HTMLInputElement;
+  input.addEventListener("input", () => {
+    s.accent = "custom";
+    s.accentCustom = input.value;
+    applyLook(s);
+  });
+  input.addEventListener("change", async () => {
+    await persist();
+    render();
+  });
+  const a = accentFrom(s.accentCustom);
+  return h(
+    "label",
+    { class: s.accent === "custom" ? "accent-dot custom active" : "accent-dot custom", style: `--dot:${a.color}`, title: "Your own colour" },
+    h("i", {}),
+    h("span", {}, "Custom"),
+    input,
+  );
+}
+
+// ---------- Scene light fixtures ----------
+
+function tipButton(iconName: string, tip: string, active: boolean, onclick: () => void, extra = ""): HTMLElement {
+  return h("button", { class: `fx-btn${active ? " active" : ""} ${extra}`, type: "button", "data-tip": tip, "aria-label": tip, "aria-pressed": active ? "true" : "false", onclick }, icon(iconName, 20));
+}
+
+function fixturesSection(): HTMLElement {
+  const f = state.settings.fixtures;
+  const type = state.preset.projectType;
+  const save = () => {
+    persist();
+    render();
+  };
+  const kelvins = h(
+    "div",
+    { class: "fx-kelvins" },
+    KELVINS.map((k) =>
+      h(
+        "button",
+        {
+          class: k === f.kelvin ? "fx-k active" : "fx-k",
+          type: "button",
+          "data-tip": `${k}K, ${kelvinLabel(k).toLowerCase()}`,
+          "aria-label": `${k}K`,
+          style: `--k:${rgbCss(kelvinToRgb(k))}`,
+          onclick: () => {
+            f.kelvin = k;
+            save();
+          },
+        },
+        h("i", {}),
+      ),
+    ),
+  );
+  let buttons: HTMLElement[];
+  if (type === "interior") {
+    buttons = [
+      tipButton("downlight", "LED downlights", f.led, () => ((f.led = !f.led), save())),
+      tipButton("strip", "LED light strip", f.strip, () => ((f.strip = !f.strip), save())),
+      tipButton("cabinet", "Cabinet lights", f.cabinet, () => ((f.cabinet = !f.cabinet), save())),
+    ];
+  } else {
+    buttons = [
+      tipButton("bulb", "Exterior lights on", f.exterior === true, () => ((f.exterior = f.exterior === true ? null : true), save())),
+      tipButton("bulbOff", "Exterior lights off", f.exterior === false, () => ((f.exterior = f.exterior === false ? null : false), save())),
+    ];
+  }
+  const anyOn = type === "interior" ? f.led || f.strip || f.cabinet : f.exterior === true;
+  return section(
+    type === "interior" ? "Interior lights" : "Exterior lights",
+    h("div", { class: "fx-row" }, buttons),
+    anyOn ? kelvins : null,
+  );
+}
+
+// ---------- First run ----------
+
+function onboarding(): HTMLElement {
+  const s = state.settings;
+  const choices: { id: string; label: string; sub: string; iconName: string; apply: () => void }[] = [
+    { id: "b-gemini", label: "Gemini", sub: "Your Google account", iconName: "render", apply: () => ((s.backend = "browser"), (s.browserSite = "gemini")) },
+    { id: "b-chatgpt", label: "ChatGPT", sub: "Your OpenAI account", iconName: "wand", apply: () => ((s.backend = "browser"), (s.browserSite = "chatgpt")) },
+    { id: "b-flow", label: "Google Flow", sub: "Your Google account", iconName: "aerial", apply: () => ((s.backend = "browser"), (s.browserSite = "flow")) },
+    { id: "key", label: "Gemini API key", sub: "From Google AI Studio", iconName: "key", apply: () => (s.backend = "gemini") },
+    { id: "comfy", label: "ComfyUI", sub: "Local models on this PC", iconName: "gear", apply: () => (s.backend = "comfyui") },
+  ];
+  const picked =
+    s.backend === "browser" ? `b-${s.browserSite}` : s.backend === "comfyui" ? "comfy" : s.backend === "gemini" && state.onboardStep > 0 ? "key" : state.onboardPick;
+  const finish = async () => {
+    s.onboarded = true;
+    await persist();
+    render();
+    toast("All set. Frame a view and press Capture.", "ok");
+  };
+  const card = h("div", { class: "onboard" });
+  card.append(logo(40), h("h2", {}, "Welcome to AI Render Suite"));
+  if (state.onboardStep === 0) {
+    card.append(
+      h("p", { class: "hint" }, "Where should your renders be made? You can change this later in Settings."),
+      h(
+        "div",
+        { class: "ob-grid" },
+        choices.map((c) =>
+          h(
+            "button",
+            {
+              class: c.id === picked ? "ob-choice active" : "ob-choice",
+              type: "button",
+              onclick: () => {
+                c.apply();
+                state.onboardPick = c.id;
+                render();
+              },
+            },
+            icon(c.iconName, 22),
+            h("strong", {}, c.label),
+            h("small", {}, c.sub),
+          ),
+        ),
+      ),
+      primaryButton("Continue", "arrowRight", async () => {
+        if (!picked) return toast("Pick one to continue.", "error");
+        await persist();
+        state.onboardStep = 1;
+        render();
+      }, !picked, "wide"),
+    );
+  } else {
+    const back = button("Back", "arrowLeft", () => {
+      state.onboardStep = 0;
+      render();
+    }, "ghost");
+    if (s.backend === "browser") {
+      const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
+      card.append(
+        h("p", { class: "hint" }, `Sign in to ${site.label} once in the window that opens. SketchUp remembers it, so next time the panel opens straight away.`),
+        host.kind === "sketchup"
+          ? primaryButton(`Open ${site.label} and sign in`, "eye", async () => {
+              try {
+                await host.call("browserOpen", { site: site.id });
+              } catch (e) {
+                toast((e as Error).message, "error");
+              }
+            }, false, "wide")
+          : h("p", { class: "hint warn" }, "Account sign-in works inside the SketchUp plugin. In the web app, pick Gemini API key instead."),
+        h("div", { class: "row" }, back, h("span", { class: "grow" }), button("I've signed in", "check", finish, "primary")),
+      );
+    } else if (s.backend === "gemini") {
+      const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Paste your Gemini API key", autocomplete: "off" }) as HTMLInputElement;
+      card.append(
+        h("p", { class: "hint" }, "Get a key at aistudio.google.com. Image generation is billed to that key's Google account."),
+        key,
+        h(
+          "div",
+          { class: "row" },
+          back,
+          h("span", { class: "grow" }),
+          button("Test and finish", "check", async () => {
+            s.geminiKey = key.value.trim();
+            if (!s.geminiKey) return toast("Paste a key first.", "error");
+            try {
+              toast("Checking the key...");
+              await new GeminiProvider(s.geminiKey).listImageModels();
+              await finish();
+            } catch (e) {
+              toast((e as Error).message, "error");
+            }
+          }, "primary"),
+        ),
+      );
+    } else {
+      card.append(
+        h("p", { class: "hint" }, "Start ComfyUI with --enable-cors-header, then paste your workflow in Settings. You can finish now and do that next."),
+        h("div", { class: "row" }, back, h("span", { class: "grow" }), button("Finish", "check", async () => {
+          await finish();
+          openSettings();
+        }, "primary")),
+      );
+    }
+  }
+  return h("div", { class: "onboard-backdrop" }, card);
 }
