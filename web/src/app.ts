@@ -365,7 +365,7 @@ function render(): void {
       "header",
       { class: "topbar" },
       logo(26),
-      h("div", { class: "brand" }, h("strong", {}, "AI Render Suite"), h("small", {}, host.kind === "sketchup" ? "for SketchUp" : "web")),
+      h("div", { class: "brand" }, h("strong", {}, "David Render Studio"), h("small", {}, host.kind === "sketchup" ? "for SketchUp" : "web")),
       browserButton(),
       backendPill(),
       themeButton(),
@@ -2558,7 +2558,7 @@ function onboarding(): HTMLElement {
     toast("All set. Frame a view and press Capture.", "ok");
   };
   const card = h("div", { class: "onboard" });
-  card.append(logo(40), h("h2", {}, "Welcome to AI Render Suite"));
+  card.append(logo(40), h("h2", {}, "Welcome to David Render Studio"));
   if (state.onboardStep === 0) {
     card.append(
       h("p", { class: "hint" }, "Where should your renders be made? You can change this later in Settings."),

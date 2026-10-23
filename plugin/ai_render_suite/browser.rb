@@ -25,7 +25,7 @@ module AIRenderSuite
 
     def self.create_dialog
       d = UI::HtmlDialog.new(
-        dialog_title: 'AI Render Suite - Browser',
+        dialog_title: 'David Render Studio - Browser',
         preferences_key: 'AIRenderSuite.browser',
         scrollable: true,
         resizable: true,

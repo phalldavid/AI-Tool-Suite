@@ -50,7 +50,7 @@ module AIRenderSuite
       end
       overlay.enabled = true if overlay.respond_to?(:enabled=)
     rescue StandardError => e
-      puts "AI Render Suite: could not add the frame overlay (#{e.message})"
+      puts "David Render Studio: could not add the frame overlay (#{e.message})"
     end
 
     if defined?(Sketchup::Overlay)
@@ -59,7 +59,7 @@ module AIRenderSuite
         EDGE = Sketchup::Color.new(255, 255, 255, 220)
 
         def initialize
-          super('airs.render_frame', 'AI Render Suite frame',
+          super('airs.render_frame', 'David Render Studio frame',
                 description: 'Shows the aspect ratio that AI renders will use.')
         end
 

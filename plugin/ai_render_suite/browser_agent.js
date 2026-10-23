@@ -161,7 +161,7 @@
       var m = /^data:([^;]+);base64,(.*)$/.exec(url);
       if (!m) throw new Error('bad image');
       post({ type: 'result', mimeType: m[1], data: m[2] });
-      bar('Result sent back to AI Render Suite.');
+      bar('Result sent back to David Render Studio.');
       return true;
     } catch (e) {
       status('This image could not be read from the page. Right-click it, Save image, then upload it in the panel.', 'error');

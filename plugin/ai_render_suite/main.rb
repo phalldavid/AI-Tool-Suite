@@ -19,7 +19,7 @@ module AIRenderSuite
 
   def self.create_dialog
     d = UI::HtmlDialog.new(
-      dialog_title: 'AI Render Suite',
+      dialog_title: 'David Render Studio',
       preferences_key: 'AIRenderSuite.panel',
       scrollable: true,
       resizable: true,
@@ -58,7 +58,7 @@ module AIRenderSuite
   end
 
   unless file_loaded?(__FILE__)
-    menu = UI.menu('Extensions').add_submenu('AI Render Suite')
+    menu = UI.menu('Extensions').add_submenu('David Render Studio')
     menu.add_item('Open panel') { show_panel }
     menu.add_item('Capture view and open panel') { capture_now }
     menu.add_separator
@@ -67,17 +67,17 @@ module AIRenderSuite
       menu.add_item("Open browser: #{label}") { Browser.open(site) }
     end
 
-    open_cmd = UI::Command.new('AI Render Suite') { show_panel }
-    open_cmd.tooltip = 'AI Render Suite'
-    open_cmd.status_bar_text = 'Open the AI Render Suite panel.'
+    open_cmd = UI::Command.new('David Render Studio') { show_panel }
+    open_cmd.tooltip = 'David Render Studio'
+    open_cmd.status_bar_text = 'Open the David Render Studio panel.'
     open_cmd.small_icon = open_cmd.large_icon = icon('panel')
 
     capture_cmd = UI::Command.new('Capture view for AI render') { capture_now }
     capture_cmd.tooltip = 'Capture view for AI render'
-    capture_cmd.status_bar_text = 'Capture the current view and send it to the AI Render Suite panel.'
+    capture_cmd.status_bar_text = 'Capture the current view and send it to the David Render Studio panel.'
     capture_cmd.small_icon = capture_cmd.large_icon = icon('capture')
 
-    toolbar = UI::Toolbar.new('AI Render Suite')
+    toolbar = UI::Toolbar.new('David Render Studio')
     toolbar.add_item(open_cmd)
     toolbar.add_item(capture_cmd)
     toolbar.restore

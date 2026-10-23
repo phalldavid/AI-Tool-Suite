@@ -81,7 +81,7 @@ module AIRenderSuite
       si = model.shadow_info
       keys = ro.keys
       saved = {}
-      model.start_operation('AI Render Suite capture', true)
+      model.start_operation('David Render Studio capture', true)
       begin
         LINE_STYLE.each do |k, v|
           next unless keys.include?(k)

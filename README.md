@@ -1,4 +1,4 @@
-# AI Tool Suite Plugin for SketchUp
+# David Render Studio for SketchUp
 
 AI renders straight from the SketchUp view, using **your own Gemini API key** or **ComfyUI on your own PC**. No credits, no account with us, no server in between. The same interface also runs as a web app for photos, CAD exports and iPad sketches.
 
@@ -26,7 +26,7 @@ The prompt is built from the preset (project type, lighting, environment, materi
 1. Download `ai_render_suite.rbz` from the latest CI run (Actions tab, artifact `ai_render_suite-rbz`), or build it yourself (below).
 2. In SketchUp 2021 or newer: **Extensions > Extension Manager > Install Extension**, pick the .rbz.
 3. If SketchUp refuses it as unsigned, open **Extension Manager > settings (gear)** and set the loading policy to allow unsigned extensions, then install again.
-4. Open **Extensions > AI Render Suite > Open panel**, go to **Settings**, paste your Gemini key and press **Test key and load models**.
+4. Open **Extensions > David Render Studio > Open panel**, go to **Settings**, paste your Gemini key and press **Test key and load models**.
 
 Renders are saved into an `AI Renders` folder next to the .skp file.
 
