@@ -41,6 +41,7 @@ module AIRenderSuite
       when 'browserCancel' then Browser.cancel
       when 'kieHttp' then Kie.http(payload, id)
       when 'kieDownload' then Kie.download(payload)
+      when 'openUrl' then open_url(payload['url'])
       else raise "Unknown request: #{action}"
       end
     end
@@ -82,6 +83,13 @@ module AIRenderSuite
       end
       File.binwrite(path, payload['data'].to_s.unpack1('m'))
       path
+    end
+
+    # Opens a web page in the system browser. https only.
+    def self.open_url(url)
+      raise 'Only https links can be opened.' unless url.to_s.start_with?('https://')
+      UI.openURL(url.to_s)
+      nil
     end
 
     def self.open_folder

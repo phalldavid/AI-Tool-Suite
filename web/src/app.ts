@@ -40,7 +40,7 @@ import {
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
 import { KIE_KEY_PAGE } from "./providers/kie";
-import { findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, type KieFamilyId, type KieResolution } from "./providers/kie-models";
+import { findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
@@ -239,6 +239,74 @@ function sectionWith(title: string, aside: Node | null, ...children: (Node | nul
   return h("section", { class: "section" }, h("div", { class: "section-head" }, h("h3", {}, title), aside), ...children);
 }
 
+// Folding sections: the header becomes a toggle, and a closed section shows
+// a one-line summary of its current value. Open/closed is remembered per
+// section on this computer.
+const FOLD_KEY = "airs.folds";
+function foldState(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+function fold(el: HTMLElement, id: string, summary: string, openByDefault: boolean): HTMLElement {
+  const saved = foldState()[id];
+  let open = saved === undefined ? openByDefault : saved;
+  const head = el.querySelector(":scope > .section-head") as HTMLElement | null;
+  const title = head?.querySelector("h3");
+  if (!head || !title) return el;
+  const bodyId = `fold-${id}`;
+  const sum = h("span", { class: "fold-sum" }, summary);
+  const toggle = h(
+    "button",
+    { class: "fold-toggle", type: "button", "aria-expanded": String(open), "aria-controls": bodyId },
+    icon("chevron", 16),
+    h("h3", {}, title.textContent ?? ""),
+    sum,
+  ) as HTMLButtonElement;
+  title.replaceWith(toggle);
+  const inner = h("div", { class: "fold-body", id: bodyId });
+  while (head.nextSibling) inner.append(head.nextSibling);
+  el.append(inner);
+  const apply = () => {
+    el.classList.toggle("closed", !open);
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+  toggle.addEventListener("click", () => {
+    open = !open;
+    try {
+      localStorage.setItem(FOLD_KEY, JSON.stringify({ ...foldState(), [id]: open }));
+    } catch {
+      /* storage blocked: folding still works for this session */
+    }
+    apply();
+  });
+  el.classList.add("fold");
+  apply();
+  return el;
+}
+
+/** A link that opens in the system browser (from SketchUp) or a new tab. */
+function extLink(url: string, label: string): HTMLElement {
+  return h(
+    "a",
+    {
+      href: url,
+      target: "_blank",
+      rel: "noopener",
+      class: "link",
+      onclick: (e: Event) => {
+        if (host.kind !== "sketchup") return;
+        e.preventDefault();
+        host.call("openUrl", { url }).catch(() => undefined);
+      },
+    },
+    label,
+  );
+}
+
 function chip(label: string, active: boolean, onclick: () => void, extra?: Node, title?: string): HTMLElement {
   return h("button", { class: active ? "chip active" : "chip", onclick, title, type: "button", "aria-pressed": active ? "true" : "false" }, extra ?? null, label);
 }
@@ -331,7 +399,7 @@ function backendPill(): HTMLElement {
     "button",
     { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title, type: "button" },
     h("span", { class: "dot" }),
-    ready ? h("span", {}, h("strong", {}, platform), " · Connected") : "Set up backend",
+    ready ? h("span", {}, h("strong", {}, platform), h("span", { class: "pill-state" }, " · Connected")) : "Set up backend",
   );
 }
 
@@ -726,8 +794,15 @@ function lightingOptions(): Option[] {
 function renderTab(body: HTMLElement): void {
   const p = state.preset;
   body.append(stage());
-  body.append(modelSection());
-  body.append(frameSection());
+  const m = findKieModel(state.settings.kieModel);
+  const modelSummary =
+    state.settings.backend === "kie" && state.settings.kieKey
+      ? `${m.label} · ${resolutionFor(m, state.settings.kieResolution)}`
+      : state.settings.kieKey
+        ? "Pick a Kie model"
+        : "Add a Kie.ai key";
+  body.append(fold(modelSection(), "model", modelSummary, !state.settings.kieKey));
+  body.append(fold(frameSection(), "frame", frameLabel(), true));
 
   const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
   body.append(
@@ -743,29 +818,6 @@ function renderTab(body: HTMLElement): void {
       ),
     ),
   );
-
-  body.append(fixturesSection());
-
-  body.append(
-    section(
-      t("Environment"),
-      sunDial(),
-      h(
-        "div",
-        { class: "light-grid" },
-        lightingOptions().map((o) =>
-          lightingCard(o, o.id === p.lighting, () => {
-            state.preset.lighting = o.id;
-            render();
-          }),
-        ),
-      ),
-    ),
-  );
-
-  body.append(surroundingsSection());
-
-  body.append(dynamicSection());
 
   const presetCards = h(
     "div",
@@ -785,7 +837,7 @@ function renderTab(body: HTMLElement): void {
         },
         h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
         h("strong", {}, x.name),
-        h("small", {}, `${PROJECT_TYPES[x.projectType].label.replace(" / masterplan", "")}${x.builtIn ? "" : " · mine"}`),
+        x.builtIn ? null : h("small", {}, "Your preset"),
       ),
     ),
   );
@@ -793,7 +845,7 @@ function renderTab(body: HTMLElement): void {
     presetCards.append(h("p", { class: "hint" }, "No presets for this scene yet. Set it up and press + to save one."));
   }
   body.append(
-    sectionWith(
+    fold(sectionWith(
       t("Style preset"),
       h(
         "div",
@@ -822,10 +874,29 @@ function renderTab(body: HTMLElement): void {
           updatePromptPreview();
         }),
       ),
-    ),
-  );
+    ), "preset", p.name, true));
 
-  if (host.kind === "sketchup") body.append(geometrySection());
+  body.append(
+    fold(section(
+      t("Environment"),
+      sunDial(),
+      h(
+        "div",
+        { class: "light-grid" },
+        lightingOptions().map((o) =>
+          lightingCard(o, o.id === p.lighting, () => {
+            state.preset.lighting = o.id;
+            render();
+          }),
+        ),
+      ),
+    ), "environment", lightingOptions().find((o) => o.id === p.lighting)?.label ?? "", true));
+
+  body.append(fold(surroundingsSection(), "surroundings", parseContexts(p.environment).map(contextLabel).join(", ") || "As modelled", false));
+  body.append(fixturesFold());
+  body.append(fold(dynamicSection(), "dynamic", dynamicSummary(), false));
+
+  if (host.kind === "sketchup") body.append(fold(geometrySection(), "geometry", `${state.settings.lineStrength.toFixed(2)}`, false));
   body.append(
     h(
       "details",
@@ -854,6 +925,18 @@ function renderTab(body: HTMLElement): void {
       h("div", { class: "field" }, h("span", {}, "Prompt sent to the AI"), h("pre", { id: "prompt-preview" }, currentRenderPrompt())),
     ),
   );
+}
+
+function dynamicSummary(): string {
+  const n = GENERATORS.filter((g) => dynamicLines({ [g.id]: state.settings.dynamic[g.id] ?? {} }).length).length;
+  return n ? `${n} on` : "Off";
+}
+
+function fixturesFold(): HTMLElement {
+  const f = state.settings.fixtures;
+  const interior = state.preset.projectType === "interior";
+  const on = interior ? [f.led && "LED", f.strip && "Strip", f.cabinet && "Cabinet"].filter(Boolean).join(", ") : f.exterior === true ? "On" : f.exterior === false ? "Off" : "";
+  return fold(fixturesSection(), "fixtures", on ? `${on} · ${f.kelvin}K` : "As modelled", false);
 }
 
 function renderBar(): HTMLElement {
@@ -1912,12 +1995,12 @@ function settingsSheet(): HTMLElement {
     h("div", { class: "sheet-head" }, h("h2", {}, t("Settings")), iconButton("close", "Close", close)),
     section(
       t("AI backend"),
-      segmented(
+      h("div", { class: "backend-pick" }, segmented(
         [
           { id: "kie", label: "Kie.ai key", icon: "key" },
           { id: "gemini", label: "Gemini key", icon: "key" },
           { id: "browser", label: "Your account", icon: "eye" },
-          { id: "comfyui", label: "ComfyUI (local)", icon: "gear" },
+          { id: "comfyui", label: "ComfyUI", icon: "gear" },
         ],
         state.settingsKie ? "kie" : s.backend,
         async (v) => {
@@ -1926,7 +2009,7 @@ function settingsSheet(): HTMLElement {
           await persist();
           render();
         },
-      ),
+      )),
     ),
   );
 
@@ -1949,7 +2032,7 @@ function settingsSheet(): HTMLElement {
           "p",
           { class: "hint" },
           "One key for Nano Banana, GPT Image and Seedream. Get it at ",
-          h("a", { href: KIE_KEY_PAGE, target: "_blank", rel: "noopener" }, "kie.ai/api-key"),
+          extLink(KIE_KEY_PAGE, "kie.ai/api-key"),
           ". Images are billed to your own Kie credits. The key stays on this computer only; it is never put in history or presets.",
         ),
         h("p", { class: "hint" }, "Pick the model on the Render tab, under AI model."),
@@ -2835,7 +2918,7 @@ function onboarding(): HTMLElement {
           "p",
           { class: "hint" },
           "Get a key at ",
-          h("a", { href: KIE_KEY_PAGE, target: "_blank", rel: "noopener" }, "kie.ai/api-key"),
+          extLink(KIE_KEY_PAGE, "kie.ai/api-key"),
           ". One key covers Nano Banana, GPT Image and Seedream, billed to your own Kie credits.",
         ),
         key,
