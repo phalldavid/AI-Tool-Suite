@@ -441,3 +441,10 @@ body, .section, .tabs, .sheet, .render-bar, .chip, .pill { transition: backgroun
 .ob-choice.active .icon { color: var(--accent); }
 .hint.warn { color: var(--warn); }
 .grow { flex: 1; }
+.pill strong { color: var(--text); font-weight: 600; }
+.browser-btn.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+@media (max-width: 500px) {
+  .topbar .brand { display: none; }
+  .topbar > .logo { margin-right: auto; }
+  .topbar .pill { max-width: 58vw; }
+}

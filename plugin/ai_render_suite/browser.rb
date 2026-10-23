@@ -37,7 +37,12 @@ module AIRenderSuite
       )
       # The page calls this from browser_agent.js. It is the only way back.
       d.add_action_callback('airsBrowser') { |_ctx, json| on_agent(json) }
-      d.set_on_closed { @dialog = nil; @site = nil; fail_pending('The browser window was closed.') }
+      d.set_on_closed do
+        @dialog = nil
+        @site = nil
+        fail_pending('The browser window was closed.')
+        Bridge.notify('browserVisible', false)
+      end
       d
     end
 
@@ -49,8 +54,41 @@ module AIRenderSuite
         @site = site
         @loaded_at = Time.now
       end
-      dialog.visible? ? dialog.bring_to_front : dialog.show
+      if dialog.visible?
+        dialog.bring_to_front
+      else
+        dialog.show
+        # Dock once the window exists, so the OS has placed it first.
+        UI.start_timer(0.15, false) { dock }
+      end
+      Bridge.notify('browserVisible', true)
       nil
+    end
+
+    # Opens the browser beside the panel, or closes it if it is open.
+    # Returns true when it is now open.
+    def self.toggle(site)
+      if @dialog && @dialog.visible?
+        @dialog.close
+        return false
+      end
+      open(site)
+      true
+    end
+
+    # Chat sites refuse to load inside another page (they block framing),
+    # so the browser cannot live inside the panel itself. Instead it is a
+    # window snapped to the panel's left edge at the same height.
+    def self.dock
+      main = AIRenderSuite.open_dialog
+      return unless main && @dialog && main.respond_to?(:get_position) && main.respond_to?(:get_size)
+      x, y = main.get_position
+      _w, h = main.get_size
+      width = [[x, 1100].min, 640].max
+      @dialog.set_position([x - width, 0].max, y)
+      @dialog.set_size(width, h)
+    rescue StandardError
+      nil # older SketchUp: leave the window where the OS put it
     end
 
     # Starts a render. The reply to the panel is sent later, when the result

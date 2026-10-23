@@ -73,6 +73,8 @@ interface State {
   ctxOpen: boolean;
   ctxGroup: string;
   frameEditor: boolean;
+  /** the docked chat browser is open */
+  browserOpen: boolean;
   onboardStep: number;
   onboardPick: string;
   settings: Settings;
@@ -122,6 +124,7 @@ export async function start(el: HTMLElement): Promise<void> {
     ctxOpen: false,
     ctxGroup: CONTEXT_GROUPS[0].id,
     frameEditor: false,
+    browserOpen: false,
     onboardStep: 0,
     onboardPick: "",
     settings,
@@ -154,6 +157,11 @@ export async function start(el: HTMLElement): Promise<void> {
   applyLook(settings);
   setLang(settings.lang);
   host.onEvent((name, payload) => {
+    if (name === "browserVisible") {
+      state.browserOpen = Boolean(payload);
+      const b = document.querySelector(".browser-btn");
+      if (b) b.classList.toggle("active", state.browserOpen);
+    }
     if (name === "browserStatus") {
       const p = payload as { text: string; kind: string };
       toast(p.text, p.kind === "error" ? "error" : p.kind === "ok" ? "ok" : "info");
@@ -306,13 +314,32 @@ function backendPill(): HTMLElement {
   const s = state.settings;
   const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
   const ready = s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : Boolean(s.geminiKey);
-  const label =
-    s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? `${site.label} · your account` : s.geminiModel.replace(/^gemini-/, "Gemini ").replace(/-/g, " ");
+  const platform = s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? site.label : "Gemini API";
+  const title = s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : "Backend settings";
   return h(
     "button",
-    { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title: "Backend settings", type: "button" },
+    { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title, type: "button" },
     h("span", { class: "dot" }),
-    ready ? label : "Set up backend",
+    ready ? h("span", {}, h("strong", {}, platform), " · Connected") : "Set up backend",
+  );
+}
+
+/** Computer button: opens the chat site docked to the panel's left side. */
+function browserButton(): HTMLElement | null {
+  if (host.kind !== "sketchup" || state.settings.backend !== "browser") return null;
+  const site = BROWSER_SITES.find((x) => x.id === state.settings.browserSite) ?? BROWSER_SITES[0];
+  return iconButton(
+    "monitor",
+    state.browserOpen ? `Close ${site.label}` : `Open ${site.label} beside the panel`,
+    async () => {
+      try {
+        state.browserOpen = await host.call<boolean>("browserToggle", { site: site.id });
+        render();
+      } catch (e) {
+        toast((e as Error).message, "error");
+      }
+    },
+    state.browserOpen ? "browser-btn active" : "browser-btn",
   );
 }
 
@@ -336,6 +363,7 @@ function render(): void {
       { class: "topbar" },
       logo(26),
       h("div", { class: "brand" }, h("strong", {}, "AI Render Suite"), h("small", {}, host.kind === "sketchup" ? "for SketchUp" : "web")),
+      browserButton(),
       backendPill(),
       themeButton(),
       iconButton("palette", t("Customise"), () => {

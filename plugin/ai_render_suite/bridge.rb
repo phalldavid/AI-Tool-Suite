@@ -35,6 +35,7 @@ module AIRenderSuite
       when 'pickMirror' then Mirror.start_pick_tool(payload['settings'] || {})
       when 'refreshMirrors' then Mirror.refresh_all
       when 'browserOpen' then Browser.open(payload['site'].to_s)
+      when 'browserToggle' then Browser.toggle(payload['site'].to_s)
       when 'browserRender' then Browser.render(payload, id)
       when 'browserGrab' then Browser.grab
       when 'browserCancel' then Browser.cancel
