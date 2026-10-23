@@ -38,7 +38,7 @@ test("prompt carries locks, DNA, people, reference and avoid in order, notes win
     referenceIndex: 2,
     avoid: "plastic",
   });
-  const order = ["Material lock", "Boundary lock", "Material list", "- Floor: terrazzo", "Image 2 is a style reference", "People: A woman", "Additional notes", "follow the notes", "Avoid: plastic."];
+  const order = ["Material lock", "Boundary lock", "Material list", "- Floor: terrazzo", "Image 2 is a style reference", "People: A woman", "Additional notes", "follow the additional notes first", "Avoid: plastic."];
   let at = -1;
   for (const o of order) {
     const i = p.indexOf(o);
@@ -90,4 +90,25 @@ test("kie analyser uploads then asks the vision model", async () => {
   };
   assert.equal(await kieAnalyser("k", t)("p", { mimeType: "image/jpeg", data: "AA" }), "Floor: tiles");
   assert.match(calls[1], /gemini-3-6-flash-openai\/v1\/chat\/completions/);
+});
+
+test("each topic has one source: lock beats preset materials, Time beats preset lighting", () => {
+  const preset = { ...BUILT_IN_PRESETS[0], style: "white render, teak" };
+  const locked = buildRenderPrompt({ preset, hasLinePass: false, materialLock: true, extras: ["Materials: Floor in terrazzo."] });
+  assert.ok(locked.includes("Finish quality and mood (materials stay as modelled): white render, teak."));
+  assert.ok(!locked.includes("Materials: Floor in terrazzo."));
+  assert.ok(!locked.includes("Materials and style:"));
+  const withDna = buildRenderPrompt({ preset, hasLinePass: false, dna: ["Floor: terrazzo"] });
+  assert.ok(withDna.includes("Overall style: white render, teak."));
+  const timed = buildRenderPrompt({ preset, hasLinePass: false, lightingFromDynamic: true, extras: ["Time and weather: night."] });
+  assert.ok(!timed.includes("Lighting:"));
+  assert.ok(timed.includes("Time and weather: night."));
+  const people = buildRenderPrompt({ preset, hasLinePass: false, people: "Two kids play.", extras: ["People: add tourists."] });
+  assert.ok(!people.includes("add tourists"));
+});
+
+test("a locked earlier render is sent as a same-project reference", () => {
+  const p = buildRenderPrompt({ preset: BUILT_IN_PRESETS[0], hasLinePass: true, referenceIndex: 3, referenceIsRender: true });
+  assert.ok(p.includes("Image 3 is an earlier render of this same project"));
+  assert.ok(!p.includes("style reference only"));
 });

@@ -3,7 +3,7 @@
 import { clear, h } from "./dom";
 import { cropImage, cropToRatio, FRAMES, findFrame, isListed, ratioFromPixels, swapFrameId } from "./frame";
 import { detectHost, type Host } from "./host";
-import { addHistory, listHistory, removeHistory } from "./history";
+import { addHistory, listHistory, rateHistory, ratingSummary, removeHistory } from "./history";
 import { icon, iconSvg, logo } from "./icons";
 import { compositeMasked, fileToImage, imageSize, resizeTo, shrinkJpeg, toDataUrl, zoneOverlay } from "./images";
 import { ZONES, ZonePainter, type PaintTool } from "./zones";
@@ -46,7 +46,7 @@ import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearanc
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
-import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings } from "./settings";
+import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
 import {
   cleanPeople,
   dnaConflicts,
@@ -176,7 +176,7 @@ export async function start(el: HTMLElement): Promise<void> {
     frameId: settings.frameId ?? "16:9",
     capturedFrameId: "",
     showFrame: true,
-    preset: { ...BUILT_IN_PRESETS[0] },
+    preset: settings.styleLock ? { ...settings.styleLock.preset } : { ...BUILT_IN_PRESETS[0] },
     notes: "",
     promptEdit: null,
     people: "",
@@ -865,77 +865,204 @@ function lightingOptions(): Option[] {
   return host.kind === "sketchup" ? [SKETCHUP_SUN, ...LIGHTING] : LIGHTING;
 }
 
+// Quick render offers four starter looks per scene type. They are the
+// built-in presets with the plainest, most reliable wording; David's own
+// test renders should decide the final four.
+const QUICK_LOOKS: Record<ProjectType, string[]> = {
+  exterior: ["shophouse-row-day", "twin-villa-golden", "borey-villa-dusk", "link-house-overcast"],
+  interior: ["living-room-warm", "kitchen-white-oak", "bedroom-soft", "condo-lobby-evening"],
+  aerial: ["borey-masterplan", "masterplan-aerial", "mixed-use-district", "township-blue-hour"],
+  sketch: ["sketch-to-photo", "massing-to-photo", "sketch-interior", "elevation-to-photo"],
+};
+
+function quickLooks(type: ProjectType): Preset[] {
+  return QUICK_LOOKS[type].map((id) => allPresets().find((x) => x.id === id)).filter((x): x is Preset => Boolean(x));
+}
+
+/**
+ * Saves the current look for every later view of the project. With a render,
+ * that render becomes the reference so the next views match it.
+ */
+async function lockLook(fromRender?: ImageData64): Promise<void> {
+  const lock: StyleLock = {
+    preset: { ...state.preset },
+    look: state.settings.styleLock?.look ?? state.settings.look,
+    dna: activeDna(),
+    reference: fromRender ? await shrinkJpeg(fromRender, 768, 0.85) : state.reference ? await shrinkJpeg(state.reference, 768, 0.85) : null,
+    referenceIsRender: Boolean(fromRender),
+    savedAt: new Date().toISOString(),
+  };
+  state.settings.styleLock = lock;
+  await persist();
+  toast(fromRender ? "Look locked. The next views use this render as their reference." : "Look locked for every view of this project.");
+  render();
+}
+
+async function unlockLook(): Promise<void> {
+  state.settings.styleLock = null;
+  await persist();
+  render();
+}
+
+function lockBanner(): HTMLElement {
+  const lock = state.settings.styleLock;
+  if (!lock) {
+    return h(
+      "div",
+      { class: "lock-bar" },
+      icon("unlock", 16),
+      h("span", { class: "grow" }, h("strong", {}, "Project look"), h("small", {}, "Lock it so every view gets the same materials and sky.")),
+      button("Lock", "lock", () => lockLook(), "ghost small", !state.capture),
+    );
+  }
+  return h(
+    "div",
+    { class: "lock-bar on" },
+    lock.reference ? h("img", { class: "ref-thumb", src: toDataUrl(lock.reference), alt: "Locked reference" }) : icon("lock", 16),
+    h(
+      "span",
+      { class: "grow" },
+      h("strong", {}, `Locked: ${lock.preset.name}`),
+      h(
+        "small",
+        {},
+        [lock.look === "cgi" ? "3D render" : "Photo", lock.dna.length ? `${lock.dna.length} materials` : "", lock.referenceIsRender ? "matches a saved render" : lock.reference ? "with reference" : ""].filter(Boolean).join(" · "),
+      ),
+    ),
+    button("Unlock", "unlock", unlockLook, "ghost small"),
+  );
+}
+
+function modeSwitch(): HTMLElement {
+  return h(
+    "div",
+    { class: "mode-row" },
+    segmented(
+      [
+        { id: "quick", label: "Quick" },
+        { id: "all", label: "All controls" },
+      ],
+      state.settings.simple ? "quick" : "all",
+      async (v) => {
+        state.settings.simple = v === "quick";
+        await persist();
+        render();
+      },
+    ),
+  );
+}
+
+function sceneTypeControl(): HTMLElement {
+  const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
+  return segmented(
+    (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
+    state.preset.projectType,
+    (v) => {
+      if (state.settings.simple) state.preset = { ...(quickLooks(v)[0] ?? state.preset), projectType: v };
+      else state.preset.projectType = v;
+      render();
+    },
+  );
+}
+
+function presetCard(x: Preset): HTMLElement {
+  return h(
+    "button",
+    {
+      class: x.id === state.preset.id ? "preset active" : "preset",
+      type: "button",
+      "aria-pressed": String(x.id === state.preset.id),
+      onclick: () => {
+        state.preset = { ...x };
+        render();
+      },
+    },
+    h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
+    h("strong", {}, x.name),
+    x.builtIn ? null : h("small", {}, "Your preset"),
+  );
+}
+
+function quickTab(body: HTMLElement): void {
+  const lock = state.settings.styleLock;
+  body.append(modeSwitch());
+  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+  body.append(fold(frameSection(), "frame", frameLabel(), false));
+  body.append(lockBanner());
+  if (!lock) {
+    body.append(
+      section(t("Scene"), sceneTypeControl(), h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map(presetCard))),
+    );
+  }
+  body.append(
+    section(
+      t("Notes for this view"),
+      textarea(state.notes, "e.g. add a parked Honda Dream by the gate", 2, (v) => {
+        state.notes = v;
+      }),
+      h("p", { class: "hint" }, "Lighting, people, cars, material lists and the prompt itself are under All controls. In Quick they are not sent."),
+    ),
+  );
+}
+
+function modelSummaryText(): string {
+  const m = findKieModel(state.settings.kieModel);
+  if (state.settings.backend === "browser") return `${BROWSER_SITES.find((x) => x.id === state.settings.browserSite)?.label ?? "Browser"} (fallback)`;
+  if (state.settings.backend !== "kie") return state.settings.backend === "gemini" ? "Gemini API key" : "ComfyUI";
+  return state.settings.kieKey
+    ? `${m.label} · ${resolutionFor(m, state.settings.kieResolution)}${state.settings.imageCount > 1 ? ` · ×${state.settings.imageCount}` : ""}`
+    : "Add a Kie.ai key";
+}
+
 function renderTab(body: HTMLElement): void {
   const p = state.preset;
   body.append(stage());
-  const m = findKieModel(state.settings.kieModel);
-  const modelSummary =
-    state.settings.backend === "kie" && state.settings.kieKey
-      ? `${m.label} · ${resolutionFor(m, state.settings.kieResolution)}${state.settings.imageCount > 1 ? ` · ×${state.settings.imageCount}` : ""}`
-      : state.settings.kieKey
-        ? "Pick a Kie model"
-        : "Add a Kie.ai key";
-  body.append(fold(modelSection(), "model", modelSummary, !state.settings.kieKey));
+  if (state.settings.simple) {
+    quickTab(body);
+    return;
+  }
+  const lock = state.settings.styleLock;
+  body.append(modeSwitch());
+  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
   body.append(fold(frameSection(), "frame", frameLabel(), true));
-
-  const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
-  body.append(
-    section(
-      t("Scene"),
-      segmented(
-        (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
-        p.projectType,
-        (v) => {
-          state.preset.projectType = v;
-          render();
-        },
-      ),
-      h(
-        "div",
-        { class: "look-row" },
-        h("span", { class: "muted small" }, "Look"),
-        segmented(
-          [
-            { id: "photo", label: "Photo", icon: "capture" },
-            { id: "cgi", label: "3D render", icon: "render" },
-          ],
-          state.settings.look,
-          async (v) => {
-            state.settings.look = v as Settings["look"];
-            await persist();
-            render();
-          },
+  body.append(lockBanner());
+  if (!lock) {
+    body.append(
+      section(
+        t("Scene"),
+        sceneTypeControl(),
+        h(
+          "div",
+          { class: "look-row" },
+          h("span", { class: "muted small" }, "Look"),
+          segmented(
+            [
+              { id: "photo", label: "Photo", icon: "capture" },
+              { id: "cgi", label: "3D render", icon: "render" },
+            ],
+            state.settings.look,
+            async (v) => {
+              state.settings.look = v as Settings["look"];
+              await persist();
+              render();
+            },
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
   const presetCards = h(
     "div",
     { class: "preset-grid" },
     allPresets()
       .filter((x) => x.projectType === p.projectType)
-      .map((x) =>
-      h(
-        "button",
-        {
-          class: x.id === p.id ? "preset active" : "preset",
-          type: "button",
-          onclick: () => {
-            state.preset = { ...x };
-            render();
-          },
-        },
-        h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
-        h("strong", {}, x.name),
-        x.builtIn ? null : h("small", {}, "Your preset"),
-      ),
-    ),
+      .map(presetCard),
   );
-  if (!presetCards.childElementCount) {
+  if (!lock && !presetCards.childElementCount) {
     presetCards.append(h("p", { class: "hint" }, "No presets for this scene yet. Set it up and press + to save one."));
   }
-  body.append(
+  if (!lock) body.append(
     fold(sectionWith(
       t("Style preset"),
       h(
@@ -962,9 +1089,13 @@ function renderTab(body: HTMLElement): void {
 
   body.append(analysisFold());
 
-  body.append(
+  const timeSet = Boolean(state.settings.dynamic.time?.time);
+  if (!lock) body.append(
     fold(section(
       t("Environment"),
+      timeSet
+        ? h("p", { class: "notice" }, icon("info", 16), h("span", {}, "Time of day is set under Dynamic, Time and weather, so this lighting is not sent. Clear it there to use this one."))
+        : null,
       sunDial(),
       h(
         "div",
@@ -978,7 +1109,7 @@ function renderTab(body: HTMLElement): void {
       ),
     ), "environment", lightingOptions().find((o) => o.id === p.lighting)?.label ?? "", true));
 
-  body.append(fold(surroundingsSection(), "surroundings", parseContexts(p.environment).map(contextLabel).join(", ") || "As modelled", false));
+  if (!lock) body.append(fold(surroundingsSection(), "surroundings", parseContexts(p.environment).map(contextLabel).join(", ") || "As modelled", false));
   body.append(fixturesFold());
   body.append(fold(dynamicSection(), "dynamic", dynamicSummary(), false));
 
@@ -1087,6 +1218,9 @@ function referenceField(): HTMLElement {
 }
 
 function activeDna(): string[] {
+  const lock = state.settings.styleLock;
+  if (lock) return lock.dna;
+  if (state.settings.simple) return [];
   return state.dna.filter((t) => t.on && t.text.trim()).map((t) => t.text.trim());
 }
 
@@ -1121,27 +1255,46 @@ function renderBar(): HTMLElement {
   );
 }
 
+/**
+ * Quick render sends only the scene type, the starter look, the notes and the
+ * project lock. Settings made under All controls stay saved but are not sent,
+ * so what you see in Quick is what the AI gets.
+ */
 function currentRenderPrompt(): string {
+  const st = state.settings;
+  const quick = st.simple;
+  const lock = st.styleLock;
+  const dyn = quick ? {} : st.dynamic;
+  const ref = activeReference();
   return buildRenderPrompt({
     preset: state.preset,
     notes: state.notes,
     facts: state.capture?.facts,
     hasLinePass: Boolean(state.capture?.lines),
-    extras: [fixtureSettingsLine(state.preset.projectType, state.settings.fixtures), ...dynamicLines(state.settings.dynamic)].filter((x): x is string => Boolean(x)),
-    lineStrength: state.settings.lineStrength,
-    look: state.settings.look,
-    materialLock: state.settings.materialLock,
-    boundaryLock: state.settings.boundaryLock,
-    avoid: state.settings.avoid,
+    extras: quick ? [] : [fixtureSettingsLine(state.preset.projectType, st.fixtures), ...dynamicLines(dyn)].filter((x): x is string => Boolean(x)),
+    lightingFromDynamic: Boolean(dyn.time?.time),
+    lineStrength: st.lineStrength,
+    look: lock ? lock.look : st.look,
+    materialLock: !quick && st.materialLock,
+    boundaryLock: !quick && st.boundaryLock,
+    avoid: st.avoid,
     dna: activeDna(),
-    people: state.people,
-    referenceIndex: state.reference ? (state.capture?.lines ? 3 : 2) : undefined,
+    people: quick ? "" : state.people,
+    referenceIndex: ref ? (state.capture?.lines ? 3 : 2) : undefined,
+    referenceIsRender: Boolean(lock?.reference && lock.referenceIsRender),
   });
+}
+
+/** The reference image the next render sends: the project lock's, else the one added here. */
+function activeReference(): ImageData64 | null {
+  const lock = state.settings.styleLock;
+  if (lock) return lock.reference;
+  return state.settings.simple ? null : state.reference;
 }
 
 /** The prompt the next render sends: the user's own edit, or the built one. */
 function renderPrompt(): string {
-  return state.promptEdit ?? currentRenderPrompt();
+  return (!state.settings.simple && state.promptEdit) || currentRenderPrompt();
 }
 
 function promptEditor(): HTMLElement {
@@ -1177,17 +1330,40 @@ function updatePromptPreview(): void {
   if (pre) pre.value = currentRenderPrompt();
 }
 
+function rateButtons(after: ImageData64): HTMLElement | null {
+  const id = historyIds.get(after);
+  if (!id) return null;
+  const item = state.history.find((x) => x.id === id);
+  const rate = async (r: 1 | -1) => {
+    const next = item?.rating === r ? undefined : r;
+    await rateHistory(id, next);
+    state.history = await listHistory();
+    if (next) toast(next > 0 ? "Marked usable. History shows which looks and models work best." : "Marked not usable.");
+    render();
+  };
+  return h(
+    "span",
+    { class: "rate", role: "group", "aria-label": "Is this render usable?" },
+    iconButton("thumbUp", "Usable", () => rate(1), item?.rating === 1 ? "ghost on" : "ghost"),
+    iconButton("thumbDown", "Not usable", () => rate(-1), item?.rating === -1 ? "ghost on" : "ghost"),
+  );
+}
+
 function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
   return h(
     "div",
     { class: "stage-actions" },
-    primaryButton(host.kind === "sketchup" ? "Save to model folder" : "Download", "save", () => saveImage(after, tool)),
+    primaryButton(host.kind === "sketchup" ? "Save" : "Download", "save", () => saveImage(after, tool)),
     button("Edit", "edit", () => {
       state.editSource = after;
       painter = null;
       state.tab = "edit";
       render();
     }, "ghost"),
+    tool === "render" ? rateButtons(after) : null,
+    tool === "render"
+      ? iconButton("lock", "Lock this look for every view of the project", () => lockLook(after), state.settings.styleLock?.referenceIsRender ? "ghost on" : "ghost")
+      : null,
     tool === "render"
       ? iconButton("aerial", "More angles from this render", () => {
           state.anglesOpen = true;
@@ -1335,13 +1511,19 @@ async function runProviderMany(prompt: string, images: ImageData64[], aspectRati
   }
 }
 
+/** History id of each image on the stage, so it can be rated. */
+const historyIds = new WeakMap<ImageData64, string>();
+
 async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64): Promise<void> {
   const provider = makeProvider(state.settings, host);
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  historyIds.set(after, id);
   await addHistory({
-    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    id,
     createdAt: Date.now(),
     tool,
     presetName: tool === "render" ? state.preset.name : undefined,
+    presetId: tool === "render" ? state.preset.id : undefined,
     prompt,
     before,
     after,
@@ -1355,7 +1537,8 @@ async function runRender(): Promise<void> {
   const cap = state.capture;
   if (!cap) return;
   const prompt = renderPrompt();
-  const images = [cap.view, ...(cap.lines ? [cap.lines] : []), ...(state.reference ? [state.reference] : [])];
+  const ref = activeReference();
+  const images = [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])];
   const size = await imageSize(cap.view);
   const raws = await runProviderMany(prompt, images, nearestAspectRatio(size.width, size.height), state.settings.imageCount);
   await showRenders(raws, prompt, cap.view);
@@ -2127,6 +2310,21 @@ function historyTab(body: HTMLElement): void {
     return;
   }
   const detail = h("div", {});
+  const rated = ratingSummary(state.history).slice(0, 5);
+  if (rated.length) {
+    body.append(
+      section(
+        "What works for you",
+        h("p", { class: "hint" }, "From your thumbs up and down on renders."),
+        h(
+          "table",
+          { class: "rated" },
+          h("tr", {}, h("th", {}, "Look"), h("th", {}, "Model"), h("th", {}, "Usable")),
+          rated.map((r) => h("tr", {}, h("td", {}, r.preset), h("td", {}, r.model), h("td", {}, `${r.good} of ${r.good + r.bad}`))),
+        ),
+      ),
+    );
+  }
   body.append(
     h(
       "div",
@@ -2145,7 +2343,7 @@ function historyTab(body: HTMLElement): void {
             },
           },
           h("img", { src: toDataUrl(item.after), alt: item.presetName ?? item.tool, loading: "lazy" }),
-          h("span", {}, item.presetName ?? toolLabel(item.tool)),
+          h("span", {}, `${item.rating === 1 ? "👍 " : item.rating === -1 ? "👎 " : ""}${item.presetName ?? toolLabel(item.tool)}`),
         ),
       ),
     ),
@@ -2154,6 +2352,7 @@ function historyTab(body: HTMLElement): void {
 }
 
 function historyDetail(item: HistoryItem): HTMLElement {
+  historyIds.set(item.after, item.id);
   return section(
     `${toolLabel(item.tool)}${item.presetName ? ` · ${item.presetName}` : ""}`,
     h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}`),
@@ -2322,6 +2521,10 @@ function analysisFold(): HTMLElement {
         class: status ? "dyn-card active" : "dyn-card",
         type: "button",
         onclick: () => {
+          if (id === "dna" && state.settings.styleLock) {
+            toast("The material list is locked with the project look. Unlock it to change the list.");
+            return;
+          }
           state.analyseOpen = id;
           render();
         },
@@ -2336,7 +2539,7 @@ function analysisFold(): HTMLElement {
     h(
       "div",
       { class: "dyn-grid" },
-      card("dna", "palette", "Material DNA", "Lists every surface and its material, so the render keeps them.", tags.length ? `${tags.length} material tags on` : ""),
+      card("dna", "palette", "Material DNA", "Lists every surface and its material, so the render keeps them.", state.settings.styleLock ? `Locked · ${tags.length} tags` : tags.length ? `${tags.length} material tags on` : ""),
       card("people", "eye", "Analyse people", "Looks at the space and writes where people go.", state.people.trim() ? "People line ready" : ""),
     ),
     conflicts.length
@@ -2572,7 +2775,7 @@ function settingsSheet(): HTMLElement {
         [
           { id: "kie", label: "Kie.ai key", icon: "key" },
           { id: "gemini", label: "Gemini key", icon: "key" },
-          { id: "browser", label: "Your account", icon: "eye" },
+          { id: "browser", label: "Browser (fallback)", icon: "eye" },
           { id: "comfyui", label: "ComfyUI", icon: "gear" },
         ],
         state.settingsKie ? "kie" : s.backend,
@@ -2628,6 +2831,12 @@ function settingsSheet(): HTMLElement {
     sheet.append(
       section(
         "Your own account, in a browser window",
+        h(
+          "p",
+          { class: "notice" },
+          icon("info", 16),
+          h("span", {}, "Fallback only. It types into Gemini, ChatGPT or Flow pages, which change without notice, so a step may need doing by hand. For steady work, use a Kie.ai key. Some Google accounts also refuse to sign in inside SketchUp."),
+        ),
         segmented(
           BROWSER_SITES.map((x) => ({ id: x.id, label: x.label })),
           s.browserSite,
@@ -3440,12 +3649,18 @@ function fixturesSection(): HTMLElement {
 
 function onboarding(): HTMLElement {
   const s = state.settings;
+  // Keys first: they are the steady way. The browser options copy into chat
+  // sites whose pages change without notice, so they are the fallback.
   const choices: { id: string; label: string; sub: string; iconName: string; apply: () => void }[] = [
-    { id: "b-gemini", label: "Gemini", sub: "Your Google account", iconName: "render", apply: () => ((s.backend = "browser"), (s.browserSite = "gemini")) },
-    { id: "b-chatgpt", label: "ChatGPT", sub: "Your OpenAI account", iconName: "wand", apply: () => ((s.backend = "browser"), (s.browserSite = "chatgpt")) },
-    { id: "b-flow", label: "Google Flow", sub: "Your Google account", iconName: "aerial", apply: () => ((s.backend = "browser"), (s.browserSite = "flow")) },
-    { id: "kie", label: "Kie.ai key", sub: "Nano Banana, GPT, Seedream", iconName: "key", apply: () => (s.backend = "kie") },
+    { id: "kie", label: "Kie.ai key", sub: "Recommended · Nano Banana, GPT, Seedream", iconName: "key", apply: () => (s.backend = "kie") },
     { id: "key", label: "Gemini API key", sub: "From Google AI Studio", iconName: "key", apply: () => (s.backend = "gemini") },
+    ...(host.kind === "sketchup"
+      ? [
+          { id: "b-gemini", label: "Gemini", sub: "Fallback · your Google account", iconName: "render", apply: () => ((s.backend = "browser"), (s.browserSite = "gemini")) },
+          { id: "b-chatgpt", label: "ChatGPT", sub: "Fallback · your OpenAI account", iconName: "wand", apply: () => ((s.backend = "browser"), (s.browserSite = "chatgpt")) },
+          { id: "b-flow", label: "Google Flow", sub: "Fallback · your Google account", iconName: "aerial", apply: () => ((s.backend = "browser"), (s.browserSite = "flow")) },
+        ]
+      : []),
     { id: "comfy", label: "ComfyUI", sub: "Local models on this PC", iconName: "gear", apply: () => (s.backend = "comfyui") },
   ];
   const picked =

@@ -82,4 +82,7 @@ export interface HistoryItem {
   after: ImageData64;
   provider: string;
   model: string;
+  presetId?: string;
+  /** The user's verdict: 1 usable, -1 not usable. */
+  rating?: 1 | -1;
 }

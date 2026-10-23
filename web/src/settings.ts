@@ -3,7 +3,7 @@
 import type { Host } from "./host";
 import type { DynValues } from "./dynamic";
 import { DEFAULT_AVOID, type FixtureSettings, type RenderLook } from "./prompt";
-import type { Preset } from "./types";
+import type { ImageData64, Preset } from "./types";
 import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "./providers/gemini";
 import { ComfyProvider } from "./providers/comfyui";
 import { BrowserProvider } from "./providers/browser";
@@ -53,6 +53,25 @@ export interface Settings {
   avoid: string;
   /** Images per render, 1 to 4 (each one is billed). */
   imageCount: number;
+  /** Quick render: starter looks and one button; everything else is under All controls. */
+  simple: boolean;
+  /** Project look reused for every view until unlocked. */
+  styleLock: StyleLock | null;
+}
+
+/**
+ * One look for a whole project, so every view of it matches: the preset
+ * (materials, sky, surroundings), photo or 3D look, the material list and a
+ * reference image, usually an approved render of the project.
+ */
+export interface StyleLock {
+  preset: Preset;
+  look: RenderLook;
+  dna: string[];
+  /** Kept small (JPEG, 768 px) so settings stay light. */
+  reference: ImageData64 | null;
+  referenceIsRender: boolean;
+  savedAt: string;
 }
 
 export type BrowserSite = "gemini" | "chatgpt" | "flow";
@@ -90,6 +109,8 @@ export const DEFAULT_SETTINGS: Settings = {
   boundaryLock: false,
   avoid: DEFAULT_AVOID,
   imageCount: 1,
+  simple: true,
+  styleLock: null,
   browserSite: "gemini",
 };
 

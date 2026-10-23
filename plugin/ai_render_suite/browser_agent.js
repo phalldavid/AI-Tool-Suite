@@ -128,6 +128,21 @@
     }
   }
 
+  function boxText(box) {
+    return (box.tagName === 'TEXTAREA' || box.tagName === 'INPUT' ? box.value : box.innerText || '').trim();
+  }
+
+  // Last resort when the site ignores our typing: put the prompt on the
+  // clipboard so one Ctrl+V finishes the job.
+  async function toClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function largestNew(before) {
     var list = pictures().filter(function (im) {
       return im.naturalWidth >= 400 && !(before && before.has(im.currentSrc || im.src));
@@ -182,9 +197,22 @@
     }
     var files = (d.images || []).map(toFile);
     var ok = files.length ? await attach(box, files) : true;
-    if (!ok) post({ type: 'noimage' });
-    typeText(box, d.prompt || '');
-    status('Image and prompt are in. Check them, press Send, then "Bring result back" when the image is done.', 'ok');
+    var prompt = d.prompt || '';
+    typeText(box, prompt);
+    await sleep(300);
+    var typed = !prompt || boxText(box).indexOf(prompt.slice(0, 24).trim()) !== -1;
+    if (!ok) {
+      // SketchUp puts the image on the clipboard and tells the user to paste it.
+      post({ type: 'noimage' });
+      bar('Image not attached: click the chat box, press Ctrl+V, then Send.');
+    } else if (!typed) {
+      var copied = await toClipboard(prompt);
+      status(copied
+        ? 'Image is in, but the site blocked the text. The prompt is on your clipboard: click the chat box, press Ctrl+V, then Send.'
+        : 'Image is in, but the site blocked the text. Copy the prompt from the panel, paste it, then Send.', 'error');
+    } else {
+      status('Image and prompt are in. Check them, press Send, then "Bring result back" when the image is done.', 'ok');
+    }
     job.before = new Set(pictures().map(function (im) { return im.currentSrc || im.src; }));
   }
 

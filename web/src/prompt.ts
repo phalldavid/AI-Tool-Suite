@@ -357,6 +357,10 @@ export interface RenderPromptInput {
   people?: string;
   /** A style reference image is sent after the view (and line pass). */
   referenceIndex?: number;
+  /** The reference image is an earlier render of this project (style lock). */
+  referenceIsRender?: boolean;
+  /** Time of day comes from the Time generator, so the preset's lighting is left out. */
+  lightingFromDynamic?: boolean;
   /** Things to avoid, comma separated. */
   avoid?: string;
 }
@@ -428,26 +432,44 @@ export function buildRenderPrompt(input: RenderPromptInput): string {
   if (hasLinePass) lines.push(...geometryLines(strength));
   if (input.materialLock) lines.push(MATERIAL_LOCK);
   if (input.boundaryLock) lines.push(BOUNDARY_LOCK);
-  if (preset.style.trim()) lines.push(`Materials and style: ${preset.style.trim()}.`);
-  if (input.dna?.length) {
-    lines.push(`Material list (one line per surface or object, keep these materials):\n${input.dna.map((t) => `- ${t}`).join("\n")}`);
+  // One source of truth per topic, so the model never gets two answers:
+  // the material lock beats the preset's materials, a material list turns
+  // the preset into overall style only, and the Time generator replaces the
+  // preset's lighting.
+  const hasDna = Boolean(input.dna?.length);
+  const style = preset.style.trim();
+  if (style) {
+    if (input.materialLock) lines.push(`Finish quality and mood (materials stay as modelled): ${style}.`);
+    else if (hasDna) lines.push(`Overall style: ${style}.`);
+    else lines.push(`Materials and style: ${style}.`);
+  }
+  if (hasDna) {
+    lines.push(`Material list (one line per surface or object, keep these materials):\n${input.dna!.map((t) => `- ${t}`).join("\n")}`);
   }
   if (input.referenceIndex) {
     lines.push(
-      `Image ${input.referenceIndex} is a style reference only: match its mood, colour palette and material quality, but never copy its geometry, layout or objects.`,
+      input.referenceIsRender
+        ? `Image ${input.referenceIndex} is an earlier render of this same project from another angle: use exactly the same materials, colours, sky and lighting mood, so both images look like one photo shoot. Take only the geometry and camera from the first image, never from image ${input.referenceIndex}.`
+        : `Image ${input.referenceIndex} is a style reference only: match its mood, colour palette and material quality, but never copy its geometry, layout or objects.`,
     );
   }
-  if (lighting) lines.push(`Lighting: ${lighting}.`);
+  if (lighting && !input.lightingFromDynamic) lines.push(`Lighting: ${lighting}.`);
   lines.push(...fixtureLines(facts));
   if (env) lines.push(`Surroundings: ${env}.`);
-  if (extras?.length) lines.push(...extras);
-  if (input.people?.trim()) lines.push(`People: ${input.people.trim()}`);
-  if (!extras?.some((x) => x.startsWith("Camera and effects:"))) lines.push(`Camera: ${lensHint(preset.projectType, facts)}.`);
-  if (notes?.trim()) {
-    const khmer = /[\u1780-\u17FF]/.test(notes);
-    const n = notes.trim();
+  const peopleSet = Boolean(input.people?.trim());
+  const extra = (extras ?? []).filter(
+    (x) => !(peopleSet && x.startsWith("People:")) && !(input.materialLock && x.startsWith("Materials:")),
+  );
+  lines.push(...extra);
+  if (peopleSet) lines.push(`People: ${input.people!.trim()}`);
+  if (!extra.some((x) => x.startsWith("Camera and effects:"))) lines.push(`Camera: ${lensHint(preset.projectType, facts)}.`);
+  const n = notes?.trim() ?? "";
+  if (n) {
+    const khmer = /[\u1780-\u17FF]/.test(n);
     lines.push(`Additional notes${khmer ? " (written in Khmer; read them in Khmer and follow them)" : ""}: ${n}${/[.!?។]$/.test(n) ? "" : "."}`);
-    if (input.dna?.length || input.materialLock) lines.push("Where these notes disagree with the material list or the material lock, follow the notes.");
+  }
+  if (n && (hasDna || input.materialLock || style)) {
+    lines.push("If any of these instructions disagree, follow the additional notes first, then the material list or material lock, then the style.");
   }
   lines.push(
     cgi

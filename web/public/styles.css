@@ -644,3 +644,18 @@ p.notice { margin: 0; }
 .angle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .angle-grid .btn { justify-content: flex-start; }
 textarea.prompt-edit { width: 100%; font: 11.5px/1.5 ui-monospace, Consolas, monospace; }
+
+/* Quick / All controls, project lock, render rating */
+.mode-row { display: flex; justify-content: center; margin: 2px 0 6px; }
+.mode-row .seg { width: 100%; max-width: 320px; }
+.lock-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin: 4px 0 10px; border-radius: 10px; border: 1px dashed var(--line); color: var(--muted); }
+.lock-bar .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lock-bar strong { color: var(--text); font-size: 13px; }
+.lock-bar small { font-size: 12px; }
+.lock-bar.on { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.lock-bar .ref-thumb { width: 40px; height: 40px; }
+.rate { display: inline-flex; gap: 2px; }
+.icon-btn.on { color: var(--accent-text, var(--accent)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+table.rated { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.rated th, table.rated td { text-align: left; padding: 5px 4px; border-bottom: 1px solid var(--hairline, var(--line)); }
+table.rated th { color: var(--muted); font-weight: 600; }
