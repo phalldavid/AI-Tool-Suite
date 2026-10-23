@@ -154,16 +154,41 @@ export interface EditZone {
   instruction: string;
 }
 
-/** Spot edit with one or more coloured zones, each with its own change. */
-export function buildZoneEditPrompt(zones: EditZone[]): string {
+export interface ZoneEditOptions {
+  /** only the painted copy is sent, not the clean original */
+  singleImage?: boolean;
+  /** new lighting for the whole picture, in the same request */
+  lighting?: string | null;
+}
+
+/**
+ * Spot edit with coloured zones, each with its own change, and optionally a
+ * new lighting for the whole image, all in one request.
+ */
+export function buildZoneEditPrompt(zones: EditZone[], opts: ZoneEditOptions = {}): string {
   const used = zones.filter((z) => z.instruction.trim());
   const names = used.map((z) => z.colour);
-  const lines = [
-    "Edit the first image.",
-    `The second image is the same picture with ${used.length === 1 ? `one area painted ${names[0]}` : `areas painted in ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`}.`,
-    ...used.map((z) => `Inside the ${z.colour} area only: ${z.instruction.trim().replace(/\.$/, "")}.`),
-    "Everything outside the painted areas must stay exactly as it is. Match the perspective, lighting and photographic quality of the rest of the image. Do not include any paint colour in the result.",
-  ];
+  const painted = used.length === 1 ? `one area painted ${names[0]}` : `areas painted in ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const lines: string[] = [];
+  if (!used.length) {
+    lines.push("Edit this image.");
+  } else if (opts.singleImage) {
+    lines.push(
+      `Edit this image. It has ${painted} as see-through markers. The paint only marks where to work; read what is under it and replace it.`,
+    );
+  } else {
+    lines.push("Edit the first image.", `The second image is the same picture with ${painted}.`);
+  }
+  lines.push(...used.map((z) => `Inside the ${z.colour} area only: ${z.instruction.trim().replace(/\.$/, "")}.`));
+  if (opts.lighting) {
+    lines.push(
+      `Then change the lighting and sky of the whole picture to: ${opts.lighting}. Shadows, reflections and the new elements must all match this light. Keep every building, material, object and the camera exactly as they are apart from the painted changes.`,
+    );
+  } else if (used.length) {
+    lines.push("Everything outside the painted areas must stay exactly as it is. Match the perspective, lighting and photographic quality of the rest of the image.");
+  }
+  if (used.length) lines.push("Remove every trace of the marker paint: no coloured tint may be left in the result.");
+  lines.push("The result must look like a real photograph.");
   return lines.join("\n");
 }
 

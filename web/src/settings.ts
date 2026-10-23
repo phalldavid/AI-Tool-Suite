@@ -36,6 +36,8 @@ export interface Settings {
   fixtures: FixtureSettings;
   /** First-run setup finished. */
   onboarded: boolean;
+  /** Spot edits send only the painted image. */
+  singleImage: boolean;
 }
 
 export type BrowserSite = "gemini" | "chatgpt" | "flow";
@@ -64,6 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accentCustom: "#e0679b",
   fixtures: { exterior: null, led: false, strip: false, cabinet: false, kelvin: 3000 },
   onboarded: false,
+  singleImage: true,
   browserSite: "gemini",
 };
 

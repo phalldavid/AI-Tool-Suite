@@ -228,7 +228,7 @@ test("zone edit prompt names each colour with its own change", () => {
     { colour: "blue", instruction: "add a frangipani tree" },
   ]);
   assert.match(p, /areas painted in red and blue/);
-  assert.match(p, /Inside the red area only: remove the car\.\n/);
+  assert.match(p, /Inside the red area only: remove the car\.\n/); assert.match(p, /Remove every trace/);
   assert.match(p, /Inside the blue area only: add a frangipani tree\./);
 });
 
@@ -239,4 +239,15 @@ test("fixture line follows the scene type", () => {
   assert.equal(fixtureSettingsLine("exterior", { ...f, exterior: null }), null);
   assert.equal(fixtureSettingsLine("interior", { ...f, led: false, cabinet: false }), null);
   assert.match(dynamicLines({ plants: { kinds: ["frangipani", "lawn"], where: "front" } })[0], /^Plants: add frangipani trees and a neat green lawn in the front garden\./);
+});
+
+test("one request can carry zone edits and new lighting from a single image", () => {
+  const p = buildZoneEditPrompt([{ colour: "red", instruction: "remove the car" }], { singleImage: true, lighting: "blue hour, deep blue sky" });
+  assert.match(p, /^Edit this image\. It has one area painted red as see-through markers/);
+  assert.doesNotMatch(p, /second image/);
+  assert.match(p, /Then change the lighting and sky of the whole picture to: blue hour/);
+  assert.doesNotMatch(p, /outside the painted areas must stay exactly/);
+  const only = buildZoneEditPrompt([], { singleImage: true, lighting: "night" });
+  assert.match(only, /^Edit this image\.\nThen change the lighting/);
+  assert.doesNotMatch(only, /marker paint/);
 });

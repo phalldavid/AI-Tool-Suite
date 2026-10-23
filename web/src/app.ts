@@ -30,6 +30,7 @@ import {
   dialTimeId,
   fixtureSettingsLine,
   INTERIOR_RELIGHT,
+  relightText,
   URBAN_RELIGHT,
   nearestAspectRatio,
   parseDialTime,
@@ -95,6 +96,7 @@ interface State {
   relightGroup: "exterior" | "interior" | "urban";
   zonePrompts: Record<string, string>;
   brushSize: number;
+  editWithLight: boolean;
   lightMode: "spot" | "led";
   spot: SpotSettings;
   led: LedSettings;
@@ -143,6 +145,7 @@ export async function start(el: HTMLElement): Promise<void> {
     relightGroup: "exterior",
     zonePrompts: {},
     brushSize: 40,
+    editWithLight: false,
     lightMode: "spot",
     spot: { beam: "medium", kelvin: 3000, intensity: 70, lengthMm: 900, widthMm: 600, orientation: "down" },
     led: { profile: "soft", kelvin: 3000, intensity: 75, widthMm: 170 },
@@ -1227,10 +1230,72 @@ function spotEditor(src: ImageData64): HTMLElement[] {
     section(
       "What should change",
       fields,
-      h("p", { class: "hint" }, "Each colour is sent with its own instruction. Only painted areas are replaced; everything else stays pixel-exact."),
-      primaryButton(state.busy ? "Working..." : "Apply edit", "wand", runSpotEdit, state.busy, "wide"),
+      h(
+        "p",
+        { class: "hint" },
+        state.editWithLight
+          ? "Each colour is sent with its own instruction, and the whole picture is relit in the same request."
+          : "Each colour is sent with its own instruction. Only painted areas are replaced; everything else stays pixel-exact.",
+      ),
+    ),
+    editLightSection(),
+    section(
+      "Send",
+      h(
+        "label",
+        { class: "switch" },
+        h("input", {
+          type: "checkbox",
+          checked: state.settings.singleImage,
+          onchange: async (e: Event) => {
+            state.settings.singleImage = (e.target as HTMLInputElement).checked;
+            await persist();
+          },
+        }),
+        h("span", { class: "track" }),
+        "Send only the painted image (fewer tokens)",
+      ),
+      h("p", { class: "hint" }, "Off sends the clean image too, which can help when the paint hides fine detail the AI needs to keep."),
+      primaryButton(state.busy ? "Working..." : state.editWithLight ? "Apply edit + lighting" : "Apply edit", "wand", runSpotEdit, state.busy, "wide"),
     ),
   ];
+}
+
+function editLightSection(): HTMLElement {
+  const sw = h("input", {
+    type: "checkbox",
+    checked: state.editWithLight,
+    onchange: (e: Event) => {
+      state.editWithLight = (e.target as HTMLInputElement).checked;
+      render();
+    },
+  });
+  const group = state.relightGroup;
+  return sectionWith(
+    "Lighting in the same render",
+    h("label", { class: "switch" }, sw, h("span", { class: "track" }), "Change lighting too"),
+    state.editWithLight
+      ? h(
+          "div",
+          { class: "stack" },
+          segmented(RELIGHT_GROUPS, group, (v) => {
+            state.relightGroup = v;
+            render();
+          }),
+          group === "interior" ? null : sunDial(() => state.relight, (id) => (state.relight = id)),
+          h(
+            "div",
+            { class: "light-grid" },
+            relightOptions(group).map((o) =>
+              lightingCard(o, o.id === state.relight, () => {
+                state.relight = o.id;
+                render();
+              }),
+            ),
+          ),
+        )
+      : h("p", { class: "hint" }, "Turn on to relight the whole picture in the same request, so one render does both jobs."),
+  );
 }
 
 const RELIGHT_GROUPS: { id: "exterior" | "interior" | "urban"; label: string; icon: string }[] = [
@@ -1282,23 +1347,34 @@ async function runSpotEdit(): Promise<void> {
   const p = painter;
   if (!src || !p) return;
   const painted = p.paintedZones();
-  if (!painted.length) return toast("Paint at least one zone over the area you want to change.", "error");
+  const lightingOn = state.editWithLight;
+  if (!painted.length && !lightingOn) return toast("Paint at least one zone over the area you want to change.", "error");
   const missing = painted.filter((id) => !(state.zonePrompts[id] ?? "").trim());
   if (missing.length) return toast(`Describe what should change in ${missing.map((id) => `Zone ${id}`).join(", ")}.`, "error");
   const zones = ZONES.filter((z) => painted.includes(z.id));
-  const prompt = buildZoneEditPrompt(zones.map((z) => ({ colour: z.colour, instruction: state.zonePrompts[z.id] })));
-  const overlay = await zoneOverlay(src, zones.map((z) => ({ mask: p.canvases[z.id], colour: z.css })));
+  const single = state.settings.singleImage;
+  const lighting = lightingOn ? relightText(state.relight, state.capture?.facts) : null;
+  const prompt = buildZoneEditPrompt(
+    zones.map((z) => ({ colour: z.colour, instruction: state.zonePrompts[z.id] })),
+    { singleImage: single, lighting },
+  );
+  const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: p.canvases[z.id], colour: z.css }))) : src;
+  // One image when asked: the painted copy carries the picture and the zones.
+  const images = !zones.length ? [src] : single ? [overlay] : [src, overlay];
   const union = p.union();
   const size = await imageSize(src);
-  const out = await runProvider(prompt, [src, overlay], nearestAspectRatio(size.width, size.height));
+  const out = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height));
   if (out) {
     const fitted = await resizeTo(out, size.width, size.height);
-    const merged = await compositeMasked(src, fitted, union);
-    await record("spot-edit", prompt, src, merged);
+    // A relit picture changes everywhere, so only a plain spot edit is
+    // pasted back over the original to keep the rest pixel-exact.
+    const merged = lighting || !zones.length ? fitted : await compositeMasked(src, fitted, union);
+    const tool: ToolId = lighting && !zones.length ? "lighting" : "spot-edit";
+    await record(tool, prompt, src, merged);
     state.editSource = merged;
     painter = null;
     state.zonePrompts = {};
-    showEditResult(src, merged, "spot-edit");
+    showEditResult(src, merged, tool);
     return;
   }
   render();

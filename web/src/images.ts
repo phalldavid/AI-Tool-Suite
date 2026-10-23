@@ -90,7 +90,7 @@ export async function zoneOverlay(original: ImageData64, layers: { mask: HTMLCan
     tctx.globalCompositeOperation = "source-in";
     tctx.fillStyle = l.colour;
     tctx.fillRect(0, 0, c.width, c.height);
-    ctx.globalAlpha = 0.7;
+    ctx.globalAlpha = 0.55; // see-through, so the AI can read what is under the paint
     ctx.drawImage(tint, 0, 0);
   }
   return canvasToImage(c, "image/jpeg", 0.92);

@@ -448,3 +448,4 @@ body, .section, .tabs, .sheet, .render-bar, .chip, .pill { transition: backgroun
   .topbar > .logo { margin-right: auto; }
   .topbar .pill { max-width: 58vw; }
 }
+.stack { display: flex; flex-direction: column; gap: 10px; }
