@@ -2,7 +2,7 @@
 
 import type { Host } from "./host";
 import type { DynValues } from "./dynamic";
-import type { FixtureSettings } from "./prompt";
+import { DEFAULT_AVOID, type FixtureSettings, type RenderLook } from "./prompt";
 import type { Preset } from "./types";
 import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "./providers/gemini";
 import { ComfyProvider } from "./providers/comfyui";
@@ -45,6 +45,14 @@ export interface Settings {
   onboarded: boolean;
   /** Spot edits send only the painted image. */
   singleImage: boolean;
+  /** Photo or 3D render look. */
+  look: RenderLook;
+  materialLock: boolean;
+  boundaryLock: boolean;
+  /** "Avoid:" list added to the end of every render prompt. */
+  avoid: string;
+  /** Images per render, 1 to 4 (each one is billed). */
+  imageCount: number;
 }
 
 export type BrowserSite = "gemini" | "chatgpt" | "flow";
@@ -77,6 +85,11 @@ export const DEFAULT_SETTINGS: Settings = {
   fixtures: { exterior: null, led: false, strip: false, cabinet: false, kelvin: 3000 },
   onboarded: false,
   singleImage: true,
+  look: "photo",
+  materialLock: false,
+  boundaryLock: false,
+  avoid: DEFAULT_AVOID,
+  imageCount: 1,
   browserSite: "gemini",
 };
 
