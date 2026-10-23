@@ -1,6 +1,7 @@
 // Builds the text prompt sent to the image model.
 // Plain architectural language only: real materials, real lenses, natural light.
 
+import { contextText } from "./context";
 import type { Preset, ProjectType, SceneFacts } from "./types";
 
 export interface Option {
@@ -134,20 +135,54 @@ export const ENVIRONMENTS: Option[] = [
   },
 ];
 
+/**
+ * Plain lighting text for a clock time in Phnom Penh (about 11.5 degrees
+ * north): the sun is to the south from September to April and slightly to
+ * the north from May to August. Sunrise is about 05:45-06:20, sunset about
+ * 17:45-18:20 through the year.
+ */
+export function sunText(hour: number, month: number): string {
+  const hh = `${String(Math.floor(hour)).padStart(2, "0")}:${String(Math.round((hour % 1) * 60)).padStart(2, "0")}`;
+  const side = month >= 5 && month <= 8 ? "slightly to the north" : "to the south";
+  if (hour < 5.75 || hour >= 19.25) return `night at ${hh}, dark sky, warm 2700K artificial light only`;
+  if (hour < 6.5) return `dawn at ${hh}, sun just above the eastern horizon, pink and orange sky, very long soft shadows`;
+  if (hour < 9) return `morning sun at ${hh}, low from the east and ${side}, warm soft light, long shadows`;
+  if (hour < 15) return `tropical sun at ${hh}, high in the sky and ${side}, short crisp shadows`;
+  if (hour < 17) return `afternoon sun at ${hh}, low from the west and ${side}, warm light, long shadows`;
+  if (hour < 18) return `golden hour at ${hh}, very low warm sun from the west, long golden shadows`;
+  if (hour < 18.6) return `dusk at ${hh}, sun just set in the west, glowing orange horizon, interior lights starting to show`;
+  return `blue hour at ${hh}, deep blue sky after sunset, warm 2700K to 3000K interior lights glowing through the windows`;
+}
+
+/** Name of the light at a clock time, for the sun dial. */
+export function sunPhase(hour: number): string {
+  if (hour < 5.75 || hour >= 19.25) return "Night";
+  if (hour < 6.5) return "Dawn";
+  if (hour < 9) return "Morning";
+  if (hour < 15) return "Midday";
+  if (hour < 17) return "Afternoon";
+  if (hour < 18) return "Golden hour";
+  if (hour < 18.6) return "Dusk";
+  return "Blue hour";
+}
+
 /** Lighting text taken from the SketchUp shadow time. */
 export function sketchUpSunText(facts?: SceneFacts): string | null {
   const iso = facts?.shadowTime;
   if (!iso) return null;
   const hour = Number(iso.slice(11, 13)) + Number(iso.slice(14, 16)) / 60;
-  const month = Number(iso.slice(5, 7));
-  const hh = iso.slice(11, 16);
-  // About 11.5 degrees north: sun to the south Sep to Apr, to the north May to Aug.
-  const side = month >= 5 && month <= 8 ? "slightly to the north" : "to the south";
-  if (hour < 6 || hour >= 19) return `night at ${hh}, dark sky, warm 2700K artificial light only`;
-  if (hour < 9) return `morning sun at ${hh}, low from the east and ${side}, warm soft light, long shadows`;
-  if (hour < 15) return `tropical sun at ${hh}, high in the sky and ${side}, short crisp shadows`;
-  if (hour < 18) return `afternoon sun at ${hh}, low from the west and ${side}, warm golden light, long shadows`;
-  return `dusk at ${hh}, sun just set in the west, glowing sky, interior lights starting to show`;
+  return sunText(hour, Number(iso.slice(5, 7)));
+}
+
+/** "time:16:30" lighting ids come from the sun dial. */
+export function parseDialTime(id: string): number | null {
+  const m = /^time:(\d{1,2}):(\d{2})$/.exec(id);
+  return m ? Number(m[1]) + Number(m[2]) / 60 : null;
+}
+
+export function dialTimeId(hour: number): string {
+  const mins = Math.round(hour * 4) * 15; // snap to 15 minutes
+  return `time:${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}`;
 }
 
 export const SKETCHUP_SUN: Option = {
@@ -159,6 +194,11 @@ export const SKETCHUP_SUN: Option = {
 };
 
 export function lightingText(id: string, facts?: SceneFacts): string | null {
+  const dial = parseDialTime(id);
+  if (dial !== null) {
+    const month = facts?.shadowTime ? Number(facts.shadowTime.slice(5, 7)) : new Date().getMonth() + 1;
+    return sunText(dial, month);
+  }
   if (id === "sketchup") return sketchUpSunText(facts) ?? findOption(LIGHTING, "morning")!.text;
   return findOption(LIGHTING, id)?.text ?? null;
 }
@@ -208,31 +248,70 @@ export interface RenderPromptInput {
   hasLinePass: boolean;
   /** Lines from the dynamic prompt generators. */
   extras?: string[];
+  /** How strictly the render must match the line drawing, 0..1. */
+  lineStrength?: number;
+}
+
+/**
+ * Prompt lines for the hidden-line pass. `strength` 0..1 sets how strictly
+ * the result must follow it; the number is also stated as a percentage.
+ */
+export function geometryLines(strength: number): string[] {
+  const k = Math.max(0, Math.min(1, strength));
+  const pct = Math.round(k * 100);
+  const out = [
+    `Image 1 is the SketchUp view: use it for materials, colours and what each surface is. Image 2 is a hidden-line drawing of exactly the same view: it is the geometry driver. Geometry match: ${pct}%.`,
+  ];
+  if (k >= 0.9) {
+    out.push(
+      "Treat the line drawing as the strict source of truth. Every line in it must sit on a matching edge in the result at the same position in the frame: walls, roof edges, columns, mouldings, window and door frames, steps, railings and kerbs. Do not move, add, remove, resize or reshape any of them, and do not change the camera, perspective or crop. Only add surface texture, light and surroundings beyond the drawn edges.",
+    );
+  } else if (k >= 0.6) {
+    out.push(
+      "Follow the line drawing closely. Keep every main edge where it is drawn: building outline, roof lines, openings, columns and steps. Small details such as trim profiles, railings and planting may be refined, but nothing may move, and the camera must not change.",
+    );
+  } else if (k >= 0.3) {
+    out.push(
+      "Use the line drawing as a guide for the overall massing, roof shape, openings and camera. Details may be refined and realistic trim added, as long as the building stays clearly the same design.",
+    );
+  } else {
+    out.push(
+      "Use the line drawing only as a loose reference for composition and massing. Details and proportions may be reinterpreted freely while the building stays recognisable.",
+    );
+  }
+  if (k >= 0.6) {
+    out.push(
+      "Where the materials text below mentions a form that is not in the drawing (number of storeys, roof type, balconies), ignore that part and follow the drawing.",
+    );
+  }
+  return out;
 }
 
 export function buildRenderPrompt(input: RenderPromptInput): string {
   const { preset, notes, facts, hasLinePass, extras } = input;
+  const strength = input.lineStrength ?? 0.8;
   const type = PROJECT_TYPES[preset.projectType];
   const lighting = lightingText(preset.lighting, facts);
-  const env = findOption(ENVIRONMENTS, preset.environment);
+  const env = contextText(preset.environment);
 
   const lines: string[] = [];
   lines.push(`Turn the first image into ${type.text}.`);
-  lines.push(
-    "Keep the exact geometry: building outline, massing, roof shape, floor levels, window and door positions, and camera angle must not change. Do not add or remove storeys, columns or openings.",
-  );
-  if (hasLinePass) {
+  if (!hasLinePass || strength >= 0.6) {
     lines.push(
-      "The second image is a line drawing of the same view. Use it to hold every edge in place.",
+      "Keep the exact geometry: building outline, massing, roof shape, floor levels, window and door positions, and camera angle must not change. Do not add or remove storeys, columns or openings.",
     );
   }
+  if (hasLinePass) lines.push(...geometryLines(strength));
   if (preset.style.trim()) lines.push(`Materials and style: ${preset.style.trim()}.`);
   if (lighting) lines.push(`Lighting: ${lighting}.`);
   lines.push(...fixtureLines(facts));
-  if (env && env.id !== "keep") lines.push(`Surroundings: ${env.text}.`);
+  if (env) lines.push(`Surroundings: ${env}.`);
   if (extras?.length) lines.push(...extras);
   lines.push(`Camera: ${lensHint(preset.projectType, facts)}.`);
-  if (notes?.trim()) lines.push(`Additional notes: ${notes.trim()}.`);
+  if (notes?.trim()) {
+    const khmer = /[\u1780-\u17FF]/.test(notes);
+    lines.push(`Additional notes${khmer ? " (written in Khmer; read them in Khmer and follow them)" : ""}: ${notes.trim()}.`);
+  }
   lines.push(
     "Make it look like a real photograph by a professional architectural photographer: true-to-life materials, accurate scale, natural colour. No text, no watermark, no illustration style.",
   );

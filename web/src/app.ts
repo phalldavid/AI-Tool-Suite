@@ -26,10 +26,17 @@ import {
   buildLightingPrompt,
   buildRenderPrompt,
   buildSpotEditPrompt,
+  dialTimeId,
   nearestAspectRatio,
+  parseDialTime,
+  sunPhase,
+  sunText,
   type Option,
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
+import { ACCENTS, FONTS, animateTheme, applyLook } from "./appearance";
+import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
+import { setLang, t } from "./i18n";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings } from "./settings";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, ToolId } from "./types";
@@ -57,6 +64,10 @@ interface State {
   settingsOpen: boolean;
   /** Open dynamic prompt generator, by id. */
   dynOpen: string | null;
+  lookOpen: boolean;
+  /** Site context picker: open, which group is shown, search text. */
+  ctxOpen: boolean;
+  ctxGroup: string;
   settings: Settings;
   /** Source before cropping (uploads keep it so the frame can change). */
   original: ImageData64 | null;
@@ -97,6 +108,9 @@ export async function start(el: HTMLElement): Promise<void> {
     tab: "render",
     settingsOpen: !(settings.geminiKey || settings.backend !== "gemini"),
     dynOpen: null,
+    lookOpen: false,
+    ctxOpen: false,
+    ctxGroup: CONTEXT_GROUPS[0].id,
     settings,
     original: null,
     capture: null,
@@ -121,6 +135,8 @@ export async function start(el: HTMLElement): Promise<void> {
     abort: null,
   };
   document.body.dataset.host = host.kind;
+  applyLook(settings);
+  setLang(settings.lang);
   host.onEvent((name, payload) => {
     if (name === "browserStatus") {
       const p = payload as { text: string; kind: string };
@@ -292,11 +308,11 @@ function openSettings(): void {
 function render(): void {
   clear(root);
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "render", label: "Render", icon: "render" },
-    { id: "edit", label: "Edit", icon: "edit" },
-    { id: "lights", label: "Lights", icon: "lights" },
-    { id: "mirror", label: "Mirror", icon: "mirror" },
-    { id: "history", label: "History", icon: "history" },
+    { id: "render", label: t("Render"), icon: "render" },
+    { id: "edit", label: t("Edit"), icon: "edit" },
+    { id: "lights", label: t("Lights"), icon: "lights" },
+    { id: "mirror", label: t("Mirror"), icon: "mirror" },
+    { id: "history", label: t("History"), icon: "history" },
   ];
   root.append(
     h(
@@ -305,7 +321,12 @@ function render(): void {
       logo(26),
       h("div", { class: "brand" }, h("strong", {}, "AI Render Suite"), h("small", {}, host.kind === "sketchup" ? "for SketchUp" : "web")),
       backendPill(),
-      iconButton("gear", "Settings", openSettings),
+      themeButton(),
+      iconButton("palette", t("Customise"), () => {
+        state.lookOpen = true;
+        render();
+      }),
+      iconButton("gear", t("Settings"), openSettings),
     ),
     h(
       "nav",
@@ -338,6 +359,8 @@ function render(): void {
   if (state.tab === "render") root.append(renderBar());
   root.append(h("div", { id: "status", class: "toast", role: "status", "aria-live": "polite" }));
   if (state.settingsOpen) root.append(settingsSheet());
+  if (state.lookOpen) root.append(lookSheet());
+  if (state.ctxOpen) root.append(contextSheet());
   if (state.dynOpen) {
     const g = findGenerator(state.dynOpen);
     if (g) root.append(dynamicSheet(g));
@@ -414,8 +437,8 @@ function stage(): HTMLElement {
   const actions = h(
     "div",
     { class: "stage-actions" },
-    host.kind === "sketchup" ? primaryButton(cap ? "Recapture" : "Capture view", "capture", doCapture, state.busy) : null,
-    button("Upload", "upload", () => input.click(), host.kind === "sketchup" ? "ghost" : "primary", state.busy),
+    host.kind === "sketchup" ? primaryButton(t(cap ? "Recapture" : "Capture view"), "capture", doCapture, state.busy) : null,
+    button(t("Upload"), "upload", () => input.click(), host.kind === "sketchup" ? "ghost" : "primary", state.busy),
     input,
   );
   let content: HTMLElement;
@@ -502,10 +525,10 @@ function frameSection(): HTMLElement {
             },
           }),
           h("span", { class: "track" }),
-          "Show in SketchUp",
+          t("Show in SketchUp"),
         )
       : null;
-  return sectionWith("Frame", toggle, picker);
+  return sectionWith(t("Frame"), toggle, picker);
 }
 
 function lightingCard(o: Option, active: boolean, onPick: () => void): HTMLElement {
@@ -530,9 +553,9 @@ function renderTab(body: HTMLElement): void {
   const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
   body.append(
     section(
-      "Scene",
+      t("Scene"),
       segmented(
-        (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", ""), icon: typeIcons[id] })),
+        (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
         p.projectType,
         (v) => {
           state.preset.projectType = v;
@@ -544,7 +567,8 @@ function renderTab(body: HTMLElement): void {
 
   body.append(
     section(
-      "Light",
+      t("Environment"),
+      sunDial(),
       h(
         "div",
         { class: "light-grid" },
@@ -558,28 +582,16 @@ function renderTab(body: HTMLElement): void {
     ),
   );
 
-  body.append(
-    section(
-      "Surroundings",
-      h(
-        "div",
-        { class: "chips" },
-        ENVIRONMENTS.map((o) =>
-          chip(o.label, o.id === p.environment, () => {
-            state.preset.environment = o.id;
-            render();
-          }),
-        ),
-      ),
-    ),
-  );
+  body.append(surroundingsSection());
 
   body.append(dynamicSection());
 
   const presetCards = h(
     "div",
     { class: "preset-grid" },
-    allPresets().map((x) =>
+    allPresets()
+      .filter((x) => x.projectType === p.projectType)
+      .map((x) =>
       h(
         "button",
         {
@@ -596,22 +608,25 @@ function renderTab(body: HTMLElement): void {
       ),
     ),
   );
+  if (!presetCards.childElementCount) {
+    presetCards.append(h("p", { class: "hint" }, "No presets for this scene yet. Set it up and press + to save one."));
+  }
   body.append(
     sectionWith(
-      "Style preset",
+      t("Style preset"),
       h(
         "div",
         { class: "head-actions" },
         iconButton("plus", "Save current settings as a preset", savePresetAs, "small"),
         p.builtIn ? null : iconButton("trash", "Delete this preset", deletePreset, "small"),
-        iconButton("save", "Export my presets", exportPresets, "small"),
+        iconButton("upload", "Export my presets", exportPresets, "small"),
         importButton(),
       ),
       presetCards,
       h(
         "label",
         { class: "field" },
-        h("span", {}, "Materials and style"),
+        h("span", {}, t("Materials and style")),
         textarea(p.style, "e.g. board-formed concrete, terracotta tiles, timber louvers", 3, (v) => {
           state.preset.style = v;
           updatePromptPreview();
@@ -620,7 +635,7 @@ function renderTab(body: HTMLElement): void {
       h(
         "label",
         { class: "field" },
-        h("span", {}, "Notes for this view"),
+        h("span", {}, t("Notes for this view")),
         textarea(state.notes, "e.g. add a parked Honda Dream by the gate", 2, (v) => {
           state.notes = v;
           updatePromptPreview();
@@ -629,24 +644,16 @@ function renderTab(body: HTMLElement): void {
     ),
   );
 
-  const lp = h("input", {
-    type: "checkbox",
-    checked: state.settings.linePass,
-    onchange: async (e: Event) => {
-      state.settings.linePass = (e.target as HTMLInputElement).checked;
-      await persist();
-    },
-  });
+  if (host.kind === "sketchup") body.append(geometrySection());
   body.append(
     h(
       "details",
       { class: "section advanced" },
-      h("summary", {}, "Advanced"),
+      h("summary", {}, t("Advanced")),
       host.kind === "sketchup"
         ? h(
             "div",
             { class: "adv-grid" },
-            h("label", { class: "switch" }, lp, h("span", { class: "track" }), "Send hidden-line pass to hold geometry"),
             h(
               "div",
               { class: "field" },
@@ -674,7 +681,7 @@ function renderBar(): HTMLElement {
     "button",
     { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: runRender, type: "button" },
     icon("render", 20),
-    h("span", { id: "render-label" }, state.busy ? "Rendering..." : state.result ? "Render again" : "Render"),
+    h("span", { id: "render-label" }, t(state.busy ? "Rendering..." : state.result ? "Render again" : "Render")),
   );
   return h(
     "div",
@@ -694,6 +701,7 @@ function currentRenderPrompt(): string {
     facts: state.capture?.facts,
     hasLinePass: Boolean(state.capture?.lines),
     extras: dynamicLines(state.settings.dynamic),
+    lineStrength: state.settings.lineStrength,
   });
 }
 
@@ -724,10 +732,22 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
 }
 
 function compareSlider(before: ImageData64, after: ImageData64): HTMLElement {
-  const beforeImg = h("img", { src: toDataUrl(before), alt: "Before" }) as HTMLImageElement;
+  // draggable=false and preventDefault stop the browser's own image drag,
+  // which used to grab the picture instead of moving the divider.
+  const beforeImg = h("img", { src: toDataUrl(before), alt: "Before", draggable: "false" }) as HTMLImageElement;
+  const afterImg = h("img", { src: toDataUrl(after), alt: "After", draggable: "false" }) as HTMLImageElement;
   const clip = h("div", { class: "compare-before" }, beforeImg);
   const handle = h("div", { class: "compare-handle" }, h("span", {}, "‹ ›"));
-  const wrap = h("div", { class: "compare" }, h("img", { src: toDataUrl(after), alt: "After" }), clip, handle);
+  const wrap = h(
+    "div",
+    { class: "compare" },
+    afterImg,
+    clip,
+    handle,
+    h("span", { class: "compare-tag left" }, "Before"),
+    h("span", { class: "compare-tag right" }, "After"),
+  );
+  wrap.addEventListener("dragstart", (e) => e.preventDefault());
   const set = (pct: number) => {
     const v = Math.max(0, Math.min(100, pct));
     clip.style.width = `${v}%`;
@@ -740,12 +760,25 @@ function compareSlider(before: ImageData64, after: ImageData64): HTMLElement {
     set(((e.clientX - r.left) / r.width) * 100);
   };
   wrap.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
     drag = true;
-    wrap.setPointerCapture(e.pointerId);
+    try {
+      wrap.setPointerCapture(e.pointerId);
+    } catch {
+      /* old Chromium: window listeners below still track the drag */
+    }
     move(e);
   });
-  wrap.addEventListener("pointermove", (e) => drag && move(e));
-  wrap.addEventListener("pointerup", () => (drag = false));
+  const onMove = (e: PointerEvent) => {
+    if (!wrap.isConnected) return window.removeEventListener("pointermove", onMove);
+    if (drag) move(e);
+  };
+  window.addEventListener("pointermove", onMove);
+  const end = () => (drag = false);
+  wrap.addEventListener("pointerup", end);
+  wrap.addEventListener("pointercancel", end);
+  wrap.addEventListener("lostpointercapture", end);
   requestAnimationFrame(sync);
   window.addEventListener("resize", sync);
   set(50);
@@ -875,7 +908,7 @@ function importButton(): HTMLElement {
       toast("That file is not a preset file.", "error");
     }
   });
-  return h("span", {}, iconButton("upload", "Import presets", () => input.click(), "small"), input);
+  return h("span", {}, iconButton("save", "Import presets", () => input.click(), "small"), input);
 }
 
 // ---------- Edit tab ----------
@@ -1413,9 +1446,9 @@ function settingsSheet(): HTMLElement {
   };
   const sheet = h("div", { class: "sheet" });
   sheet.append(
-    h("div", { class: "sheet-head" }, h("h2", {}, "Settings"), iconButton("close", "Close", close)),
+    h("div", { class: "sheet-head" }, h("h2", {}, t("Settings")), iconButton("close", "Close", close)),
     section(
-      "AI backend",
+      t("AI backend"),
       segmented(
         [
           { id: "gemini", label: "Gemini API key", icon: "key" },
@@ -1524,7 +1557,7 @@ function settingsSheet(): HTMLElement {
       ),
     );
   }
-  sheet.append(primaryButton("Done", "check", close, false, "wide"));
+  sheet.append(primaryButton(t("Done"), "check", close, false, "wide"));
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() }, sheet);
 }
 
@@ -1542,7 +1575,7 @@ function dynamicSection(): HTMLElement {
   const all = state.settings.dynamic;
   const total = GENERATORS.reduce((n, g) => n + (dynamicLines({ [g.id]: all[g.id] ?? {} }).length ? 1 : 0), 0);
   return sectionWith(
-    "Dynamic prompts",
+    t("Dynamic prompts"),
     total ? button("Clear all", null, async () => {
       state.settings.dynamic = {};
       await persist();
@@ -1636,6 +1669,479 @@ function dynamicSheet(g: DynGenerator): HTMLElement {
         });
       }, "ghost"),
       primaryButton("Apply", "check", () => close(true)),
+    ),
+  );
+  return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close(false) }, sheet);
+}
+
+// ---------- Theme and customise ----------
+
+function themeButton(): HTMLElement {
+  const dark = state.settings.theme === "dark";
+  const btn = iconButton(dark ? "moon" : "sun", dark ? "Switch to light mode" : "Switch to dark mode", () => {
+    const next = state.settings.theme === "dark" ? "light" : "dark";
+    animateTheme(btn, next, () => {
+      state.settings.theme = next;
+      applyLook(state.settings);
+      persist();
+      render();
+    });
+  }, "theme-btn");
+  return btn;
+}
+
+function lookSheet(): HTMLElement {
+  const s = state.settings;
+  const close = () => {
+    state.lookOpen = false;
+    render();
+  };
+  const update = async () => {
+    applyLook(s);
+    setLang(s.lang);
+    await persist();
+    render();
+  };
+  const sheet = h(
+    "div",
+    { class: "sheet" },
+    h("div", { class: "sheet-head" }, h("h2", {}, t("Customise")), iconButton("close", "Close", close)),
+    section(
+      t("Theme"),
+      segmented(
+        [
+          { id: "dark", label: t("Dark"), icon: "moon" },
+          { id: "light", label: t("Light"), icon: "sun" },
+        ],
+        s.theme,
+        (v) => {
+          s.theme = v as Settings["theme"];
+          update();
+        },
+      ),
+    ),
+    section(
+      t("Accent colour"),
+      h(
+        "div",
+        { class: "accents" },
+        ACCENTS.map((a) =>
+          h(
+            "button",
+            {
+              class: a.id === s.accent ? "accent-dot active" : "accent-dot",
+              type: "button",
+              title: a.label,
+              style: `--dot:${a.color}`,
+              onclick: () => {
+                s.accent = a.id;
+                update();
+              },
+            },
+            h("i", {}),
+            h("span", {}, a.label),
+          ),
+        ),
+      ),
+    ),
+    section(
+      t("Font"),
+      h(
+        "div",
+        { class: "font-list" },
+        FONTS.map((f) =>
+          h(
+            "button",
+            {
+              class: f.id === s.font ? "font-opt active" : "font-opt",
+              type: "button",
+              style: `font-family:${f.stack}`,
+              onclick: () => {
+                s.font = f.id;
+                update();
+              },
+            },
+            h("strong", {}, f.label),
+            h("small", {}, "Borey villa, blue hour · វីឡាបុរី"),
+          ),
+        ),
+      ),
+      h("p", { class: "hint" }, "Fonts other than System download from Google Fonts the first time, so they need internet once. Without it the panel falls back to Segoe UI and Khmer UI."),
+    ),
+    section(
+      t("Language"),
+      segmented(
+        [
+          { id: "en", label: "English" },
+          { id: "km", label: "ខ្មែរ" },
+        ],
+        s.lang,
+        (v) => {
+          s.lang = v as Settings["lang"];
+          update();
+        },
+      ),
+      h("p", { class: "hint" }, "Changes the panel labels. Prompts always go to the AI in English. Notes you type in Khmer are sent as written and the AI is told they are in Khmer."),
+    ),
+    primaryButton(t("Done"), "check", close, false, "wide"),
+  );
+  return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() }, sheet);
+}
+
+// ---------- Geometry ----------
+
+function geometrySection(): HTMLElement {
+  const s = state.settings;
+  const sw = h("input", {
+    type: "checkbox",
+    checked: s.linePass,
+    onchange: async (e: Event) => {
+      s.linePass = (e.target as HTMLInputElement).checked;
+      await persist();
+      render();
+    },
+  });
+  const band = (k: number) => (k >= 0.9 ? "Strict" : k >= 0.6 ? "Close" : k >= 0.3 ? "Guide" : "Loose");
+  const out = h("output", {}, `${s.lineStrength.toFixed(2)} · ${band(s.lineStrength)}`);
+  const input = h("input", { type: "range", min: 0, max: 1, step: 0.05, value: s.lineStrength, "aria-label": t("Match to line drawing") }) as HTMLInputElement;
+  const fill = () => input.style.setProperty("--fill", `${Number(input.value) * 100}%`);
+  input.addEventListener("input", () => {
+    s.lineStrength = Number(input.value);
+    out.textContent = `${s.lineStrength.toFixed(2)} · ${band(s.lineStrength)}`;
+    fill();
+    updatePromptPreview();
+  });
+  input.addEventListener("change", () => persist());
+  fill();
+  return sectionWith(
+    t("Geometry"),
+    h("label", { class: "switch" }, sw, h("span", { class: "track" }), t("Send line drawing to hold geometry")),
+    s.linePass
+      ? h(
+          "div",
+          { class: "slider" },
+          h("div", { class: "slider-head" }, h("label", {}, t("Match to line drawing")), out),
+          input,
+          h("div", { class: "scale-labels" }, h("span", {}, "0.0 loose"), h("span", {}, "0.5"), h("span", {}, "1.0 strict")),
+        )
+      : h("p", { class: "hint" }, "Off: only the SketchUp view is sent, so the AI may drift from your model."),
+  );
+}
+
+// ---------- Sun dial ----------
+
+const CARD_HOURS: Record<string, number> = { morning: 7, noon: 12, afternoon: 16.5, "blue-hour": 18.75, night: 20 };
+const DIAL_START = 5.5;
+const DIAL_END = 19.5;
+
+function dialHour(): { hour: number; live: boolean } {
+  const id = state.preset.lighting;
+  const t0 = parseDialTime(id);
+  if (t0 !== null) return { hour: t0, live: true };
+  if (id === "sketchup" && state.capture?.facts?.shadowTime) {
+    const iso = state.capture.facts.shadowTime;
+    return { hour: Number(iso.slice(11, 13)) + Number(iso.slice(14, 16)) / 60, live: true };
+  }
+  if (id in CARD_HOURS) return { hour: CARD_HOURS[id], live: true };
+  return { hour: 12, live: false };
+}
+
+function fmtHour(hour: number): string {
+  const m = Math.round(hour * 60);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function sunColour(phase: string): [string, string, string] {
+  // sky top, sky bottom, sun
+  switch (phase) {
+    case "Dawn":
+      return ["#2c3560", "#e9967a", "#ffb36b"];
+    case "Morning":
+      return ["#5f9bd6", "#f3d6a6", "#ffe2a3"];
+    case "Midday":
+      return ["#2f86d8", "#bfe0f6", "#fff6d8"];
+    case "Afternoon":
+      return ["#4a88c7", "#f2c98d", "#ffd27a"];
+    case "Golden hour":
+      return ["#5a5f8a", "#f0a050", "#ff9d3c"];
+    case "Dusk":
+      return ["#2b2f5c", "#d9704a", "#ff7a45"];
+    case "Blue hour":
+      return ["#101a3d", "#3d5a99", "#c9d6ff"];
+    default:
+      return ["#05070f", "#1b2036", "#d9dde8"];
+  }
+}
+
+function sunDial(): HTMLElement {
+  const W = 320;
+  const H = 150;
+  const cx = W / 2;
+  const cy = 118;
+  const R = 112;
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag: string, attrs: Record<string, string | number>) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    return e;
+  };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "dial-svg", role: "slider", "aria-label": "Time of day" }) as SVGSVGElement;
+  const defs = el("defs", {});
+  const grad = el("linearGradient", { id: "dial-sky", x1: 0, y1: 0, x2: 0, y2: 1 });
+  const stopTop = el("stop", { offset: "0%" });
+  const stopBot = el("stop", { offset: "100%" });
+  grad.append(stopTop, stopBot);
+  const glow = el("radialGradient", { id: "dial-glow" });
+  const g0 = el("stop", { offset: "0%", "stop-opacity": 0.9 });
+  const g1 = el("stop", { offset: "100%", "stop-opacity": 0 });
+  glow.append(g0, g1);
+  defs.append(grad, glow);
+  svg.append(defs);
+  svg.append(el("rect", { x: 0, y: 0, width: W, height: cy, rx: 10, fill: "url(#dial-sky)", class: "dial-sky" }));
+  svg.append(el("rect", { x: 0, y: cy, width: W, height: H - cy, fill: "var(--field)" }));
+  svg.append(el("path", { d: `M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`, fill: "none", stroke: "rgba(255,255,255,0.35)", "stroke-width": 1.2, "stroke-dasharray": "3 5" }));
+  svg.append(el("line", { x1: 8, y1: cy, x2: W - 8, y2: cy, stroke: "rgba(255,255,255,0.45)", "stroke-width": 1 }));
+  const pos = (hour: number) => {
+    const k = (Math.max(DIAL_START, Math.min(DIAL_END, hour)) - DIAL_START) / (DIAL_END - DIAL_START);
+    const a = Math.PI * (1 - k);
+    return [cx + R * Math.cos(a), cy - R * Math.sin(a)];
+  };
+  for (const hh of [6, 9, 12, 15, 18]) {
+    const [x, y] = pos(hh);
+    svg.append(el("circle", { cx: x, cy: y, r: 2.6, fill: "rgba(255,255,255,0.8)" }));
+    const lab = el("text", { x, y: y - 8, "text-anchor": "middle", class: "dial-tick" });
+    lab.textContent = `${hh}:00`;
+    svg.append(lab);
+  }
+  const east = el("text", { x: 12, y: cy + 16, class: "dial-dir" });
+  east.textContent = "E";
+  const west = el("text", { x: W - 12, y: cy + 16, "text-anchor": "end", class: "dial-dir" });
+  west.textContent = "W";
+  svg.append(east, west);
+  const halo = el("circle", { r: 26, fill: "url(#dial-glow)" });
+  const sun = el("circle", { r: 9, class: "dial-sun" });
+  const label = el("text", { x: cx, y: cy - 34, "text-anchor": "middle", class: "dial-phase" });
+  const time = el("text", { x: cx, y: cy - 16, "text-anchor": "middle", class: "dial-time" });
+  svg.append(halo, sun, label, time);
+  const caption = h("p", { class: "dial-caption" });
+
+  const month = state.capture?.facts?.shadowTime ? Number(state.capture.facts.shadowTime.slice(5, 7)) : new Date().getMonth() + 1;
+  const draw = (hour: number, live: boolean) => {
+    const phase = sunPhase(hour);
+    const [top, bottom, sunC] = sunColour(phase);
+    stopTop.setAttribute("stop-color", top);
+    stopBot.setAttribute("stop-color", bottom);
+    g0.setAttribute("stop-color", sunC);
+    g1.setAttribute("stop-color", sunC);
+    const [x, y] = pos(hour);
+    for (const c of [halo, sun]) {
+      c.setAttribute("cx", String(x));
+      c.setAttribute("cy", String(y));
+    }
+    sun.setAttribute("fill", sunC);
+    label.textContent = phase.toUpperCase();
+    time.textContent = live ? fmtHour(hour) : "drag the sun to set a time";
+    svg.classList.toggle("dim", !live);
+    caption.textContent = live ? `${sunText(hour, month)}.` : "This light has no fixed sun position. Drag the sun to pick a time.";
+  };
+  const start = dialHour();
+  draw(start.hour, start.live);
+
+  let dragging = false;
+  const hourAt = (e: PointerEvent) => {
+    const r = svg.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * W;
+    const y = ((e.clientY - r.top) / r.height) * H;
+    let a = Math.atan2(cy - y, x - cx);
+    if (a < 0) a = x < cx ? Math.PI : 0;
+    return DIAL_START + (1 - a / Math.PI) * (DIAL_END - DIAL_START);
+  };
+  const setFrom = (e: PointerEvent) => {
+    const id = dialTimeId(hourAt(e));
+    state.preset.lighting = id;
+    draw(parseDialTime(id)!, true);
+    updatePromptPreview();
+  };
+  svg.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    dragging = true;
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch {
+      /* old Chromium */
+    }
+    setFrom(e);
+  });
+  svg.addEventListener("pointermove", (e) => dragging && setFrom(e));
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    render(); // refresh which light card is active
+  };
+  svg.addEventListener("pointerup", stop);
+  svg.addEventListener("pointercancel", stop);
+  return h("div", { class: "dial" }, svg as unknown as HTMLElement, caption);
+}
+
+// ---------- Surroundings ----------
+
+function surroundingsSection(): HTMLElement {
+  const picks = parseContexts(state.preset.environment);
+  const open = () => {
+    state.ctxOpen = true;
+    render();
+  };
+  return sectionWith(
+    t("Surroundings"),
+    button(t("Choose site context"), "aerial", open, "ghost small"),
+    picks.length
+      ? h(
+          "div",
+          { class: "chips" },
+          picks.map((id) =>
+            h(
+              "span",
+              { class: "chip active removable" },
+              contextLabel(id),
+              h(
+                "button",
+                {
+                  type: "button",
+                  "aria-label": `Remove ${contextLabel(id)}`,
+                  onclick: () => {
+                    state.preset.environment = joinContexts(picks.filter((x) => x !== id));
+                    render();
+                  },
+                },
+                "×",
+              ),
+            ),
+          ),
+        )
+      : h("button", { class: "ctx-empty", type: "button", onclick: open }, icon("aerial", 18), h("span", {}, `${t("Keep as modelled")}. Pick a site context to place the building somewhere real.`)),
+  );
+}
+
+function contextSheet(): HTMLElement {
+  const chosen = parseContexts(state.preset.environment);
+  let query = "";
+  const close = (save: boolean) => {
+    if (save) state.preset.environment = joinContexts(chosen);
+    state.ctxOpen = false;
+    render();
+  };
+  const list = h("div", { class: "ctx-list" });
+  const rail = h("nav", { class: "ctx-rail" });
+  const count = h("span", { class: "ctx-count" });
+  const search = h("input", { type: "text", placeholder: "Search, or type your own context and press Enter", "aria-label": "Search site contexts" }) as HTMLInputElement;
+
+  const toggle = (id: string) => {
+    const i = chosen.indexOf(id);
+    if (i >= 0) chosen.splice(i, 1);
+    else chosen.push(id);
+    draw();
+  };
+  const item = (c: { id: string; label: string; sub: string }) =>
+    h(
+      "button",
+      { class: chosen.includes(c.id) ? "ctx-item on" : "ctx-item", type: "button", onclick: () => toggle(c.id) },
+      h("span", { class: "ctx-check" }, icon("check", 14)),
+      h("span", { class: "ctx-text" }, h("strong", {}, c.label), h("small", {}, c.sub)),
+    );
+  const draw = () => {
+    clear(list);
+    clear(rail);
+    const q = query.trim().toLowerCase();
+    for (const g of CONTEXT_GROUPS) {
+      const n = g.items.filter((c) => chosen.includes(c.id)).length;
+      rail.append(
+        h(
+          "button",
+          {
+            class: g.id === state.ctxGroup && !q ? "active" : "",
+            type: "button",
+            onclick: () => {
+              state.ctxGroup = g.id;
+              query = "";
+              search.value = "";
+              draw();
+            },
+          },
+          h("span", {}, g.label),
+          n ? h("em", {}, String(n)) : null,
+        ),
+      );
+    }
+    if (q) {
+      const hits = CONTEXT_GROUPS.flatMap((g) => g.items).filter((c) => `${c.label} ${c.sub} ${c.text}`.toLowerCase().includes(q));
+      list.append(h("div", { class: "ctx-head" }, h("h4", {}, `Results for "${query.trim()}"`), h("span", { class: "badge" }, `${hits.length}`)));
+      list.append(h("div", { class: "ctx-items" }, hits.map(item)));
+      list.append(
+        h(
+          "button",
+          { class: "ctx-add", type: "button", onclick: () => addCustom() },
+          icon("plus", 16),
+          h("span", {}, `${t("Add")} "${query.trim()}" as your own context`),
+        ),
+      );
+    } else {
+      const g = CONTEXT_GROUPS.find((x) => x.id === state.ctxGroup) ?? CONTEXT_GROUPS[0];
+      list.append(
+        h(
+          "div",
+          { class: "ctx-banner", style: `background:linear-gradient(120deg, ${g.colors[0]}, ${g.colors[1]} 55%, ${g.colors[2]})` },
+          h("span", { class: "badge" }, `${g.tag} · ${g.items.length} contexts`),
+          h("h3", {}, g.label),
+        ),
+        h("div", { class: "ctx-items" }, g.items.map(item)),
+      );
+    }
+    const custom = chosen.filter((id) => id.startsWith("custom:"));
+    if (custom.length) {
+      list.append(
+        h("div", { class: "ctx-head" }, h("h4", {}, "Your own")),
+        h("div", { class: "ctx-items" }, custom.map((id) => item({ id, label: contextLabel(id), sub: "Typed by you" }))),
+      );
+    }
+    count.textContent = chosen.length ? `${chosen.length} selected` : "None selected: surroundings stay as modelled";
+  };
+  const addCustom = () => {
+    const text = query.trim();
+    if (!text) return;
+    const id = `custom:${text.replace(/,/g, ";")}`;
+    if (!chosen.includes(id)) chosen.push(id);
+    query = "";
+    search.value = "";
+    draw();
+  };
+  search.addEventListener("input", () => {
+    query = search.value;
+    draw();
+  });
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addCustom();
+  });
+  draw();
+  const sheet = h(
+    "div",
+    { class: "sheet ctx-sheet" },
+    h(
+      "div",
+      { class: "sheet-head" },
+      h("div", { class: "ctx-title" }, icon("aerial", 22), h("div", {}, h("h2", {}, t("Site context")), h("small", {}, "Pick one or more settings for the scene"))),
+      iconButton("close", "Close", () => close(false)),
+    ),
+    h("label", { class: "ctx-search" }, icon("search", 16), search),
+    h("div", { class: "ctx-body" }, list, rail),
+    h(
+      "div",
+      { class: "ctx-foot" },
+      count,
+      button(t("Clear all"), null, () => {
+        chosen.splice(0, chosen.length);
+        draw();
+      }, "ghost small"),
+      primaryButton(t("Apply and close"), "check", () => close(true)),
     ),
   );
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close(false) }, sheet);

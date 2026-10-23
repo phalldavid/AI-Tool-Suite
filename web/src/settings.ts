@@ -23,6 +23,12 @@ export interface Settings {
   userPresets: Preset[];
   /** Dynamic prompt generator values, by generator id. */
   dynamic: Record<string, DynValues>;
+  /** How strictly renders follow the line drawing, 0..1. */
+  lineStrength: number;
+  theme: "dark" | "light";
+  accent: string;
+  font: string;
+  lang: "en" | "km";
 }
 
 export type BrowserSite = "gemini" | "chatgpt" | "flow";
@@ -43,6 +49,11 @@ export const DEFAULT_SETTINGS: Settings = {
   linePass: true,
   userPresets: [],
   dynamic: {},
+  lineStrength: 0.85,
+  theme: "dark",
+  accent: "amber",
+  font: "system",
+  lang: "en",
   browserSite: "gemini",
 };
 

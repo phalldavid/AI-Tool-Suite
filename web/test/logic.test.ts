@@ -174,3 +174,36 @@ test("render prompt carries dynamic lines before the camera line", () => {
   const v = lines.indexOf("Vehicles: add one tuk-tuk.");
   assert.ok(v > 0 && lines[v + 1].startsWith("Camera:"));
 });
+
+import { geometryLines, parseDialTime, dialTimeId, sunPhase } from "../src/prompt";
+import { contextText, joinContexts, parseContexts } from "../src/context";
+
+test("line drawing strength changes how strict the prompt is", () => {
+  assert.match(geometryLines(1).join(" "), /Geometry match: 100%.*strict source of truth/);
+  assert.match(geometryLines(0.7).join(" "), /Geometry match: 70%.*Follow the line drawing closely/);
+  assert.match(geometryLines(0.4).join(" "), /guide for the overall massing/);
+  assert.match(geometryLines(0).join(" "), /loose reference/);
+  assert.doesNotMatch(geometryLines(0.4).join(" "), /ignore that part/);
+  const p = buildRenderPrompt({ preset: BUILT_IN_PRESETS[0], hasLinePass: true, lineStrength: 0.95 });
+  assert.match(p, /Image 2 is a hidden-line drawing/);
+  assert.ok(p.indexOf("Image 2") < p.indexOf("Materials and style"));
+});
+
+test("sun dial times round-trip and name the light", () => {
+  assert.equal(dialTimeId(17.52), "time:17:30");
+  assert.equal(parseDialTime("time:17:30"), 17.5);
+  assert.equal(parseDialTime("morning"), null);
+  assert.equal(sunPhase(6), "Dawn");
+  assert.equal(sunPhase(17.5), "Golden hour");
+  assert.equal(sunPhase(18.8), "Blue hour");
+  assert.match(lightingText("time:16:00", { shadowTime: "2026-06-01T10:00" })!, /afternoon sun at 16:00, low from the west and slightly to the north/);
+});
+
+test("site contexts combine, keep custom text, and default to keep", () => {
+  assert.deepEqual(parseContexts("keep"), []);
+  assert.equal(contextText("keep"), null);
+  assert.equal(joinContexts([]), "keep");
+  const t = contextText("borey,custom:mango trees along the road")!;
+  assert.match(t, /gated borey.*; mango trees along the road/);
+  assert.match(contextText("pp-street")!, /Phnom Penh street/);
+});
