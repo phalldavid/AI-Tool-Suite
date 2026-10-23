@@ -546,3 +546,5 @@ input[type="password"]:hover, input[type="url"]:hover, input[type="text"]:hover,
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 @media (max-width: 380px) { .model-grid { grid-template-columns: 1fr; } }
+.model-price { font-size: 12px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.model-card.active .model-price { color: var(--accent); }

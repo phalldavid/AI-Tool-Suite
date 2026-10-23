@@ -40,7 +40,7 @@ import {
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
 import { KIE_KEY_PAGE } from "./providers/kie";
-import { findKieModel, KIE_FAMILIES, modelsIn, priceText, type KieFamilyId, type KieResolution } from "./providers/kie-models";
+import { findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, type KieFamilyId, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
@@ -1833,7 +1833,7 @@ function modelSection(): HTMLElement {
     const sel = h(
       "select",
       { class: "model-sub", "aria-label": `${f.label} version`, disabled: !hasKey, onclick: (e: Event) => e.stopPropagation() },
-      list.map((m) => h("option", { value: m.id, selected: m.id === chosen.id }, `${m.label} · ${priceText(m, s.kieResolution)}`)),
+      list.map((m) => h("option", { value: m.id, selected: m.id === chosen.id }, m.label.replace(f.label.replace(/ Image$/, ""), "").replace(/^ Image/, "").trim())),
     ) as HTMLSelectElement;
     sel.addEventListener("change", () => pick(sel.value));
     return h(
@@ -1859,7 +1859,8 @@ function modelSection(): HTMLElement {
         h("span", { class: "model-badge" }, f.badge),
       ),
       h("strong", {}, f.label),
-      h("small", {}, `${f.maker} · ${priceText(chosen, s.kieResolution)} / image`),
+      h("small", {}, f.maker),
+      h("span", { class: "model-price" }, priceFor(chosen, s.kieResolution) === null ? "Price on kie.ai" : `${priceText(chosen, s.kieResolution)} / image`),
       sel,
     );
   });
