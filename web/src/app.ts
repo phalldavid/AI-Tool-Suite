@@ -2352,7 +2352,7 @@ function renderBar(): HTMLElement {
   const disabled = state.busy || !state.capture;
   const btn = h(
     "button",
-    { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button" },
+    { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button", title: !state.capture && !state.busy ? (host.kind === "sketchup" ? "Capture a view first" : "Upload an image first") : undefined },
     icon("render", 20),
     h(
       "span",
@@ -5261,7 +5261,7 @@ function showTour(): void {
   // Scroll only when the step changes, not on every redraw of the panel.
   if (tourScrolled !== state.tourStep) {
     tourScrolled = state.tourStep;
-    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    target?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   const last = state.tourStep === TOUR.length - 1;
   const card = h(
@@ -5315,6 +5315,8 @@ function onboarding(): HTMLElement {
   const later = () =>
     button("Set up later", null, async () => {
       s.onboarded = true;
+      // Kie is the recommended route, so that is what Settings opens on later.
+      if (!s.kieKey && !s.geminiKey) s.backend = "kie";
       await persist();
       render();
       toast("You can add a key any time in Settings");

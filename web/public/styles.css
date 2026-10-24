@@ -854,7 +854,8 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 7px; border-radius: 6
    Desktop (over 1,000 px): picture on the left, controls on the right. */
 
 /* Nothing may make the page wider than the screen (iPhone Safari zooms the whole page out when it does). */
-html, body { overflow-x: hidden; }
+/* Only html: overflow on body makes it a scroll box and breaks the sticky picture column. */
+html { overflow-x: hidden; }
 #app { width: 100%; overflow-x: clip; }
 .body > *, .controls-col > *, .picture-col > * { min-width: 0; }
 .picture-col, .controls-col { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
@@ -891,4 +892,19 @@ html, body { overflow-x: hidden; }
   .picture-col .stage-img { max-height: calc(100vh - 200px); object-fit: contain; }
   .render-bar { max-width: none; margin: 0; left: auto; width: 464px; right: max(0px, calc((100vw - 1440px) / 2)); }
   .history-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+
+/* Toasts sit at the top, clear of the Render bar, the tour and bottom sheets. */
+.toast { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 12px); transform: translate(-50%, -10px); }
+.toast.show { transform: translate(-50%, 0); }
+.toast-log, .toast-fix { white-space: nowrap; }
+
+@media (max-width: 599px) {
+  /* iPhone Safari zooms into any field under 16 px when it is tapped. */
+  input[type="text"], input[type="password"], input[type="number"], input[type="search"], input:not([type]), textarea, select { font-size: 16px; }
+}
+
+/* Tooltips only where there is a real mouse; on touch they stuck after a tap. */
+@media (hover: none) {
+  [data-tip]:hover::after { content: none; }
 }

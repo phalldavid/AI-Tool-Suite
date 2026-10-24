@@ -280,8 +280,8 @@ export const GENERATORS: DynGenerator[] = [
       const g = GENERATORS[2];
       const types = picks(g, v, "types");
       const model = pick(g, v, "model");
-      // Typing a plate means plates are wanted; the chip's words become the full plate phrase.
-      const wantsPlate = (Array.isArray(v.extras) && v.extras.includes("plate")) || (typeof v.plate === "string" && v.plate.trim() !== "");
+      // The Cambodian plates chip turns plates on; its words become the full plate phrase.
+      const wantsPlate = Array.isArray(v.extras) && v.extras.includes("plate");
       const extras = picks(g, { ...v, extras: (Array.isArray(v.extras) ? v.extras : []).filter((x) => x !== "plate") }, "extras");
       if (wantsPlate) extras.push(platePhrase(v.plate));
       if (!types.length && !model && !extras.length) return null;
