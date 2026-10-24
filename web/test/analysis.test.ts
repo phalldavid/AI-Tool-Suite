@@ -64,7 +64,7 @@ test("new dynamic generators: camera replaces the default lens line, plates and 
   });
   assert.ok(lines.some((l) => /^Camera and effects: drone view/.test(l)));
   assert.ok(lines.some((l) => /^Foreground: a green rice paddy/.test(l)));
-  assert.ok(lines.some((l) => /Lexus RX SUV as the main vehicle; with realistic Cambodian licence plates/.test(l)));
+  assert.ok(lines.some((l) => /Lexus RX SUV as the main vehicle; with Cambodian personalised number plates that all read "D4VID"/.test(l)));
   assert.ok(lines.some((l) => /^Plants: add a koi pond/.test(l)));
   assert.ok(lines.some((l) => /light breeze/.test(l)));
   const p = buildRenderPrompt({ preset: BUILT_IN_PRESETS[0], hasLinePass: false, extras: lines });

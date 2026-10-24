@@ -41,6 +41,7 @@ import {
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
+import { progressAt, rememberDuration, runningLong, typicalMs } from "./progress";
 import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
@@ -49,7 +50,7 @@ import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, findLibraryItem, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
 import { PREVIEW_PACK } from "./preview-pack";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
-import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
+import { countSet, DEFAULT_PLATE, dynamicLines, findGenerator, GENERATORS, platePhrase, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
 import { friendlyError, KIE_TOPUP_URL, type FixAction } from "./errors";
 import { applyBackup, makeBackup } from "./backup";
@@ -173,6 +174,8 @@ let state: State;
 let root: HTMLElement;
 let painter: ZonePainter | null = null;
 let busyTimer: number | undefined;
+/** Set when a new result arrives, so the stage fades it in once. */
+let freshResult = false;
 
 export async function start(el: HTMLElement): Promise<void> {
   root = el;
@@ -642,13 +645,7 @@ function withFeedback(onclick: () => unknown): (e: Event) => void {
     btn.setAttribute("aria-busy", "true");
     const label = btn.querySelector(":scope > span");
     const text = label?.textContent ?? "";
-    const t0 = Date.now();
-    const tick = window.setInterval(() => {
-      const secs = Math.round((Date.now() - t0) / 1000);
-      if (label && secs >= 2) label.textContent = `${text} ${secs} s`;
-    }, 1000);
     const end = (failed: boolean) => {
-      window.clearInterval(tick);
       if (working === job) working = null;
       if (label) label.textContent = text;
       btn.classList.remove("working");
@@ -914,7 +911,7 @@ function render(): void {
       ),
     ),
   );
-  const body = h("main", { class: "body" });
+  const body = h("main", { class: `body tab-${state.tab}` });
   if (state.tab === "render") renderTab(body);
   if (state.tab === "edit") editTab(body);
   if (state.tab === "lights") lightsTab(body);
@@ -1197,7 +1194,7 @@ function stage(): HTMLElement {
     { class: "stage" },
     h(
       "div",
-      { class: "stage-frame" },
+      { class: freshResult && state.result ? "stage-frame fresh" : "stage-frame" },
       content,
       cap ? h("span", { class: "badge" }, frameLabel()) : null,
       state.result ? h("span", { class: "badge right" }, "Drag to compare") : null,
@@ -1557,7 +1554,7 @@ function presetCard(x: Preset): HTMLElement {
 function quickTab(body: HTMLElement): void {
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+  modelPanel(body);
   body.append(fold(frameSection(), "frame", frameLabel(), false));
   body.append(lockBanner());
   if (!lock) {
@@ -2107,17 +2104,35 @@ function drawQueue(): void {
   else if (state.tab === "render") render();
 }
 
-function renderTab(body: HTMLElement): void {
+/**
+ * Wide landscape window (desktop, iPad sideways): the model list gets its own
+ * left panel, always open, so most of the panel fits on one screen.
+ * Portrait or narrow windows use the phone layout.
+ */
+const WIDE = window.matchMedia("(min-width: 1000px) and (orientation: landscape)");
+WIDE.addEventListener?.("change", () => render());
+
+/** The AI model fold, unless the left panel already shows the model list. */
+function modelPanel(body: HTMLElement): void {
+  if (!WIDE.matches) body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+}
+
+function renderTab(main: HTMLElement): void {
   const p = state.preset;
-  body.append(stage());
-  if (queue.length) body.append(queueSection());
+  // Picture column and controls column. Stacked on phones and in the
+  // SketchUp panel, side by side on a wide screen (see styles.css).
+  main.classList.add("render-layout");
+  const pictureCol = h("div", { class: "picture-col" }, stage(), queue.length ? queueSection() : null);
+  const body = h("div", { class: "controls-col" });
+  main.append(pictureCol, body);
+  if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection()));
   if (state.settings.simple) {
     quickTab(body);
     return;
   }
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+  modelPanel(body);
   body.append(fold(frameSection(), "frame", frameLabel(), true));
   body.append(lockBanner());
   if (!lock) {
@@ -2247,8 +2262,9 @@ function renderTab(body: HTMLElement): void {
   );
 }
 
-const QUICK_TEMPLATES: { label: string; text: string }[] = [
-  { label: "Cambodian plates", text: "Give every car a realistic Cambodian licence plate with correct proportions, fonts and Phnom Penh province text." },
+/** Quick note chips. The plate one uses the plate text set under Vehicles (D4VID when empty). */
+const quickTemplates = (): { label: string; text: string }[] => [
+  { label: "Cambodian plates", text: `Give every vehicle ${platePhrase(state.settings.dynamic.vehicles?.plate)}.` },
   { label: "Ground mist", text: "Add a thin, low ground mist that softens the base of the trees and the distance." },
   { label: "Green to mirror", text: "Turn the flat green-coloured surfaces into real opaque mirrors with correct reflections." },
   { label: "Orange to LED", text: "Turn the orange and yellow lines on the ceiling into glowing warm-white LED strips." },
@@ -2269,14 +2285,30 @@ function notesField(): HTMLElement {
     h(
       "div",
       { class: "chips quick" },
-      QUICK_TEMPLATES.map((q) =>
+      quickTemplates().map((q) =>
         chip(`+ ${q.label}`, state.notes.includes(q.text), () => {
           state.notes = state.notes.includes(q.text) ? state.notes.replace(q.text, "").replace(/\s{2,}/g, " ").trim() : `${state.notes.trim()}${state.notes.trim() && !/[.!?។]$/.test(state.notes.trim()) ? "." : ""} ${q.text}`.trim();
           render();
         }, undefined, q.text),
       ),
     ),
+    plateInNotes(),
   );
+}
+
+/** Plate text box, shown while the Cambodian plates note is in use. Shares its value with Vehicles. */
+function plateInNotes(): HTMLElement | null {
+  const current = quickTemplates()[0].text;
+  if (!state.notes.includes(current)) return null;
+  const input = h("input", { type: "text", value: String(state.settings.dynamic.vehicles?.plate ?? ""), placeholder: `Plate text, empty = ${DEFAULT_PLATE}`, maxlength: 12, autocapitalize: "characters", spellcheck: false, "aria-label": "Plate text" }) as HTMLInputElement;
+  input.addEventListener("change", async () => {
+    const before = quickTemplates()[0].text;
+    state.settings.dynamic = { ...state.settings.dynamic, vehicles: { ...(state.settings.dynamic.vehicles ?? {}), plate: input.value } };
+    state.notes = state.notes.replace(before, quickTemplates()[0].text);
+    await persist();
+    render();
+  });
+  return h("label", { class: "field plate-field" }, h("span", {}, "Plate text"), input, h("small", { class: "muted" }, "AI models sometimes misspell plate text. Short plates (5 to 7 characters) come out best."));
 }
 
 function referenceField(): HTMLElement {
@@ -2331,9 +2363,10 @@ function renderBar(): HTMLElement {
   const disabled = state.busy || !state.capture;
   const btn = h(
     "button",
-    { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button" },
+    { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button", title: !state.capture && !state.busy ? (host.kind === "sketchup" ? "Capture a view first" : "Upload an image first") : undefined },
     icon("render", 20),
-    h("span", { id: "render-label" }, t(state.busy ? "Rendering..." : state.result ? "Render again" : "Render")),
+    state.busy ? h("span", { class: "render-progress", "aria-hidden": "true" }, h("i", { id: "render-fill", style: `transform:scaleX(${busyProgress().toFixed(3)})` })) : null,
+    h("span", { id: "render-label" }, state.busy ? busyLabel() : t(state.result ? "Render again" : "Render")),
     !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${renderCost()} credits`) : null,
   );
   return h(
@@ -2486,8 +2519,10 @@ async function shareImage(img: ImageData64): Promise<void> {
 function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
   return h(
     "div",
-    { class: "stage-actions" },
-    primaryButton(host.kind === "sketchup" ? "Save" : "Download", "save", () => saveImage(after, tool)),
+    { class: "stage-actions result-actions" },
+    // Main actions, then small tools. On a phone they sit on two rows.
+    h("div", { class: "ra-main" },
+    primaryButton(host.kind === "sketchup" ? "Save" : isIOS() ? "Save" : "Download", "save", () => saveImage(after, tool)),
     button("Edit", "edit", () => {
       if (tool !== "render" && state.editSource && state.editSource !== after) pushEdit(state.editSource);
       else if (tool === "render") state.editStack = [];
@@ -2496,11 +2531,13 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
       state.tab = "edit";
       render();
     }, "ghost"),
-    iconButton("share", "Share: send to Telegram, Line or email", () => shareImage(after), "ghost"),
-    iconButton("copy", "Copy image", () => copyImage(after), "ghost"),
     tool === "render" && state.capture && after === state.result
       ? button("Try again", "refresh", () => runRender(true), "ghost", state.busy)
       : null,
+    ),
+    h("div", { class: "ra-tools" },
+    iconButton("share", "Share: send to Telegram, Line or email", () => shareImage(after), "ghost"),
+    iconButton("copy", "Copy image", () => copyImage(after), "ghost"),
     tool === "render" ? rateButtons(after) : null,
     tool === "render"
       ? iconButton("lock", "Lock this look for every view of the project", () => lockLook(after), state.settings.styleLock?.referenceIsRender ? "ghost on" : "ghost")
@@ -2519,6 +2556,7 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
           render();
         }, "ghost")
       : null,
+    ),
   );
 }
 
@@ -2593,10 +2631,28 @@ function compareSlider(before: ImageData64, after: ImageData64): HTMLElement {
   return wrap;
 }
 
+/** iPhone or iPad (iPadOS reports itself as a Mac with touch). */
+function isIOS(): boolean {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 async function saveImage(img: ImageData64, tool: ToolId): Promise<void> {
   try {
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
     const name = `${tool}_${state.capture?.facts?.sceneName || state.preset.name}_${stamp}`.replace(/[^\w.-]+/g, "_");
+    // iPhone/iPad: a web page can't write to Photos, but the share sheet has
+    // "Save Image" at the top. No await before share(), or Safari drops the tap.
+    if (host.kind !== "sketchup" && isIOS()) {
+      const file = new File([imageBlob(img)], `${name}.${img.mimeType === "image/png" ? "png" : "jpg"}`, { type: img.mimeType });
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+        } catch (e) {
+          if ((e as Error).name !== "AbortError") throw e;
+        }
+        return;
+      }
+    }
     const where = await host.save(img, name);
     toast(`Saved ${where}`, "ok");
   } catch (e) {
@@ -2604,17 +2660,44 @@ async function saveImage(img: ImageData64, tool: ToolId): Promise<void> {
   }
 }
 
+/** Model name used to remember how long renders take. */
+function timingKey(): string {
+  const st = state.settings;
+  return st.backend === "kie" ? `${st.kieModel}@${st.kieResolution}` : st.backend;
+}
+
+function busyProgress(): number {
+  return progressAt(Date.now() - state.busySince, typicalMs(timingKey()));
+}
+
+function busyLabel(): string {
+  if (state.settings.backend === "browser") return "Press Send in the browser";
+  return runningLong(Date.now() - state.busySince, typicalMs(timingKey())) ? "Taking longer than usual" : t("Rendering...");
+}
+
 function setBusy(on: boolean): void {
   state.busy = on;
   window.clearInterval(busyTimer);
   if (on) {
     state.busySince = Date.now();
+    // Moves the bar inside the Render button; no counter, just the fill.
     busyTimer = window.setInterval(() => {
+      const fill = document.getElementById("render-fill");
+      if (fill) fill.style.transform = `scaleX(${busyProgress().toFixed(3)})`;
       const label = document.getElementById("render-label");
-      const waitText = state.settings.backend === "browser" ? "Press Send in the browser" : "Rendering...";
-      if (label) label.textContent = `${waitText} ${Math.round((Date.now() - state.busySince) / 1000)} s`;
-    }, 1000);
+      if (label && label.textContent !== busyLabel()) label.textContent = busyLabel();
+      fill?.closest(".render-btn")?.classList.toggle("long", runningLong(Date.now() - state.busySince, typicalMs(timingKey())));
+    }, 200);
   }
+}
+
+/** Fills the bar to the end before the result is shown. */
+async function finishProgress(): Promise<void> {
+  const fill = document.getElementById("render-fill");
+  if (!fill) return;
+  fill.style.transition = "transform 250ms ease-out";
+  fill.style.transform = "scaleX(1)";
+  await new Promise((r) => setTimeout(r, 280));
 }
 
 async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: string): Promise<ImageData64 | null> {
@@ -2638,10 +2721,14 @@ async function runProviderMany(prompt: string, images: ImageData64[], aspectRati
     );
     const ok = runs.flatMap((r) => (r.status === "fulfilled" ? [r.value.image] : []));
     const failed = runs.find((r): r is PromiseRejectedResult => r.status === "rejected");
-    const secs = Math.round((Date.now() - state.busySince) / 1000);
     if (failed && !ok.length) throw failed.reason;
-    if (failed) toast(`${ok.length} of ${n} done in ${secs} s. One failed: ${(failed.reason as Error).message}`, "error");
-    else toast(`Done in ${secs} s.`, "ok");
+    rememberDuration(timingKey(), Date.now() - state.busySince);
+    window.clearInterval(busyTimer);
+    await finishProgress();
+    freshResult = true;
+    window.setTimeout(() => (freshResult = false), 700);
+    if (failed) toast(`${ok.length} of ${n} done. One failed: ${(failed.reason as Error).message}`, "error");
+    else toast("Done", "ok");
     return ok;
   } catch (e) {
     const err = e as Error;
@@ -4518,7 +4605,14 @@ function dynamicSheet(g: DynGenerator): HTMLElement {
   };
   const fields = h("div", { class: "dyn-fields" });
   for (const f of g.fields) {
-    if (f.kind === "one") {
+    if (f.kind === "text") {
+      const input = h("input", { type: "text", value: (values[f.id] as string) ?? "", placeholder: f.placeholder ?? "", maxlength: 12, autocapitalize: "characters", spellcheck: false }) as HTMLInputElement;
+      input.addEventListener("input", () => {
+        values[f.id] = input.value;
+        refresh();
+      });
+      fields.append(h("label", { class: "field" }, h("span", {}, f.label), input, h("small", { class: "muted" }, "AI models sometimes misspell plate text. Short plates (5 to 7 characters) come out best.")));
+    } else if (f.kind === "one") {
       const sel = h(
         "select",
         {},
@@ -5204,7 +5298,7 @@ function showTour(): void {
   // Scroll only when the step changes, not on every redraw of the panel.
   if (tourScrolled !== state.tourStep) {
     tourScrolled = state.tourStep;
-    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    target?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   const last = state.tourStep === TOUR.length - 1;
   const card = h(
@@ -5258,6 +5352,8 @@ function onboarding(): HTMLElement {
   const later = () =>
     button("Set up later", null, async () => {
       s.onboarded = true;
+      // Kie is the recommended route, so that is what Settings opens on later.
+      if (!s.kieKey && !s.geminiKey) s.backend = "kie";
       await persist();
       render();
       toast("You can add a key any time in Settings");

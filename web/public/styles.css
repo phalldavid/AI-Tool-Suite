@@ -847,3 +847,88 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 7px; border-radius: 6
 .pv-tools .icon-btn { width: 28px; height: 28px; padding: 0; border-radius: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; border: 0; }
 .pv-tools .icon-btn:hover { background: rgba(0, 0, 0, 0.8); }
 .pv-tools .icon-btn svg { width: 15px; height: 15px; }
+
+/* ---------- Responsive layout ----------
+   Phone (under 600 px): one column, two-row result toolbar, bigger taps.
+   SketchUp panel / tablet (600 to 1,000 px): one column fitted to the window.
+   Desktop (over 1,000 px): picture on the left, controls on the right. */
+
+/* Nothing may make the page wider than the screen (iPhone Safari zooms the whole page out when it does). */
+/* Only html: overflow on body makes it a scroll box and breaks the sticky picture column. */
+html { overflow-x: hidden; }
+#app { width: 100%; overflow-x: clip; }
+.body > *, .controls-col > *, .picture-col > * { min-width: 0; }
+.picture-col, .controls-col { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+.render-layout { gap: 12px; }
+.btn { white-space: nowrap; }
+#render-label { white-space: nowrap; }
+
+/* Result toolbar: main actions, then small tools. */
+.result-actions { flex-wrap: wrap; align-items: center; }
+.ra-main, .ra-tools { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.ra-main { flex: 1 1 auto; }
+.ra-main .btn.primary { flex: 1; }
+.ra-tools { flex-wrap: wrap; }
+
+@media (max-width: 599px) {
+  .ra-main, .ra-tools { flex: 1 1 100%; }
+  .ra-tools { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; }
+  .ra-tools > span { display: contents; }
+  .ra-tools .icon-btn { width: 100%; height: 40px; min-width: 0; }
+  .ra-main .btn { min-height: 44px; }
+  .icon-btn { min-width: 36px; min-height: 36px; }
+}
+
+@media (min-width: 600px) {
+  #app, .render-bar { max-width: 1000px; }
+}
+
+/* Wide landscape (desktop, iPad sideways): model list on the left, picture,
+   controls. Portrait or narrow windows keep the phone layout. */
+@media (min-width: 1000px) and (orientation: landscape) {
+  #app { max-width: 1600px; }
+  .body:not(.tab-render):not(.tab-history) { width: 100%; max-width: 900px; margin: 0 auto; }
+  .render-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; grid-template-areas: "model picture controls"; align-items: start; gap: 14px; }
+  .model-col { grid-area: model; position: sticky; top: 64px; max-height: calc(100vh - 76px); overflow-y: auto; }
+  .picture-col { grid-area: picture; position: sticky; top: 64px; max-height: calc(100vh - 76px); overflow-y: auto; }
+  .picture-col .stage-img { max-height: calc(100vh - 220px); object-fit: contain; }
+  .controls-col { grid-area: controls; }
+  .render-bar { max-width: none; margin: 0; left: auto; width: 404px; right: max(0px, calc((100vw - 1600px) / 2)); }
+  .history-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+/* iPad landscape and small laptops: model list and controls share the left side. */
+@media (min-width: 1000px) and (max-width: 1279px) and (orientation: landscape) {
+  .render-layout { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "model picture" "controls picture"; }
+  .picture-col { grid-row: 1 / span 2; }
+  .model-col { position: static; max-height: none; }
+  .render-bar { left: 352px; right: 0; width: auto; }
+}
+
+/* Toasts sit at the top, clear of the Render bar, the tour and bottom sheets. */
+.toast { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 12px); transform: translate(-50%, -10px); }
+.toast.show { transform: translate(-50%, 0); }
+.toast-log, .toast-fix { white-space: nowrap; }
+
+@media (max-width: 599px), (pointer: coarse) {
+  /* iPhone and iPad Safari zoom into any field under 16 px when it is tapped. */
+  input[type="text"], input[type="password"], input[type="number"], input[type="search"], input:not([type]), textarea, select { font-size: 16px; }
+}
+
+/* Tooltips only where there is a real mouse; on touch they stuck after a tap. */
+@media (hover: none) {
+  [data-tip]:hover::after { content: none; }
+}
+
+/* Progress inside the Render button: no counter, just the fill. */
+.render-btn { position: relative; overflow: hidden; }
+.render-btn > :not(.render-progress) { position: relative; z-index: 1; }
+.render-progress { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.render-progress i { position: absolute; inset: 0; transform-origin: left center; background: rgba(240, 162, 74, 0.3); }
+/* color-mix needs Chrome 111; older SketchUp keeps the plain fill above. */
+.render-progress i { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 38%, transparent)); transition: transform 200ms linear; }
+.render-btn.long .render-progress i { background-image: linear-gradient(90deg, rgba(240,162,74,0.22), rgba(240,162,74,0.5), rgba(240,162,74,0.22)); background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent) 0%, color-mix(in srgb, var(--accent) 50%, transparent) 50%, color-mix(in srgb, var(--accent) 22%, transparent) 100%); background-size: 200% 100%; animation: render-shimmer 1.6s linear infinite; }
+@keyframes render-shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+.stage-frame.fresh { animation: result-in 420ms var(--ease-out) both; }
+@keyframes result-in { from { opacity: 0.25; filter: blur(4px); } to { opacity: 1; filter: none; } }
+@media (prefers-reduced-motion: reduce) { .render-btn.long .render-progress i, .stage-frame.fresh { animation: none; } }
+.render-cost, .credit { white-space: nowrap; }
