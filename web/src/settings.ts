@@ -63,6 +63,10 @@ export interface Settings {
   favorites: string[];
   /** The three-step first-run tour has been shown. */
   tourDone: boolean;
+  /** Current project (job) name; new renders are filed under it. Empty = none. */
+  project: string;
+  /** Project names the user has made, newest first. */
+  projects: string[];
 }
 
 export interface SceneSetup {
@@ -126,6 +130,8 @@ export const DEFAULT_SETTINGS: Settings = {
   lastSetup: {},
   favorites: [],
   tourDone: false,
+  project: "",
+  projects: [],
   browserSite: "gemini",
 };
 
