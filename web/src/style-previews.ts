@@ -36,7 +36,42 @@ export interface SheetDef {
   tiles: SheetTile[];
 }
 
-const short = (text: string) => text.split(",").slice(0, 4).join(",").trim();
+// One line per style for the sheet: the few things that set it apart at
+// thumbnail size, so neighbours in the grid don't blur together (David's
+// 4 x 4 test drew Retro and Mid-century alike and Wabi-sabi lime green).
+export const EXT_CUES: Record<string, string> = {
+  modern: "smooth white render, large glass panels in slim dark frames, flat roof with thin projecting slabs, timber soffits",
+  minimal: "pure off-white box volumes, almost no trims, frameless glazing, gravel and one tree",
+  tropical: "deep overhanging roofs, vertical timber louvers, breeze-block screens, lush planting on terraces",
+  "new-khmer": "raw board-formed grey concrete, folded sloping roof, brise-soleil fins, house raised on pilotis",
+  neoclassical: "symmetrical cream facade, columns with capitals, moulded cornices, balustrades, dark slate-look roof",
+  "french-colonial": "ochre-yellow walls, tall green louvered shutters, wrought-iron balconies, terracotta tile roof",
+  indochine: "warm white walls, dark timber shutters and screens, terracotta hip roof, lanterns on the veranda",
+  mediterranean: "white textured walls, terracotta barrel-tile roof, round arches, olive trees and bougainvillea",
+  industrial: "red-brown face brick, black steel frame and steel windows, corrugated metal roof",
+  japanese: "black charred timber cladding, low dark metal roof, sliding timber screens, raked gravel garden",
+  brutalist: "heavy raw concrete volumes with formwork marks, deep-set windows, planted terraces",
+  "art-deco": "stepped cream facade, vertical fluted pilasters, bronze trims, rounded corner balconies",
+};
+
+export const INT_CUES: Record<string, string> = {
+  modern: "warm white walls, light grey porcelain floor, low grey fabric sofa, walnut TV unit, black metal details",
+  minimal: "all off-white and greige, microcement floor, one plain linen sofa, almost nothing else in the room",
+  contemporary: "beige fluted wall panels, oak floor, cream boucle sofa, brushed brass accents",
+  japandi: "light oak slatted wall, very low oak furniture, paper lantern, black accents, ceramics",
+  scandinavian: "white walls, pale birch floor, light grey sofa, wool throw, sage green cushions, simple pendant",
+  neoclassical: "white panelled walls with mouldings, white marble floor, crystal chandelier, curved cream and gold sofa",
+  luxury: "dark smoked oak walls, book-matched white marble feature wall, velvet sofa, bronze, warm cove lighting",
+  industrial: "red exposed brick wall, polished concrete floor, black steel window frames, brown leather sofa",
+  tropical: "teak and rattan furniture, terrazzo floor, sand linen, big indoor palms, ceiling fan",
+  indochine: "patterned blue and white cement tile floor, dark timber fretwork screens, rattan armchairs, lantern pendants",
+  khmer: "laterite red accent wall, carved teak, sandstone details, indigo and gold silk cushions, woven mats",
+  retro: "1960s mid-century: walnut sideboard, sofa on thin tapered legs, mustard and teal cushions, globe lamp, plain white walls",
+  "wabi-sabi": "grey-beige lime plaster walls (no green), raw rough timber, stone, handmade ceramics, earthy muted tones",
+  "art-deco": "emerald green walls, black and gold geometric details, curved velvet sofa, fluted glass, brass",
+  boho: "layered patterned rugs, macrame wall hanging, floor cushions, many hanging plants, terracotta and ochre",
+  coastal: "white-washed timber floor, pale blue panelling, white slipcovered sofa, round jute rug",
+};
 
 export const SHEETS: SheetDef[] = [
   {
@@ -48,7 +83,7 @@ export const SHEETS: SheetDef[] = [
     ratio: "16:9",
     subject:
       "the SAME two-storey detached villa from the SAME camera position: eye level 1.5 m high, 35 mm lens, straight vertical lines, seen from the street at a slight angle, a front garden, a gated driveway on the right, one tree on the left, soft afternoon sun",
-    tiles: EXT_STYLES.map((s) => ({ key: `ext:${s.id}`, label: s.label, text: short(s.text) })),
+    tiles: EXT_STYLES.map((s) => ({ key: `ext:${s.id}`, label: s.label, text: EXT_CUES[s.id] ?? s.text })),
   },
   {
     id: "int",
@@ -59,7 +94,7 @@ export const SHEETS: SheetDef[] = [
     ratio: "4:3",
     subject:
       "the SAME living room from the SAME camera position: eye level 1.5 m high, 35 mm lens, straight vertical lines, a 4.5 x 6 m room, a large window on the left wall, a sofa facing the camera, a coffee table, a rug and one floor lamp, soft late-morning daylight from the left window",
-    tiles: INT_STYLES.map((s) => ({ key: `int:${s.id}`, label: s.label, text: short(s.text) })),
+    tiles: INT_STYLES.map((s) => ({ key: `int:${s.id}`, label: s.label, text: INT_CUES[s.id] ?? s.text })),
   },
   {
     id: "air",
@@ -137,7 +172,15 @@ export function whiteProfile(px: Pixels, axis: "x" | "y"): number[] {
 export function findCuts(profile: number[], parts: number): { spans: [number, number][]; found: number } {
   const len = profile.length;
   // 0.85, not 1: JPEG blur and a pale ceiling beside a gutter both eat into it.
-  const isGutter = (i: number) => profile[i] >= 0.85;
+  // A gutter only 2 to 3 px wide gets blurred further, so a line that is much
+  // whiter than the strips either side of it counts too.
+  const near = (i: number) => {
+    const side: number[] = [];
+    for (let d = 4; d <= 10; d++) side.push(profile[i - d] ?? 1, profile[i + d] ?? 1);
+    side.sort((x, y) => x - y);
+    return side[side.length >> 1];
+  };
+  const isGutter = (i: number) => profile[i] >= 0.85 || (profile[i] >= 0.55 && profile[i] - near(i) >= 0.3);
   // Outer border: skip white at both ends, but never more than 8%.
   let a = 0;
   while (a < len * 0.08 && isGutter(a)) a++;
@@ -224,6 +267,49 @@ function loadImg(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** Crops the middle 4:3 of a rectangle to a ~480 px JPEG thumbnail. */
+function cropTile(src: CanvasImageSource, x: number, y: number, w: number, h: number): string {
+  if (w / h > 4 / 3) {
+    x += (w - (h * 4) / 3) / 2;
+    w = (h * 4) / 3;
+  } else {
+    y += (h - (w * 3) / 4) / 2;
+    h = (w * 3) / 4;
+  }
+  const c = document.createElement("canvas");
+  c.width = TILE_WIDTH;
+  c.height = Math.round((TILE_WIDTH * 3) / 4);
+  c.getContext("2d")!.drawImage(src, x, y, w, h, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.82);
+}
+
+/** A thumbnail from a single render (a redone tile). */
+export async function tileFromImage(img: ImageData64): Promise<string> {
+  const el = await loadImg(`data:${img.mimeType};base64,${img.data}`);
+  return cropTile(el, 0, 0, el.naturalWidth, el.naturalHeight);
+}
+
+/** The data URL of a tile as an image to send to the model. */
+export function tileImage(dataUrl: string): ImageData64 {
+  const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+  return { mimeType: m?.[1] ?? "image/jpeg", data: m?.[2] ?? "" };
+}
+
+/**
+ * Redoes one style as a single small render. A good tile from the same sheet
+ * goes along as the picture to follow, so the room and camera still match.
+ */
+export function tilePrompt(s: SheetDef, i: number, withReference: boolean): string {
+  const t = s.tiles[i];
+  return [
+    withReference
+      ? `Keep the exact ${s.id === "int" ? "room" : s.id === "air" ? "estate" : "building"}, layout, openings and camera of the image. Change only the design style, materials and colours${s.id === "air" ? ", and the light" : ""}.`
+      : `Show ${s.subject}.`,
+    `Style: ${t.label}: ${t.text}.`,
+    "Realistic photographic rendering, professional architecture photography, accurate materials and soft shadows. One single picture, no grid, no text, no labels, no logos.",
+  ].join("\n");
+}
+
 export interface CutSheet {
   check: SheetCheck;
   /** one JPEG data URL per tile, in tile order */
@@ -239,7 +325,7 @@ export async function cutSheet(sheet: ImageData64, def: SheetDef): Promise<CutSh
   const ctx = full.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0);
   // The grid search runs on a smaller copy: same answer, far fewer pixels.
-  const scale = Math.min(1, 800 / full.width);
+  const scale = Math.min(1, 1200 / full.width);
   const small = document.createElement("canvas");
   small.width = Math.round(full.width * scale);
   small.height = Math.round(full.height * scale);
@@ -248,27 +334,8 @@ export async function cutSheet(sheet: ImageData64, def: SheetDef): Promise<CutSh
   const px = sctx.getImageData(0, 0, small.width, small.height);
   const found = checkSheet(px, def.cols, def.rows);
   const rects = found.rects.map(([x, y, w, h]) => [x / scale, y / scale, w / scale, h / scale] as [number, number, number, number]);
-  const tiles = rects.map(([x, y, w, h]) => {
-    // Trim 2% so no gutter shows, then crop the middle to 4:3.
-    const tx = x + w * 0.02;
-    const ty = y + h * 0.02;
-    let tw = w * 0.96;
-    let th = h * 0.96;
-    let ox = 0;
-    let oy = 0;
-    if (tw / th > 4 / 3) {
-      ox = (tw - (th * 4) / 3) / 2;
-      tw = (th * 4) / 3;
-    } else {
-      oy = (th - (tw * 3) / 4) / 2;
-      th = (tw * 3) / 4;
-    }
-    const c = document.createElement("canvas");
-    c.width = TILE_WIDTH;
-    c.height = Math.round((TILE_WIDTH * 3) / 4);
-    c.getContext("2d")!.drawImage(full, tx + ox, ty + oy, tw, th, 0, 0, c.width, c.height);
-    return c.toDataURL("image/jpeg", 0.82);
-  });
+  // Trim 2% so no gutter shows.
+  const tiles = rects.map(([x, y, w, h]) => cropTile(full, x + w * 0.02, y + h * 0.02, w * 0.96, h * 0.96));
   return { check: { ...found, rects }, tiles };
 }
 
@@ -281,6 +348,8 @@ export interface SheetRecord {
   tiles: string[];
   /** tiles the user marked as wrong; their cards keep the colour board */
   hidden: number[];
+  /** tiles redone on their own after the sheet */
+  redone?: number[];
   issues: string[];
   credits?: number;
 }

@@ -47,7 +47,7 @@ import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./con
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
-import { cutSheet, exportJson, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
+import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
@@ -1553,6 +1553,39 @@ function sheetCredits(): number {
   return creditsFor(findKieModel(SHEET_MODEL), SHEET_RESOLUTION) ?? 6;
 }
 
+/** Credits for redoing one tile as its own 1K render. */
+function tileCredits(): number {
+  return creditsFor(findKieModel(SHEET_MODEL), "1K") ?? 4;
+}
+
+/** Redoes one style as a single 1K render, following a good tile from the same sheet. */
+async function redoTile(def: SheetDef, i: number): Promise<void> {
+  const rec = state.sheets[def.id];
+  const key = state.settings.kieKey.trim();
+  if (!rec) return;
+  if (!key) throw new Error("Style previews run on your Kie.ai key. Add it in Settings first.");
+  if (sheetJob) throw new Error("A preview is already being made. Wait for it to finish.");
+  sheetJob = new AbortController();
+  try {
+    // Prefer the first tile, which sets the room for the whole sheet.
+    const ref = rec.tiles.findIndex((x, n) => n !== i && x && !rec.hidden.includes(n));
+    const images = ref >= 0 ? [tileImage(rec.tiles[ref])] : [];
+    const p = new KieProvider(key, SHEET_MODEL, "1K", host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
+    toast(`Redoing ${def.tiles[i].label}...`);
+    const res = await p.render({ prompt: tilePrompt(def, i, images.length > 0), images, aspectRatio: "4:3" }, sheetJob.signal);
+    rec.tiles[i] = await tileFromImage(res.image);
+    rec.hidden = rec.hidden.filter((n) => n !== i);
+    rec.redone = [...new Set([...(rec.redone ?? []), i])];
+    rec.credits = (rec.credits ?? 0) + tileCredits();
+    await saveSheet(rec);
+    state.previews = previewMap(state.sheets);
+    toast(`${def.tiles[i].label} redone.`, "ok");
+  } finally {
+    sheetJob = null;
+    refreshCredits();
+  }
+}
+
 function previewsRow(): HTMLElement {
   const made = SHEETS.filter((d) => state.sheets[d.id]).length;
   const total = SHEETS.reduce((n, d) => n + d.tiles.length, 0);
@@ -1625,24 +1658,25 @@ function previewsSheet(): HTMLElement {
       def.tiles.map((t, i) => {
         const src = rec?.tiles[i];
         const off = rec?.hidden.includes(i) ?? false;
+        const toggle = async () => {
+          if (!rec) return;
+          rec.hidden = off ? rec.hidden.filter((n) => n !== i) : [...rec.hidden, i];
+          await saveSheet(rec);
+          state.previews = previewMap(state.sheets);
+          render();
+        };
         return h(
-          "button",
-          {
-            type: "button",
-            class: `pv-tile${off ? " off" : ""}`,
-            disabled: !src,
-            "aria-pressed": String(!off),
-            title: src ? (off ? `${t.label}: hidden. Click to use it again.` : `${t.label}: click if this tile is wrong or out of order`) : t.label,
-            onclick: async () => {
-              if (!rec) return;
-              rec.hidden = off ? rec.hidden.filter((n) => n !== i) : [...rec.hidden, i];
-              await saveSheet(rec);
-              state.previews = previewMap(state.sheets);
-              render();
-            },
-          },
-          src ? h("img", { src, alt: "" }) : h("span", { class: "pv-empty" }),
-          off ? h("span", { class: "pv-off" }, icon("eyeOff", 16)) : null,
+          "div",
+          { class: `pv-tile${off ? " off" : ""}${rec?.redone?.includes(i) ? " redone" : ""}` },
+          src ? h("img", { src, alt: `${t.label} preview` }) : h("span", { class: "pv-empty" }),
+          src
+            ? h(
+                "span",
+                { class: "pv-tools" },
+                iconButton("refresh", `Redo ${t.label} on its own · ${tileCredits()} credits`, () => redoTile(def, i).then(render), "ghost"),
+                iconButton(off ? "eye" : "eyeOff", off ? `Use ${t.label} again` : `Hide ${t.label}: wrong or out of order`, toggle, "ghost"),
+              )
+            : null,
           h("small", {}, t.label),
         );
       }),
@@ -1678,7 +1712,7 @@ function previewsSheet(): HTMLElement {
     h(
       "p",
       { class: "hint" },
-      `The AI draws one picture with the same villa, living room or estate in a grid of styles, then the app cuts it into card pictures. Runs on your Kie key with ${findKieModel(SHEET_MODEL).label} at ${SHEET_RESOLUTION}: ${per} credits per sheet. Your own render for a style still takes the card first. Click a tile if it is wrong or in the wrong place, and its card goes back to colours.`,
+      `The AI draws one picture with the same villa, living room or estate in a grid of styles, then the app cuts it into card pictures. Runs on your Kie key with ${findKieModel(SHEET_MODEL).label} at ${SHEET_RESOLUTION}: ${per} credits per sheet. Your own render for a style still takes the card first. If one tile is wrong, redo just that style (${tileCredits()} credits) or hide it so its card goes back to colours.`,
     ),
     keyless ? h("p", { class: "pv-warn" }, icon("key", 14), h("span", {}, "Add your Kie.ai key in Settings to make previews.")) : null,
     ...SHEETS.map(sheetBlock),

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkSheet, findCuts, previewKey, previewMap, SHEETS, sheetPrompt, type Pixels } from "../src/style-previews";
+import { checkSheet, EXT_CUES, findCuts, INT_CUES, previewKey, previewMap, SHEETS, sheetPrompt, tilePrompt, type Pixels } from "../src/style-previews";
+import { EXT_STYLES, INT_STYLES } from "../src/library";
 
 /** A fake sheet: coloured tiles with white gutters and border, like the model should draw. */
 function fakeSheet(cols: number, rows: number, w: number, h: number, gutter: number, opts: { skipX?: number[]; whiteSky?: boolean } = {}): Pixels {
@@ -83,4 +84,14 @@ test("cards map to preview keys; hidden tiles fall back", () => {
   const m = previewMap({ air: { id: "air", createdAt: 0, sheet: { mimeType: "image/png", data: "" }, tiles, hidden: [1], issues: [] } });
   assert.equal(m.get("air:default"), tiles[0]);
   assert.equal(m.has("air:golden"), false);
+});
+
+test("every style has a short sheet cue, and a redo follows the reference", () => {
+  for (const s of EXT_STYLES) assert.ok(EXT_CUES[s.id], s.id);
+  for (const s of INT_STYLES) assert.ok(INT_CUES[s.id], s.id);
+  assert.match(INT_CUES["wabi-sabi"], /no green/);
+  const p = tilePrompt(SHEETS[1], 12, true);
+  assert.match(p, /Keep the exact room/);
+  assert.match(p, /Wabi-sabi/);
+  assert.match(tilePrompt(SHEETS[1], 0, false), /SAME living room/);
 });
