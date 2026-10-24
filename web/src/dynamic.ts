@@ -12,8 +12,10 @@ export interface Choice {
 export interface DynField {
   id: string;
   label: string;
-  /** "one" = dropdown, "many" = pick any number of chips */
-  kind: "one" | "many";
+  /** "one" = dropdown, "many" = pick any number of chips, "text" = typed in */
+  kind: "one" | "many" | "text";
+  /** Example shown in an empty "text" field. */
+  placeholder?: string;
   choices: Choice[];
   /** shown half width next to the following field */
   half?: boolean;
@@ -39,6 +41,24 @@ function one(id: string, label: string, choices: Choice[], half = false): DynFie
 
 function many(id: string, label: string, choices: Choice[]): DynField {
   return { id, label, kind: "many", choices };
+}
+
+function text(id: string, label: string, placeholder: string, maxLength = 12): DynField {
+  return { id, label, kind: "text", choices: [], placeholder: `${placeholder} (max ${maxLength})` };
+}
+
+/** Text on every number plate when the user leaves the plate field empty. */
+export const DEFAULT_PLATE = "D4VID";
+
+/** Plate text as typed, cleaned to what fits on a plate, or the default. */
+export function plateText(raw: unknown): string {
+  const t = typeof raw === "string" ? raw.replace(/[^\p{L}\p{N} -]/gu, "").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 12) : "";
+  return t || DEFAULT_PLATE;
+}
+
+/** Prompt words for Cambodian personalised plates showing the given text. */
+export function platePhrase(raw: unknown): string {
+  return `Cambodian personalised number plates that all read "${plateText(raw)}" in clear, evenly spaced characters, correct plate proportions`;
 }
 
 function c(id: string, label: string, text = label.toLowerCase()): Choice {
@@ -250,16 +270,20 @@ export const GENERATORS: DynGenerator[] = [
         c("scoopy", "Honda Scoopy (scooter)", "a Honda Scoopy scooter"),
       ]),
       many("extras", "Details", [
-        c("plate", "Cambodian plates", "realistic Cambodian licence plates with correct proportions and Phnom Penh province text"),
+        c("plate", "Cambodian plates", "Cambodian personalised number plates"),
         c("grab", "Grab rider", "a ride-hailing rider on a motorbike in a green jacket"),
         c("tuktukwait", "Tuk-tuk waiting", "a tuk-tuk waiting by the kerb"),
       ]),
+      text("plate", "Plate text", `e.g. KH 2026, empty = ${DEFAULT_PLATE}`),
     ],
     build(v) {
       const g = GENERATORS[2];
       const types = picks(g, v, "types");
       const model = pick(g, v, "model");
-      const extras = picks(g, v, "extras");
+      // Typing a plate means plates are wanted; the chip's words become the full plate phrase.
+      const wantsPlate = (Array.isArray(v.extras) && v.extras.includes("plate")) || (typeof v.plate === "string" && v.plate.trim() !== "");
+      const extras = picks(g, { ...v, extras: (Array.isArray(v.extras) ? v.extras : []).filter((x) => x !== "plate") }, "extras");
+      if (wantsPlate) extras.push(platePhrase(v.plate));
       if (!types.length && !model && !extras.length) return null;
       const amount = pick(g, v, "amount");
       const motion = pick(g, v, "motion");

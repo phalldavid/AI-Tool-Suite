@@ -49,7 +49,7 @@ import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, findLibraryItem, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
 import { PREVIEW_PACK } from "./preview-pack";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
-import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
+import { countSet, DEFAULT_PLATE, dynamicLines, findGenerator, GENERATORS, platePhrase, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
 import { friendlyError, KIE_TOPUP_URL, type FixAction } from "./errors";
 import { applyBackup, makeBackup } from "./backup";
@@ -2247,8 +2247,9 @@ function renderTab(body: HTMLElement): void {
   );
 }
 
-const QUICK_TEMPLATES: { label: string; text: string }[] = [
-  { label: "Cambodian plates", text: "Give every car a realistic Cambodian licence plate with correct proportions, fonts and Phnom Penh province text." },
+/** Quick note chips. The plate one uses the plate text set under Vehicles (D4VID when empty). */
+const quickTemplates = (): { label: string; text: string }[] => [
+  { label: "Cambodian plates", text: `Give every vehicle ${platePhrase(state.settings.dynamic.vehicles?.plate)}.` },
   { label: "Ground mist", text: "Add a thin, low ground mist that softens the base of the trees and the distance." },
   { label: "Green to mirror", text: "Turn the flat green-coloured surfaces into real opaque mirrors with correct reflections." },
   { label: "Orange to LED", text: "Turn the orange and yellow lines on the ceiling into glowing warm-white LED strips." },
@@ -2269,14 +2270,30 @@ function notesField(): HTMLElement {
     h(
       "div",
       { class: "chips quick" },
-      QUICK_TEMPLATES.map((q) =>
+      quickTemplates().map((q) =>
         chip(`+ ${q.label}`, state.notes.includes(q.text), () => {
           state.notes = state.notes.includes(q.text) ? state.notes.replace(q.text, "").replace(/\s{2,}/g, " ").trim() : `${state.notes.trim()}${state.notes.trim() && !/[.!?។]$/.test(state.notes.trim()) ? "." : ""} ${q.text}`.trim();
           render();
         }, undefined, q.text),
       ),
     ),
+    plateInNotes(),
   );
+}
+
+/** Plate text box, shown while the Cambodian plates note is in use. Shares its value with Vehicles. */
+function plateInNotes(): HTMLElement | null {
+  const current = quickTemplates()[0].text;
+  if (!state.notes.includes(current)) return null;
+  const input = h("input", { type: "text", value: String(state.settings.dynamic.vehicles?.plate ?? ""), placeholder: `Plate text, empty = ${DEFAULT_PLATE}`, maxlength: 12, autocapitalize: "characters", spellcheck: false, "aria-label": "Plate text" }) as HTMLInputElement;
+  input.addEventListener("change", async () => {
+    const before = quickTemplates()[0].text;
+    state.settings.dynamic = { ...state.settings.dynamic, vehicles: { ...(state.settings.dynamic.vehicles ?? {}), plate: input.value } };
+    state.notes = state.notes.replace(before, quickTemplates()[0].text);
+    await persist();
+    render();
+  });
+  return h("label", { class: "field plate-field" }, h("span", {}, "Plate text"), input, h("small", { class: "muted" }, "AI models sometimes misspell plate text. Short plates (5 to 7 characters) come out best."));
 }
 
 function referenceField(): HTMLElement {
@@ -4536,7 +4553,14 @@ function dynamicSheet(g: DynGenerator): HTMLElement {
   };
   const fields = h("div", { class: "dyn-fields" });
   for (const f of g.fields) {
-    if (f.kind === "one") {
+    if (f.kind === "text") {
+      const input = h("input", { type: "text", value: (values[f.id] as string) ?? "", placeholder: f.placeholder ?? "", maxlength: 12, autocapitalize: "characters", spellcheck: false }) as HTMLInputElement;
+      input.addEventListener("input", () => {
+        values[f.id] = input.value;
+        refresh();
+      });
+      fields.append(h("label", { class: "field" }, h("span", {}, f.label), input, h("small", { class: "muted" }, "AI models sometimes misspell plate text. Short plates (5 to 7 characters) come out best.")));
+    } else if (f.kind === "one") {
       const sel = h(
         "select",
         {},
