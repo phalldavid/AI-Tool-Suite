@@ -40,13 +40,15 @@ import {
   type Option,
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
-import { KIE_KEY_PAGE } from "./providers/kie";
-import { findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieResolution } from "./providers/kie-models";
+import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
+import { USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
+import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
+import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
 import {
   cleanPeople,
@@ -128,6 +130,9 @@ interface State {
   /** All images from the last render (1 to 4); result is the one shown. */
   results: ImageData64[];
   anglesOpen: boolean;
+  /** Kie credits left, null until checked. */
+  kieCredits: number | null;
+  lib: { open: boolean; type: ProjectType | "mine"; style: string; subject: string; query: string };
   editSource: ImageData64 | null;
   editMode: "spot" | "relight";
   editInstruction: string;
@@ -186,6 +191,8 @@ export async function start(el: HTMLElement): Promise<void> {
     result: null,
     results: [],
     anglesOpen: false,
+    kieCredits: null,
+    lib: { open: false, type: "exterior", style: "all", subject: "all", query: "" },
     editSource: null,
     editMode: "spot",
     editInstruction: "",
@@ -236,6 +243,7 @@ export async function start(el: HTMLElement): Promise<void> {
     refreshLights();
   }
   render();
+  refreshCredits();
 }
 
 // ---------- helpers ----------
@@ -316,8 +324,53 @@ function logSheet(): HTMLElement {
           await navigator.clipboard.writeText(text());
           toast("Log copied", "ok");
         }, "ghost"),
+        button("Report a bug", "bug", reportBug, "ghost"),
       ),
     ),
+  );
+}
+
+function openExternal(url: string): void {
+  if (host.kind === "sketchup") host.call("openUrl", { url }).catch(() => undefined);
+  else window.open(url, "_blank", "noopener");
+}
+
+/** Copies a short report (no keys) and opens the maker's Telegram to paste it into. */
+async function reportBug(): Promise<void> {
+  const s = state.settings;
+  const model = s.backend === "kie" ? s.kieModel : s.backend === "gemini" ? s.geminiModel : s.backend === "browser" ? s.browserSite : "";
+  const text = bugReport({
+    host: host.kind,
+    backend: s.backend,
+    model,
+    userAgent: navigator.userAgent,
+    log: activityLog,
+    secrets: [s.kieKey, s.geminiKey],
+  });
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Older embedded browsers block the clipboard API; the old copy command still works.
+    const ta = h("textarea", {}, text) as HTMLTextAreaElement;
+    document.body.append(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  openExternal(CONTACT_URL);
+  toast("Report copied, paste it in Telegram", "ok");
+}
+
+function helpSection(): HTMLElement {
+  return section(
+    "Help",
+    h(
+      "div",
+      { class: "help-row" },
+      button("Contact on Telegram", "send", async () => openExternal(CONTACT_URL), "ghost"),
+      button("Report a bug", "bug", reportBug, "ghost"),
+    ),
+    h("p", { class: "hint" }, `Contact: ${CONTACT_LABEL}. Report a bug copies your version, AI service and recent log (never your keys), then opens Telegram so you can paste it. Version ${APP_VERSION}.`),
   );
 }
 
@@ -433,7 +486,7 @@ function segmented<T extends string>(
     items.map((it) =>
       h(
         "button",
-        { class: it.id === value ? "active" : "", type: "button", "aria-pressed": it.id === value ? "true" : "false", onclick: () => onPick(it.id) },
+        { class: it.id === value ? "active" : "", type: "button", title: it.label, "aria-pressed": it.id === value ? "true" : "false", onclick: () => onPick(it.id) },
         it.icon ? icon(it.icon, 16) : null,
         h("span", {}, it.label),
       ),
@@ -680,6 +733,7 @@ function render(): void {
   if (state.lookOpen) root.append(lookSheet());
   if (state.ctxOpen) root.append(contextSheet());
   if (state.anglesOpen) root.append(anglesSheet());
+  if (state.lib.open) root.append(librarySheet());
   if (state.analyseOpen === "dna") root.append(dnaSheet());
   if (state.analyseOpen === "people") root.append(peopleSheet());
   if (state.dynOpen) {
@@ -1114,7 +1168,13 @@ function quickTab(body: HTMLElement): void {
   body.append(lockBanner());
   if (!lock) {
     body.append(
-      section(t("Scene"), sceneTypeControl(), h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map(presetCard))),
+      section(
+        t("Scene"),
+        sceneTypeControl(),
+        h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map(presetCard)),
+        quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-current" }, libCard({ ...state.preset, styleId: "", subjectId: "", colors: [] } as LibItem, true)),
+        button("More styles", "search", () => openLibrary(), "ghost wide"),
+      ),
     );
   }
   body.append(
@@ -1135,6 +1195,185 @@ function modelSummaryText(): string {
   return state.settings.kieKey
     ? `${m.label} · ${resolutionFor(m, state.settings.kieResolution)}${state.settings.imageCount > 1 ? ` · ×${state.settings.imageCount}` : ""}`
     : "Add a Kie.ai key";
+}
+
+// ---------- Template library ----------
+
+function openLibrary(): void {
+  const type = state.preset.projectType;
+  const item = libraryItems().find((x) => x.id === state.preset.id);
+  state.lib = {
+    open: true,
+    type,
+    style: "all",
+    subject: item && item.subjectId !== "featured" ? item.subjectId : type === "interior" ? "living" : "all",
+    query: "",
+  };
+  render();
+}
+
+function lightSwatch(id: string): [string, string] {
+  if (id.startsWith("time:")) {
+    const hour = Number(id.slice(5, 7));
+    return hour >= 18 ? ["#1d2748", "#d08a4a"] : hour >= 16 ? ["#58608c", "#f0a050"] : ["#4d8fd6", "#cfe3f2"];
+  }
+  const o = [...LIGHTING, ...INTERIOR_RELIGHT, ...URBAN_RELIGHT].find((x) => x.id === id);
+  return o?.swatch ?? ["#6d7a88", "#c9cfd4"];
+}
+
+/** Your own render for a preset: a thumbs-up one first, else the latest. */
+function ownThumb(id: string): ImageData64 | null {
+  const mine = state.history.filter((x) => x.presetId === id && x.tool === "render" && x.rating !== -1);
+  return (mine.find((x) => x.rating === 1) ?? mine[0])?.after ?? null;
+}
+
+function libCard(x: LibItem, current = false): HTMLElement {
+  const thumb = ownThumb(x.id);
+  const [sky, glow] = lightSwatch(x.lighting);
+  const blocks = x.colors.length ? x.colors : presetSwatches(x);
+  const art = thumb
+    ? h("img", { src: toDataUrl(thumb), alt: "", loading: "lazy" })
+    : h(
+        "span",
+        { class: "lib-board", style: `background:linear-gradient(180deg, ${sky}, ${glow})` },
+        h("span", { class: "lib-blocks" }, blocks.slice(0, 3).map((c) => h("i", { style: `background:${c}` }))),
+      );
+  const active = x.id === state.preset.id;
+  return h(
+    "button",
+    {
+      class: `lib-card${active ? " active" : ""}${current ? " current" : ""}`,
+      type: "button",
+      "aria-pressed": String(active),
+      title: x.style,
+      onclick: () => {
+        if (current) return openLibrary();
+        state.preset = { id: x.id, name: x.name, projectType: x.projectType, lighting: x.lighting, environment: x.environment, style: x.style, builtIn: x.builtIn };
+        state.lib.open = false;
+        render();
+        toast(x.name, "ok");
+      },
+    },
+    h("span", { class: "lib-art" }, art, thumb ? h("em", { class: "lib-badge" }, "Your render") : null, active ? h("span", { class: "lib-check" }, icon("check", 14)) : null),
+    h("strong", {}, x.name),
+  );
+}
+
+function chipRow(items: { id: string; label: string }[], value: string, pick: (id: string) => void, label: string): HTMLElement {
+  return h(
+    "div",
+    { class: "lib-chips", role: "group", "aria-label": label },
+    items.map((c) => chip(c.label, c.id === value, () => pick(c.id))),
+  );
+}
+
+function librarySheet(): HTMLElement {
+  const L = state.lib;
+  const close = () => {
+    state.lib.open = false;
+    render();
+  };
+  const grid = h("div", { class: "lib-grid" });
+  const count = h("span", { class: "lib-count" });
+  const items = (): LibItem[] => {
+    if (L.type === "mine") {
+      const q = L.query.trim().toLowerCase();
+      return state.settings.userPresets
+        .filter((x) => !q || `${x.name} ${x.style}`.toLowerCase().includes(q))
+        .map((x) => ({ ...x, styleId: "mine", subjectId: "mine", colors: [] }));
+    }
+    return filterLibrary(L.type, L.type === "sketch" ? "all" : L.style, L.type === "sketch" ? "all" : L.subject, L.query);
+  };
+  const drawGrid = () => {
+    const list = items();
+    count.textContent = `${list.length} ${list.length === 1 ? "style" : "styles"}`;
+    grid.replaceChildren(
+      ...(list.length
+        ? list.slice(0, 240).map((x) => libCard(x))
+        : [h("p", { class: "hint" }, L.type === "mine" ? "No presets of your own yet. Set up a render and press + under Style preset to save one." : "Nothing matches.")]),
+    );
+  };
+  const filters = h("div", { class: "lib-filters" });
+  // "Featured" holds the hand-written presets, which have no room or type.
+  const pickFeaturedOrAll = (v: string) => {
+    if (v === "featured") {
+      L.style = "featured";
+      L.subject = "featured";
+    } else {
+      L.subject = "all";
+      if (L.style === "featured") L.style = "all";
+    }
+    redraw();
+  };
+  const drawFilters = () => {
+    const rows: HTMLElement[] = [];
+    const all = { id: "all", label: "All" };
+    const featured = { id: "featured", label: "Featured" };
+    if (L.type === "exterior") {
+      rows.push(chipRow([all, featured, ...EXT_STYLES], L.style, (v) => ((L.style = v), redraw()), "Style"));
+      if (L.style !== "featured") rows.push(chipRow([{ id: "all", label: "All buildings" }, ...EXT_TYPES], L.subject, (v) => ((L.subject = v), redraw()), "Building type"));
+    } else if (L.type === "interior") {
+      const groups = [...new Set(ROOMS.map((r) => r.group ?? ""))];
+      rows.push(
+        h(
+          "div",
+          { class: "lib-rooms" },
+          groups.map((g) =>
+            h(
+              "div",
+              { class: "lib-room-group" },
+              h("small", {}, g),
+              chipRow(ROOMS.filter((r) => r.group === g), L.subject, (v) => {
+                L.subject = v;
+                if (L.style === "featured") L.style = "all";
+                redraw();
+              }, g),
+            ),
+          ),
+          chipRow([{ id: "all", label: "All rooms" }, featured], L.style === "featured" ? "featured" : L.subject, pickFeaturedOrAll, "Rooms"),
+        ),
+      );
+      if (L.style !== "featured") rows.push(chipRow([{ id: "all", label: "All styles" }, ...INT_STYLES], L.style, (v) => ((L.style = v), redraw()), "Style"));
+    } else if (L.type === "aerial") {
+      rows.push(chipRow([all, featured, ...AERIAL_TYPES], L.style === "featured" ? "featured" : L.subject, (v) => (v === "featured" ? pickFeaturedOrAll(v) : ((L.subject = v), (L.style = "all"), redraw())), "Development"));
+      if (L.style !== "featured") rows.push(chipRow([{ id: "all", label: "Any light" }, ...AERIAL_LOOKS], L.style, (v) => ((L.style = v), redraw()), "Light"));
+    }
+    filters.replaceChildren(...rows);
+  };
+  const redraw = () => {
+    drawFilters();
+    drawGrid();
+    return true;
+  };
+  const search = h("input", { type: "search", class: "lib-search", placeholder: "Search styles, e.g. kitchen, neoclassical, shophouse", value: L.query, "aria-label": "Search styles" }) as HTMLInputElement;
+  search.addEventListener("input", () => {
+    L.query = search.value;
+    drawGrid();
+  });
+  const tabs: { id: ProjectType | "mine"; label: string; icon: string }[] = [
+    { id: "exterior", label: "Exterior", icon: "exterior" },
+    { id: "interior", label: "Interior", icon: "interior" },
+    { id: "aerial", label: "Aerial", icon: "aerial" },
+    { id: "sketch", label: "Sketch", icon: "sketch" },
+    { id: "mine", label: "Mine", icon: "plus" },
+  ];
+  redraw();
+  return h(
+    "div",
+    { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet lib-sheet", role: "dialog", "aria-modal": "true", "aria-label": "Template library" },
+      h("div", { class: "sheet-head" }, h("div", {}, h("h2", {}, "Template library"), count), iconButton("close", "Close", close)),
+      search,
+      segmented(tabs, L.type, (v) => {
+        state.lib = { ...L, type: v, style: "all", subject: v === "interior" ? "living" : "all" };
+        render();
+      }),
+      filters,
+      grid,
+    ),
+  );
 }
 
 function renderTab(body: HTMLElement): void {
@@ -1177,14 +1416,10 @@ function renderTab(body: HTMLElement): void {
 
   const presetCards = h(
     "div",
-    { class: "preset-grid" },
-    allPresets()
-      .filter((x) => x.projectType === p.projectType)
-      .map(presetCard),
+    { class: "lib-current" },
+    libCard({ ...p, styleId: "", subjectId: "", colors: [] } as LibItem, true),
+    button(`Browse ${libraryItems().length} styles`, "search", () => openLibrary(), "primary"),
   );
-  if (!lock && !presetCards.childElementCount) {
-    presetCards.append(h("p", { class: "hint" }, "No presets for this scene yet. Set it up and press + to save one."));
-  }
   if (!lock) body.append(
     fold(sectionWith(
       t("Style preset"),
@@ -1371,6 +1606,7 @@ function renderBar(): HTMLElement {
     "div",
     { class: "render-bar" },
     btn,
+    creditReadout(),
     state.busy && state.settings.backend === "browser"
       ? button("Bring result back", "arrowDown", () => host.call("browserGrab").catch((e: Error) => toast(e.message, "error")), "ghost")
       : null,
@@ -1667,6 +1903,43 @@ async function runRender(): Promise<void> {
   await showRenders(raws, prompt, cap.view);
 }
 
+/** Asks Kie how many credits are left and shows it next to Render. Quiet on failure. */
+async function refreshCredits(): Promise<void> {
+  const s = state.settings;
+  if (s.backend !== "kie" || !s.kieKey) return;
+  try {
+    const p = new KieProvider(s.kieKey, s.kieModel, s.kieResolution, host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
+    state.kieCredits = await p.balance();
+    const el = document.getElementById("credit-readout");
+    if (el) el.replaceWith(creditReadout());
+  } catch {
+    /* the balance is a nice-to-have; renders still work */
+  }
+}
+
+function creditText(c: number): string {
+  return `$${(c * USD_PER_CREDIT).toFixed(2)}`;
+}
+
+function creditReadout(): HTMLElement {
+  const c = state.kieCredits;
+  const s = state.settings;
+  if (s.backend !== "kie" || !s.kieKey || c === null) return h("span", { id: "credit-readout", hidden: true });
+  const low = c * USD_PER_CREDIT < 1;
+  return h(
+    "button",
+    {
+      id: "credit-readout",
+      class: `credit${low ? " low" : ""}`,
+      type: "button",
+      title: `${Math.round(c * 10) / 10} Kie credits left. Click to refresh.`,
+      "aria-label": `Kie balance ${creditText(c)}. Click to refresh.`,
+      onclick: withFeedback(refreshCredits),
+    },
+    creditText(c),
+  );
+}
+
 /** Puts new renders on the stage and in history. */
 async function showRenders(raws: ImageData64[], prompt: string, before: ImageData64, keep = false): Promise<void> {
   // A ratio the model cannot output (e.g. 7:3) comes back at the nearest one;
@@ -1680,6 +1953,7 @@ async function showRenders(raws: ImageData64[], prompt: string, before: ImageDat
     for (const out of outs) await record("render", prompt, before, out);
   }
   render();
+  refreshCredits();
 }
 
 const ANGLES: { id: string; label: string; text: string }[] = [
@@ -2997,6 +3271,19 @@ function settingsSheet(): HTMLElement {
           ". Images are billed to your own Kie credits. The key stays on this computer only; it is never put in history or presets.",
         ),
         h("p", { class: "hint" }, "Pick the model on the Render tab, under AI model."),
+        s.kieKey
+          ? h(
+              "div",
+              { class: "row balance-row" },
+              h("span", { class: "grow" }, state.kieCredits === null ? "Balance: not checked yet" : `Balance: ${creditText(state.kieCredits)} (${Math.round(state.kieCredits)} credits)`),
+              button("Refresh", "refresh", async () => {
+                await refreshCredits();
+                if (state.kieCredits === null) toast("Couldn't get the balance.", "error");
+                else toast(`Balance ${creditText(state.kieCredits)}`, "ok");
+                render();
+              }, "ghost small"),
+            )
+          : null,
         button("Test key", "check", async () => {
           try {
             s.kieKey = key.value.trim();
@@ -3004,8 +3291,10 @@ function settingsSheet(): HTMLElement {
             state.settingsKie = false;
             await persist();
             toast("Checking key...");
-            toast(await makeProvider(s, host).test(), "ok");
+            const msg = await makeProvider(s, host).test();
+            if (s.backend === "kie") await refreshCredits();
             render();
+            toast(msg, "ok");
           } catch (e) {
             toast((e as Error).message, "error");
           }
@@ -3066,7 +3355,7 @@ function settingsSheet(): HTMLElement {
       section(
         "Gemini",
         h("label", { class: "field" }, h("span", {}, "API key"), key),
-        h("p", { class: "hint" }, "Get a key at aistudio.google.com. This one key runs both renders and scene analysis. Google bills image generation to that key's account. The key is saved on this computer in plain text, so avoid saving it on a shared office PC."),
+        h("p", { class: "hint" }, "Get a key at aistudio.google.com. This one key runs both renders and scene analysis. Google bills image generation to that key's account. Google does not share a balance through its API, so check spending at aistudio.google.com under Usage. The key is saved on this computer in plain text, so avoid saving it on a shared office PC."),
         h("label", { class: "field" }, h("span", {}, "Model"), modelSel),
         button("Test key and load models", "check", async () => {
           try {
@@ -3111,6 +3400,7 @@ function settingsSheet(): HTMLElement {
       ),
     );
   }
+  sheet.append(helpSection());
   sheet.append(primaryButton(t("Done"), "check", close, false, "wide"));
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() }, sheet);
 }
