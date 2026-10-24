@@ -96,3 +96,11 @@ test("every style has a short sheet cue, and a redo follows the reference", () =
   assert.match(p, /Wabi-sabi/);
   assert.match(tilePrompt(SHEETS[1], 0, false), /SAME living room/);
 });
+
+test("card pictures: listed ids get a relative webp path that exists", async () => {
+  const { previewFile } = await import("../src/preview-files");
+  const { existsSync } = await import("node:fs");
+  assert.equal(previewFile("int-kitchen-japandi"), "previews/int-kitchen-japandi.webp");
+  assert.ok(existsSync("web/public/previews/int-kitchen-japandi.webp"));
+  assert.equal(previewFile("no-such-card"), null);
+});

@@ -50,6 +50,7 @@ import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { AERIAL_TYPES, EXT_TYPES, filterLibrary, findLibraryItem, libraryItems, ROOMS, type LibItem } from "./library";
 import { PREVIEW_PACK } from "./preview-pack";
+import { previewFile } from "./preview-files";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
 import { countSet, DEFAULT_PLATE, dynamicLines, findGenerator, GENERATORS, platePhrase, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
@@ -1683,23 +1684,39 @@ function ownThumb(id: string): ImageData64 | null {
 /** The card base subject each preview sheet was drawn on. */
 const SAMPLE_SUBJECT: Partial<Record<ProjectType, string>> = { exterior: "villa", interior: "living", aerial: "borey" };
 
-/** The picture on a library card: your own render, then a style sample, then a colour board. */
+/** The picture on a library card: your own render, then its own preview file, then a style sample, then a colour board. */
 function libArt(x: LibItem): { art: HTMLElement; badge: string | null } {
   const thumb = ownThumb(x.id);
+  // A picture made for this exact card beats a style sample shared by all.
+  const file = thumb ? null : previewFile(x.id);
   const key = thumb ? null : previewKey(x.projectType, x.styleId);
   const sample = key ? state.previews.get(key) : undefined;
   const [sky, glow] = lightSwatch(x.lighting);
   const blocks = x.colors.length ? x.colors : presetSwatches(x);
-  const badge = thumb ? "Your render" : sample && x.subjectId !== SAMPLE_SUBJECT[x.projectType] ? "Style sample" : null;
+  const board = () =>
+    h(
+      "span",
+      { class: "lib-board", style: `background:linear-gradient(180deg, ${sky}, ${glow})` },
+      h("span", { class: "lib-blocks" }, blocks.slice(0, 3).map((c) => h("i", { style: `background:${c}` }))),
+    );
+  const badge = thumb ? "Your render" : !file && sample && x.subjectId !== SAMPLE_SUBJECT[x.projectType] ? "Style sample" : null;
   const art = thumb
     ? h("img", { src: toDataUrl(thumb), alt: "", loading: "lazy" })
+    : file
+    ? h("img", {
+        src: file,
+        alt: "",
+        loading: "lazy",
+        // Offline in SketchUp with a missing file: fall back quietly.
+        onerror: (e: Event) => {
+          const img = e.currentTarget as HTMLImageElement;
+          if (sample && img.src !== sample) img.src = sample;
+          else img.replaceWith(board());
+        },
+      })
     : sample
     ? h("img", { src: sample, alt: "", loading: "lazy" })
-    : h(
-        "span",
-        { class: "lib-board", style: `background:linear-gradient(180deg, ${sky}, ${glow})` },
-        h("span", { class: "lib-blocks" }, blocks.slice(0, 3).map((c) => h("i", { style: `background:${c}` }))),
-      );
+    : board();
   return { art, badge };
 }
 

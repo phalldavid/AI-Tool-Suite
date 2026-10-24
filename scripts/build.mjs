@@ -2,6 +2,7 @@
 // from file:// inside SketchUp's HtmlDialog as well as from a web server.
 import * as esbuild from "esbuild";
 import { cpSync, mkdirSync, rmSync } from "node:fs";
+import "./list-previews.mjs";
 
 const serve = process.argv.includes("--serve");
 const outdir = "dist/web";
