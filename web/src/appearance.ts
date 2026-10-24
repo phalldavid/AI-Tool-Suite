@@ -73,6 +73,8 @@ export function applyLook(look: Look): void {
   root.style.setProperty("--accent-2", a.hover);
   root.style.setProperty("--accent-ink", a.ink);
   root.style.setProperty("--accent-soft", `${a.color}24`);
+  // darker shade of the accent for text on light backgrounds (keeps 4.5:1)
+  root.style.setProperty("--accent-deep", toHex(hexToRgb(a.color).map((v) => v * 0.55)));
   const f = FONTS.find((x) => x.id === look.font) ?? FONTS[0];
   root.style.setProperty("--font", f.stack);
   if (f.google && !document.getElementById(`font-${f.id}`)) {

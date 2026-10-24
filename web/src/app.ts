@@ -235,7 +235,7 @@ function sectionWith(title: string, aside: Node | null, ...children: (Node | nul
 }
 
 function chip(label: string, active: boolean, onclick: () => void, extra?: Node, title?: string): HTMLElement {
-  return h("button", { class: active ? "chip active" : "chip", onclick, title, type: "button" }, extra ?? null, label);
+  return h("button", { class: active ? "chip active" : "chip", onclick, title, type: "button", "aria-pressed": active ? "true" : "false" }, extra ?? null, label);
 }
 
 function segmented<T extends string>(
@@ -249,7 +249,7 @@ function segmented<T extends string>(
     items.map((it) =>
       h(
         "button",
-        { class: it.id === value ? "active" : "", type: "button", onclick: () => onPick(it.id) },
+        { class: it.id === value ? "active" : "", type: "button", "aria-pressed": it.id === value ? "true" : "false", onclick: () => onPick(it.id) },
         it.icon ? icon(it.icon, 16) : null,
         h("span", {}, it.label),
       ),
@@ -351,7 +351,41 @@ function openSettings(): void {
   render();
 }
 
+// The whole panel is rebuilt on every change, so remember which control had
+// keyboard focus (by its position in the tree) and put focus back after.
+function focusPath(): number[] | null {
+  let el = document.activeElement;
+  if (!el || el === document.body || !root.contains(el)) return null;
+  const path: number[] = [];
+  while (el && el !== root) {
+    const parent: Element | null = el.parentElement;
+    if (!parent) return null;
+    path.unshift(Array.prototype.indexOf.call(parent.children, el));
+    el = parent;
+  }
+  return path;
+}
+
+function restoreFocus(path: number[] | null): void {
+  if (!path) return;
+  let el: Element | undefined = root;
+  for (const i of path) el = el?.children[i];
+  if (el instanceof HTMLElement || el instanceof SVGElement) el.focus({ preventScroll: true });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (state.ctxOpen) state.ctxOpen = false;
+  else if (state.dynOpen) state.dynOpen = null;
+  else if (state.lookOpen) state.lookOpen = false;
+  else if (state.settingsOpen) state.settingsOpen = false;
+  else return;
+  e.preventDefault();
+  render();
+});
+
 function render(): void {
+  const focused = focusPath();
   clear(root);
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "render", label: t("Render"), icon: "render" },
@@ -377,13 +411,15 @@ function render(): void {
     ),
     h(
       "nav",
-      { class: "tabs" },
+      { class: "tabs", role: "tablist", "aria-label": "Tools" },
       tabs.map((t) =>
         h(
           "button",
           {
             class: t.id === state.tab ? "tab active" : "tab",
             type: "button",
+            role: "tab",
+            "aria-selected": t.id === state.tab ? "true" : "false",
             onclick: () => {
               state.tab = t.id;
               if ((t.id === "lights" || t.id === "mirror") && host.kind === "sketchup") refreshLights().then(render);
@@ -413,6 +449,7 @@ function render(): void {
     const g = findGenerator(state.dynOpen);
     if (g) root.append(dynamicSheet(g));
   }
+  restoreFocus(focused);
 }
 
 // ---------- Render tab ----------
@@ -872,10 +909,18 @@ function compareSlider(before: ImageData64, after: ImageData64): HTMLElement {
   const beforeImg = h("img", { src: toDataUrl(before), alt: "Before", draggable: "false" }) as HTMLImageElement;
   const afterImg = h("img", { src: toDataUrl(after), alt: "After", draggable: "false" }) as HTMLImageElement;
   const clip = h("div", { class: "compare-before" }, beforeImg);
-  const handle = h("div", { class: "compare-handle" }, h("span", {}, "‹ ›"));
+  const handle = h("div", { class: "compare-handle" }, h("span", {}, icon("arrowLeft", 12), icon("arrowRight", 12)));
   const wrap = h(
     "div",
-    { class: "compare" },
+    {
+      class: "compare",
+      tabindex: 0,
+      role: "slider",
+      "aria-label": "Before and after divider",
+      "aria-valuemin": 0,
+      "aria-valuemax": 100,
+      "aria-valuenow": 50,
+    },
     afterImg,
     clip,
     handle,
@@ -887,7 +932,16 @@ function compareSlider(before: ImageData64, after: ImageData64): HTMLElement {
     const v = Math.max(0, Math.min(100, pct));
     clip.style.width = `${v}%`;
     handle.style.left = `${v}%`;
+    wrap.setAttribute("aria-valuenow", String(Math.round(v)));
   };
+  wrap.addEventListener("keydown", (e) => {
+    const now = Number(wrap.getAttribute("aria-valuenow"));
+    const step = e.shiftKey ? 10 : 2;
+    const next = e.key === "ArrowLeft" ? now - step : e.key === "ArrowRight" ? now + step : e.key === "Home" ? 0 : e.key === "End" ? 100 : null;
+    if (next === null) return;
+    e.preventDefault();
+    set(next);
+  });
   const sync = () => (beforeImg.style.width = `${wrap.clientWidth}px`);
   let drag = false;
   const move = (e: PointerEvent) => {
@@ -1751,7 +1805,7 @@ function settingsSheet(): HTMLElement {
     state.settingsOpen = false;
     render();
   };
-  const sheet = h("div", { class: "sheet" });
+  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true" });
   sheet.append(
     h("div", { class: "sheet-head" }, h("h2", {}, t("Settings")), iconButton("close", "Close", close)),
     section(
@@ -1959,7 +2013,7 @@ function dynamicSheet(g: DynGenerator): HTMLElement {
   refresh();
   const sheet = h(
     "div",
-    { class: "sheet" },
+    { class: "sheet", role: "dialog", "aria-modal": "true" },
     h("div", { class: "sheet-head" }, h("h2", {}, g.name), iconButton("close", "Close", () => close(false))),
     h("p", { class: "hint" }, `${g.blurb} Any field left at No change is left out of the prompt.`),
     fields,
@@ -2014,7 +2068,7 @@ function lookSheet(): HTMLElement {
   };
   const sheet = h(
     "div",
-    { class: "sheet" },
+    { class: "sheet", role: "dialog", "aria-modal": "true" },
     h("div", { class: "sheet-head" }, h("h2", {}, t("Customise")), iconButton("close", "Close", close)),
     section(
       t("Theme"),
@@ -2199,7 +2253,7 @@ function sunDial(get: () => string = () => state.preset.lighting, set: (id: stri
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
     return e;
   };
-  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "dial-svg", role: "slider", "aria-label": "Time of day" }) as SVGSVGElement;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "dial-svg", role: "slider", tabindex: 0, "aria-label": "Time of day, arrow keys move the sun" }) as SVGSVGElement;
   const defs = el("defs", {});
   const grad = el("linearGradient", { id: `${uid}-sky`, x1: 0, y1: 0, x2: 0, y2: 1 });
   const stopTop = el("stop", { offset: "0%" });
@@ -2253,6 +2307,7 @@ function sunDial(get: () => string = () => state.preset.lighting, set: (id: stri
       c.setAttribute("cy", String(y));
     }
     sun.setAttribute("fill", sunC);
+    svg.setAttribute("aria-valuetext", live ? `${fmtHour(hour)}, ${phase}` : "No fixed time");
     label.textContent = phase.toUpperCase();
     time.textContent = live ? fmtHour(hour) : "drag the sun to set a time";
     svg.classList.toggle("dim", !live);
@@ -2294,6 +2349,26 @@ function sunDial(get: () => string = () => state.preset.lighting, set: (id: stri
   };
   svg.addEventListener("pointerup", stop);
   svg.addEventListener("pointercancel", stop);
+  // keyboard: arrows move 15 min (Shift for 1 h); the light cards refresh on blur
+  let keyed = false;
+  svg.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 1 : 0.25;
+    const now = dialHour(get()).hour;
+    const next = e.key === "ArrowLeft" || e.key === "ArrowDown" ? now - step : e.key === "ArrowRight" || e.key === "ArrowUp" ? now + step : null;
+    if (next === null) return;
+    e.preventDefault();
+    const id = dialTimeId(Math.max(DIAL_START, Math.min(DIAL_END, next)));
+    set(id);
+    draw(parseDialTime(id)!, true);
+    updatePromptPreview();
+    keyed = true;
+  });
+  svg.addEventListener("blur", () => {
+    if (keyed) {
+      keyed = false;
+      render();
+    }
+  });
   return h("div", { class: "dial" }, svg as unknown as HTMLElement, caption);
 }
 
@@ -2438,7 +2513,7 @@ function contextSheet(): HTMLElement {
   draw();
   const sheet = h(
     "div",
-    { class: "sheet ctx-sheet" },
+    { class: "sheet ctx-sheet", role: "dialog", "aria-modal": "true" },
     h(
       "div",
       { class: "sheet-head" },
