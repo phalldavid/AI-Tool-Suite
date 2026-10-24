@@ -11,6 +11,7 @@ export interface Friendly {
 export const KIE_TOPUP_URL = "https://kie.ai/pricing";
 
 const RULES: [RegExp, Friendly][] = [
+  [/needs a kie\.ai key or a gemini/i, { text: "Add a Kie or Gemini key in Settings", action: "settings" }],
   [/insufficient|not enough credit|credits? (are )?(too low|exhausted|insufficient)|balance|\b402\b/i, { text: "Not enough Kie credits for this render", action: "topup" }],
   [/\b40[13]\b|invalid (api )?key|api key not valid|unauthori[sz]ed|permission denied|forbidden/i, { text: "Your API key wasn't accepted. Check it in Settings", action: "settings" }],
   [/\b429\b|rate.?limit|too many requests|quota|resource.?exhausted/i, { text: "Too many requests right now. Wait a minute, then try again", action: "retry" }],

@@ -30,3 +30,10 @@ test("none preset: prompt has no style, lighting or surroundings line", async ()
   const out = buildRenderPrompt({ preset: nonePreset("interior"), notes: "", hasLinePass: false, extras: [] } as Parameters<typeof buildRenderPrompt>[0]);
   assert.doesNotMatch(out, /Materials and style:|Lighting:|Surroundings:/);
 });
+
+test("detecting twice on a sketch replaces the earlier words", () => {
+  const s = parseScene('{"scene":"sketch","subject":"","style":"","details":"Two-storey house, flat roof."}')!;
+  const once = scenePreset(s, { ...nonePreset("sketch"), style: "pencil look" });
+  const twice = scenePreset({ ...s, details: "Same house, timber louvers." }, once);
+  assert.equal(twice.style, "pencil look; as in the image: Same house, timber louvers");
+});

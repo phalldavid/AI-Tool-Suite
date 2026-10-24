@@ -1547,7 +1547,7 @@ function presetCard(x: Preset): HTMLElement {
         render();
       },
     },
-    h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
+    x.id === "none" ? h("span", { class: "swatches none" }, icon("close", 14)) : h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
     h("strong", {}, x.name),
     x.builtIn ? null : h("small", {}, "Your preset"),
   );
@@ -1564,8 +1564,14 @@ function quickTab(body: HTMLElement): void {
       section(
         t("Scene"),
         sceneTypeControl(),
-        h("div", { class: "preset-grid" }, presetCard(nonePreset(state.preset.projectType)), quickLooks(state.preset.projectType).map((x) => h("div", { class: "lib-cell" }, presetCard(x), starButton(x.id, x.name)))),
-        state.preset.id === "none" || quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-current" }, libCard({ ...state.preset, styleId: "", subjectId: "", colors: [] } as LibItem, true)),
+        h(
+          "div",
+          { class: "preset-grid" },
+          presetCard(nonePreset(state.preset.projectType)),
+          // A style picked elsewhere (Browse all, Smart Detect) sits in the grid like the others.
+          state.preset.id === "none" || quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-cell" }, presetCard(state.preset)),
+          quickLooks(state.preset.projectType).map((x) => h("div", { class: "lib-cell" }, presetCard(x), starButton(x.id, x.name))),
+        ),
         h("div", { class: "row" },
           button("Smart Detect", "wand", () => openSceneScan(), "ghost grow"),
           button("Browse all", "search", () => openLibrary(), "ghost grow"),
@@ -4084,6 +4090,10 @@ async function analyse(prompt: string): Promise<string | null> {
     return null;
   }
   if (analysing) return null;
+  if (!state.settings.kieKey.trim() && !state.settings.geminiKey.trim()) {
+    toast("Analysis needs a Kie.ai key or a Gemini API key. Add one in Settings.", "error");
+    return null;
+  }
   analysing = true;
   try {
     const run = pickAnalyser();

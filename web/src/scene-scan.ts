@@ -74,7 +74,9 @@ export function scenePreset(s: SceneScan, current: Preset): Preset {
   const base: Preset = tpl
     ? { id: tpl.id, name: tpl.name, projectType: tpl.projectType, lighting: tpl.lighting, environment: tpl.environment, style: tpl.style, builtIn: true }
     : { ...current, projectType: s.scene };
-  return s.details ? { ...base, style: `${base.style}${base.style ? "; " : ""}as in the image: ${s.details.replace(/\.$/, "")}` } : base;
+  // Drop the words from an earlier scan, so detecting again replaces them.
+  const style = base.style.replace(/(;\s*)?as in the image: .*$/s, "").trim();
+  return s.details ? { ...base, style: `${style}${style ? "; " : ""}as in the image: ${s.details.replace(/\.$/, "")}` } : { ...base, style };
 }
 
 /** "Interior · Bathroom · Scandinavian" for the result card. */

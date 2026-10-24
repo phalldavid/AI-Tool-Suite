@@ -939,3 +939,4 @@ html { overflow-x: hidden; }
 .scene-chip { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
 .dyn-card.big { grid-column: 1 / -1; border-color: var(--accent); background: var(--accent-soft); padding: 14px; }
 .dyn-card.big strong { font-size: 15px; color: var(--accent-text); }
+.swatches.none { color: var(--faint); border: 1px dashed var(--line-2); border-radius: 6px; padding: 2px 6px; display: inline-flex; align-items: center; }
