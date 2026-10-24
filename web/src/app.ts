@@ -243,14 +243,81 @@ function allPresets(): Preset[] {
   return [...BUILT_IN_PRESETS.map((p) => ({ ...p, builtIn: true })), ...state.settings.userPresets];
 }
 
-function toast(text: string, kind: "info" | "error" | "ok" = "info"): void {
+// Everything shown in a toast goes into the log with its full details;
+// the toast itself stays short. An error toast opens the log when clicked.
+interface LogEntry {
+  at: number;
+  kind: "info" | "error" | "ok";
+  text: string;
+  detail?: string;
+}
+const activityLog: LogEntry[] = [];
+
+/** The first sentence only: the toast says what happened, the log says why. */
+function shortText(text: string): string {
+  const first = text.split(/(?<=[.!?])\s+/)[0] ?? text;
+  return first.length > 90 ? `${first.slice(0, 87).trimEnd()}...` : first;
+}
+
+function toast(text: string, kind: "info" | "error" | "ok" = "info", detail?: string): void {
   if (kind === "error" && working) working.failed = true;
+  const short = shortText(text);
+  const more = detail ?? (short !== text ? text : undefined);
+  activityLog.unshift({ at: Date.now(), kind, text: short, detail: more });
+  activityLog.length = Math.min(activityLog.length, 100);
+  if (kind === "error") console.warn("[David Render Studio]", text, detail ?? "");
   const bar = document.getElementById("status");
   if (!bar) return;
-  bar.textContent = text;
+  bar.replaceChildren(short.replace(/[.]$/, ""), kind === "error" ? h("button", { class: "toast-log", type: "button", onclick: openLog }, "See log") : "");
   bar.className = `toast show ${kind}`;
   window.clearTimeout((bar as HTMLElement & { _t?: number })._t);
   (bar as HTMLElement & { _t?: number })._t = window.setTimeout(() => (bar.className = `toast ${kind}`), kind === "error" ? 9000 : 4500);
+}
+
+/** Opens on top of whatever is open, without redrawing, so nothing in a sheet is lost. */
+function openLog(): void {
+  document.getElementById("log-sheet")?.remove();
+  root.append(logSheet());
+}
+
+function logSheet(): HTMLElement {
+  const close = () => document.getElementById("log-sheet")?.remove();
+  const text = () =>
+    activityLog
+      .map((e) => `${new Date(e.at).toLocaleTimeString()} [${e.kind}] ${e.text}${e.detail ? `\n    ${e.detail}` : ""}`)
+      .join("\n");
+  return h(
+    "div",
+    { class: "sheet-backdrop log-backdrop", id: "log-sheet", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet", role: "dialog", "aria-modal": "true" },
+      h("div", { class: "sheet-head" }, h("h2", {}, "Log"), iconButton("close", "Close", close)),
+      activityLog.length
+        ? h(
+            "ol",
+            { class: "log-list" },
+            activityLog.map((e) =>
+              h(
+                "li",
+                { class: `log-${e.kind}` },
+                h("time", {}, new Date(e.at).toLocaleTimeString()),
+                h("strong", {}, e.text),
+                e.detail ? h("pre", {}, e.detail) : null,
+              ),
+            ),
+          )
+        : h("p", { class: "hint" }, "Nothing yet. Messages from this session appear here."),
+      h(
+        "div",
+        { class: "sheet-actions" },
+        button("Copy log", "check", async () => {
+          await navigator.clipboard.writeText(text());
+          toast("Log copied", "ok");
+        }, "ghost"),
+      ),
+    ),
+  );
 }
 
 async function persist(): Promise<void> {
@@ -639,7 +706,7 @@ function stageScan(on: boolean): void {
 async function doCapture(): Promise<void> {
   stageScan(true);
   try {
-    toast("Capturing the SketchUp view...");
+    toast("Capturing...");
     const frame = findFrame(state.frameId);
     const raw = await host.capture({
       size: state.settings.captureSize,
@@ -949,7 +1016,7 @@ async function lockLook(fromRender?: ImageData64): Promise<void> {
   };
   state.settings.styleLock = lock;
   await persist();
-  toast(fromRender ? "Look locked. The next views use this render as their reference." : "Look locked for every view of this project.");
+  toast("Look locked", "ok");
   render();
 }
 
@@ -1393,7 +1460,7 @@ function rateButtons(after: ImageData64): HTMLElement | null {
     const next = item?.rating === r ? undefined : r;
     await rateHistory(id, next);
     state.history = await listHistory();
-    if (next) toast(next > 0 ? "Marked usable. History shows which looks and models work best." : "Marked not usable.");
+    if (next) toast(next > 0 ? "Marked usable" : "Marked not usable", "ok");
     render();
   };
   return h(
@@ -1544,7 +1611,7 @@ async function runProviderMany(prompt: string, images: ImageData64[], aspectRati
   // Older SketchUp versions embed a Chromium without AbortController.
   state.abort = typeof AbortController === "undefined" ? null : new AbortController();
   render();
-  toast(n > 1 ? `Sending ${n} renders to ${provider.label}...` : `Sending to ${provider.label}...`);
+  toast(n > 1 ? `Rendering ${n}...` : "Rendering...");
   try {
     const runs = await Promise.allSettled(
       Array.from({ length: n }, () => provider.render({ prompt, images, aspectRatio }, state.abort?.signal)),
@@ -2250,7 +2317,7 @@ function spotPanel(body: HTMLElement): void {
     primaryButton("Place spotlights", "spot", async () => {
       try {
         await host.call("placeSpots", { settings: s, texture: beamTexture(s) });
-        toast("Click walls or ceilings in SketchUp where each light sits. Esc to finish.", "ok");
+        toast("Click where each light goes. Esc to finish.", "ok");
       } catch (e) {
         toast((e as Error).message, "error");
       }
@@ -2588,13 +2655,14 @@ async function analyse(prompt: string): Promise<string | null> {
   analysing = true;
   try {
     const run = pickAnalyser();
-    toast(`Reading the image with ${analyserLabel()}...`);
+    toast("Reading image...");
     for (const el of document.querySelectorAll(".analyse-preview")) el.append(h("div", { class: "scan" }));
     // 1024 px is plenty to read materials and keeps the upload small.
     const img = await shrinkJpeg(src, 1024, 0.85);
     return await run(prompt, img);
   } catch (e) {
-    toast((e as Error).message, "error");
+    const who = state.settings.geminiKey.trim() ? "Gemini" : "Kie.ai";
+    toast(`${who} couldn't analyse the image.`, "error", (e as Error).message);
     return null;
   } finally {
     analysing = false;
@@ -2619,7 +2687,7 @@ function analysisFold(): HTMLElement {
         type: "button",
         onclick: () => {
           if (id === "dna" && state.settings.styleLock) {
-            toast("The material list is locked with the project look. Unlock it to change the list.");
+            toast("Materials are locked. Unlock to change.");
             return;
           }
           state.analyseOpen = id;
@@ -2748,9 +2816,9 @@ function dnaSheet(): HTMLElement {
     const text = await analyse(dnaPrompt(state.preset.projectType));
     if (text === null) return;
     const tags = parseDna(text);
-    if (!tags.length) return toast("The AI did not return any material lines. Try again.", "error");
+    if (!tags.length) return toast("No tags found. Try again.", "error");
     work = tags;
-    toast(`${tags.length} material tags found. Check them, then Apply.`, "ok");
+    toast(`${tags.length} tags found`, "ok");
     draw();
   };
   draw();
@@ -2840,7 +2908,7 @@ function peopleSheet(): HTMLElement {
       if (out === null) return;
       text = cleanPeople(out);
       ta.value = text;
-      toast("People written. Edit them if you like, then Apply.", "ok");
+      toast("People added", "ok");
     }, "primary"),
     h("label", { class: "field" }, h("span", {}, "People line in the prompt"), ta),
     h(
@@ -2867,7 +2935,7 @@ function settingsSheet(): HTMLElement {
   };
   const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true" });
   sheet.append(
-    h("div", { class: "sheet-head" }, h("h2", {}, t("Settings")), iconButton("close", "Close", close)),
+    h("div", { class: "sheet-head" }, h("h2", {}, t("Settings")), h("div", { class: "head-actions" }, iconButton("history", "Log", openLog), iconButton("close", "Close", close))),
     section(
       t("AI backend"),
       h("div", { class: "backend-pick" }, segmented(
@@ -2917,7 +2985,7 @@ function settingsSheet(): HTMLElement {
             if (s.kieKey) s.backend = "kie";
             state.settingsKie = false;
             await persist();
-            toast("Checking the key...");
+            toast("Checking key...");
             toast(await makeProvider(s, host).test(), "ok");
             render();
           } catch (e) {
@@ -2986,7 +3054,7 @@ function settingsSheet(): HTMLElement {
           try {
             s.geminiKey = key.value.trim();
             await persist();
-            toast("Checking the key...");
+            toast("Checking key...");
             const models = await new GeminiProvider(s.geminiKey).listImageModels();
             clear(modelSel);
             const list = models.includes(s.geminiModel) || !models.length ? models : [s.geminiModel, ...models];
@@ -3769,7 +3837,7 @@ function onboarding(): HTMLElement {
     s.onboarded = true;
     await persist();
     render();
-    toast("All set. Frame a view and press Capture.", "ok");
+    toast("All set", "ok");
   };
   const card = h("div", { class: "onboard" });
   card.append(logo(40), h("h2", {}, "Welcome to David Render Studio"));
@@ -3844,7 +3912,7 @@ function onboarding(): HTMLElement {
             s.kieKey = key.value.trim();
             if (!s.kieKey) return toast("Paste a key first.", "error");
             try {
-              toast("Checking the key...");
+              toast("Checking key...");
               toast(await makeProvider(s, host).test(), "ok");
               await finish();
             } catch (e) {
@@ -3867,7 +3935,7 @@ function onboarding(): HTMLElement {
             s.geminiKey = key.value.trim();
             if (!s.geminiKey) return toast("Paste a key first.", "error");
             try {
-              toast("Checking the key...");
+              toast("Checking key...");
               await new GeminiProvider(s.geminiKey).listImageModels();
               await finish();
             } catch (e) {
