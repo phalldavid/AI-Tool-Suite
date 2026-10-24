@@ -2481,11 +2481,44 @@ function modelSection(): HTMLElement {
 
 // ---------- Scene analysis: Material DNA and people ----------
 
+/**
+ * One key unlocks everything; a second key only makes it cheaper. A Gemini
+ * key (free allowance on AI Studio) is used for analysis when present,
+ * otherwise the Kie key's Gemini Flash.
+ */
 function pickAnalyser(): Analyser {
   const s = state.settings;
-  if (s.kieKey.trim()) return kieAnalyser(s.kieKey.trim(), host.kind === "sketchup" ? hostTransport(host) : undefined);
   if (s.geminiKey.trim()) return geminiAnalyser(s.geminiKey.trim());
-  throw new Error("Analysis needs a Kie.ai key (or a Gemini API key). Add one in Settings.");
+  if (s.kieKey.trim()) return kieAnalyser(s.kieKey.trim(), host.kind === "sketchup" ? hostTransport(host) : undefined);
+  throw new Error("Analysis needs a Kie.ai key or a Gemini API key. Add one in Settings.");
+}
+
+function analyserLabel(): string {
+  const s = state.settings;
+  return s.geminiKey.trim() ? "your Gemini key (Google's free allowance)" : s.kieKey.trim() ? "your Kie.ai key (a fraction of a cent each)" : "a key you add in Settings";
+}
+
+/** Optional Gemini key in the Kie settings, used only for analysis. */
+function analysisKeySection(): HTMLElement {
+  const s = state.settings;
+  const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Optional: paste a Gemini API key", autocomplete: "off" }) as HTMLInputElement;
+  key.addEventListener("change", async () => {
+    s.geminiKey = key.value.trim();
+    await persist();
+    toast(s.geminiKey ? "Scene analysis now uses your Gemini key." : "Scene analysis now uses your Kie.ai key.", "ok");
+    render();
+  });
+  return section(
+    "Save money on analysis (optional)",
+    h("label", { class: "field" }, h("span", {}, "Gemini API key"), key),
+    h(
+      "p",
+      { class: "hint" },
+      "Material DNA and Analyse people work with your Kie key alone. Add a free key from ",
+      extLink("https://aistudio.google.com/apikey", "aistudio.google.com/apikey"),
+      " and analysis runs on Google's free daily allowance instead. Renders still use Kie. Skip this and nothing is lost.",
+    ),
+  );
 }
 
 let analysing = false;
@@ -2501,7 +2534,8 @@ async function analyse(prompt: string): Promise<string | null> {
   try {
     const run = pickAnalyser();
     toast("Reading the image...");
-    const img = await shrinkJpeg(src, 1536);
+    // 1024 px is plenty to read materials and keeps the upload small.
+    const img = await shrinkJpeg(src, 1024, 0.85);
     return await run(prompt, img);
   } catch (e) {
     toast((e as Error).message, "error");
@@ -2535,7 +2569,7 @@ function analysisFold(): HTMLElement {
     );
   const sec = section(
     "Scene analysis",
-    h("p", { class: "hint" }, "The AI reads the image first, then writes the details into the prompt. Uses a little of your Kie credit."),
+    h("p", { class: "hint" }, `The AI reads the image first, then writes the details into the prompt. Runs on ${analyserLabel()}.`),
     h(
       "div",
       { class: "dyn-grid" },
@@ -2826,6 +2860,7 @@ function settingsSheet(): HTMLElement {
           }
         }, "ghost"),
       ),
+      analysisKeySection(),
     );
   } else if (view === "browser") {
     sheet.append(
@@ -2880,7 +2915,7 @@ function settingsSheet(): HTMLElement {
       section(
         "Gemini",
         h("label", { class: "field" }, h("span", {}, "API key"), key),
-        h("p", { class: "hint" }, "Get a key at aistudio.google.com. Google bills image generation to that key's account. The key is saved on this computer in plain text, so avoid saving it on a shared office PC."),
+        h("p", { class: "hint" }, "Get a key at aistudio.google.com. This one key runs both renders and scene analysis. Google bills image generation to that key's account. The key is saved on this computer in plain text, so avoid saving it on a shared office PC."),
         h("label", { class: "field" }, h("span", {}, "Model"), modelSel),
         button("Test key and load models", "check", async () => {
           try {

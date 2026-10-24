@@ -15,49 +15,103 @@ export interface DnaTag {
   on: boolean;
 }
 
-export const KIE_VISION_URL = "https://api.kie.ai/gemini-3-6-flash-openai/v1/chat/completions";
-const GEMINI_TEXT_MODEL = "gemini-2.5-flash";
+// Kie's Gemini Flash chat routes, newest first. Kie retires old versions
+// (3.5 is gone), so the next one is tried when a route fails. Checked on
+// docs.kie.ai 2026-10-24.
+export const KIE_VISION_URLS = [
+  "https://api.kie.ai/gemini-3-8-flash-openai/v1/chat/completions",
+  "https://api.kie.ai/gemini-3-6-flash-openai/v1/chat/completions",
+  "https://api.kie.ai/gemini-3-7-flash-openai/v1/chat/completions",
+];
+export const KIE_VISION_URL = KIE_VISION_URLS[0];
+
+// Google's own Flash models for a Gemini API key, newest first.
+export const GEMINI_TEXT_MODELS = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"];
 
 export type Analyser = (prompt: string, image: ImageData64) => Promise<string>;
+
+type ChatReply = { code?: number; msg?: string; choices?: { message?: { content?: unknown } }[] };
+
+function chatText(res: ChatReply): string {
+  const content = res.choices?.[0]?.message?.content;
+  return typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (c as { text?: string }).text ?? "").join("") : "";
+}
+
+/** Key or credit problems: trying another route will not help. */
+const fatal = (code: number) => code === 401 || code === 402 || code === 403;
 
 export function kieAnalyser(key: string, transport: KieTransport = fetchTransport): Analyser {
   return async (prompt, image) => {
     if (!key) throw new ProviderError("Analysis uses your Kie.ai key. Add it in Settings.");
     const uploader = new KieProvider(key, "nano-banana-2-1", "1K", transport);
-    const url = await uploader.upload(image, 0);
-    const { status, body } = await transport.json("POST", KIE_VISION_URL, key, {
-      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url } }] }],
-      stream: false,
-    });
-    const res = (body ?? {}) as { code?: number; msg?: string; choices?: { message?: { content?: unknown } }[] };
-    if (status >= 400 || (typeof res.code === "number" && res.code !== 200)) {
-      throw new ProviderError(`Kie.ai could not analyse the image${res.msg ? `: ${res.msg}` : "."}`, res.code ?? status);
+    // A hosted link first (what Kie documents); the image itself inline as a
+    // last try, in case Kie's model cannot fetch the link.
+    const links: string[] = [];
+    try {
+      links.push(await uploader.upload(image, 0));
+    } catch (e) {
+      if (e instanceof ProviderError && typeof e.status === "number" && fatal(e.status)) throw e;
     }
-    const content = res.choices?.[0]?.message?.content;
-    const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (c as { text?: string }).text ?? "").join("") : "";
-    if (!text.trim()) throw new ProviderError("The analysis came back empty. Try again.");
-    return text;
+    links.push(`data:${image.mimeType};base64,${image.data}`);
+    let last = "";
+    for (const link of links) {
+      for (const url of KIE_VISION_URLS) {
+        let status = 0;
+        let res: ChatReply = {};
+        try {
+          const r = await transport.json("POST", url, key, {
+            messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: link } }] }],
+            stream: false,
+          });
+          status = r.status;
+          res = (r.body ?? {}) as ChatReply;
+        } catch (e) {
+          last = (e as Error).message;
+          continue;
+        }
+        const code = typeof res.code === "number" ? res.code : status;
+        if (status < 400 && (code === 200 || res.code === undefined)) {
+          const text = chatText(res);
+          if (text.trim()) return text;
+          last = "the answer came back empty";
+          continue;
+        }
+        if (fatal(code)) throw new ProviderError(code === 401 ? "Kie.ai rejected the API key. Check it in Settings." : code === 402 ? "Not enough Kie credits for analysis. Top up at kie.ai." : `Kie.ai refused the analysis: ${res.msg ?? code}`, code);
+        last = `${res.msg ?? "error"} (${code}, ${url.split("/")[3]})`;
+      }
+    }
+    throw new ProviderError(`Kie.ai could not analyse the image. Kie said: ${last}. A free Gemini key in Settings is another way to run analysis.`);
   };
 }
 
-export function geminiAnalyser(key: string): Analyser {
+export function geminiAnalyser(key: string, models = GEMINI_TEXT_MODELS): Analyser {
   return async (prompt, image) => {
     if (!key) throw new ProviderError("Analysis needs your Gemini API key in Settings.");
-    let res: Response;
-    try {
-      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TEXT_MODEL}:generateContent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: image.mimeType, data: image.data } }] }] }),
-      });
-    } catch {
-      throw new ProviderError("Could not reach Google. Check the internet connection.");
+    let last = "";
+    for (const model of models) {
+      let res: Response;
+      try {
+        res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: image.mimeType, data: image.data } }] }] }),
+        });
+      } catch {
+        throw new ProviderError("Could not reach Google. Check the internet connection.");
+      }
+      const json = (await res.json().catch(() => ({}))) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } };
+      // A retired model name: try the next one.
+      if (res.status === 404) {
+        last = json.error?.message ?? `${model} not found`;
+        continue;
+      }
+      if (res.status === 429) throw new ProviderError("Your Gemini key hit Google's limit for now (free keys have a daily allowance). Try later, or analyse with Kie.ai.", 429);
+      if (!res.ok) throw new ProviderError(`Gemini could not analyse the image${json.error?.message ? `: ${json.error.message}` : "."}`, res.status);
+      const text = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+      if (!text.trim()) throw new ProviderError("The analysis came back empty. Try again.");
+      return text;
     }
-    const json = (await res.json().catch(() => ({}))) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } };
-    if (!res.ok) throw new ProviderError(`Gemini could not analyse the image${json.error?.message ? `: ${json.error.message}` : "."}`, res.status);
-    const text = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
-    if (!text.trim()) throw new ProviderError("The analysis came back empty. Try again.");
-    return text;
+    throw new ProviderError(`Gemini could not analyse the image: ${last}`);
   };
 }
 

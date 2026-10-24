@@ -89,7 +89,7 @@ test("kie analyser uploads then asks the vision model", async () => {
     image: async () => ({ mimeType: "image/png", data: "" }),
   };
   assert.equal(await kieAnalyser("k", t)("p", { mimeType: "image/jpeg", data: "AA" }), "Floor: tiles");
-  assert.match(calls[1], /gemini-3-6-flash-openai\/v1\/chat\/completions/);
+  assert.match(calls[1], /gemini-3-8-flash-openai\/v1\/chat\/completions/);
 });
 
 test("each topic has one source: lock beats preset materials, Time beats preset lighting", () => {
@@ -111,4 +111,24 @@ test("a locked earlier render is sent as a same-project reference", () => {
   const p = buildRenderPrompt({ preset: BUILT_IN_PRESETS[0], hasLinePass: true, referenceIndex: 3, referenceIsRender: true });
   assert.ok(p.includes("Image 3 is an earlier render of this same project"));
   assert.ok(!p.includes("style reference only"));
+});
+
+test("kie analyser moves to the next route, then the inline image, and reports Kie's words", async () => {
+  const calls: { url: string; link?: string }[] = [];
+  const t: KieTransport = {
+    json: async (_m, url, _k, body) => {
+      if (url.includes("upload")) return { status: 200, body: { code: 200, data: { downloadUrl: "https://f/a.jpg" } } };
+      const link = (body as { messages: { content: { image_url?: { url: string } }[] }[] }).messages[0].content[1].image_url?.url;
+      calls.push({ url, link });
+      if (link?.startsWith("data:") && url.includes("3-6")) return { status: 200, body: { choices: [{ message: { content: "Wall: render" } }] } };
+      return { status: 200, body: { code: 500, msg: "Request failed after 2 retries" } };
+    },
+    image: async () => ({ mimeType: "image/png", data: "" }),
+  };
+  assert.equal(await kieAnalyser("k", t)("p", { mimeType: "image/jpeg", data: "AA" }), "Wall: render");
+  assert.equal(calls.length, 5);
+  const failing: KieTransport = { ...t, json: async (_m, url) => (url.includes("upload") ? { status: 200, body: { code: 200, data: { downloadUrl: "x" } } } : { status: 200, body: { code: 500, msg: "Request failed after 2 retries" } }) };
+  await assert.rejects(kieAnalyser("k", failing)("p", { mimeType: "image/jpeg", data: "AA" }), /Kie said: Request failed after 2 retries/);
+  const broke: KieTransport = { ...t, json: async () => ({ status: 200, body: { code: 402, msg: "credits" } }) };
+  await assert.rejects(kieAnalyser("k", broke)("p", { mimeType: "image/jpeg", data: "AA" }), /Not enough Kie credits/);
 });
