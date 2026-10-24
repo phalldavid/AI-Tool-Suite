@@ -75,7 +75,7 @@ test("three sheets cover all 32 styles with 4:3 tiles", () => {
   }
 });
 
-test("cards map to preview keys; hidden tiles fall back", () => {
+test("cards map to preview keys; hidden tiles fall back to the shipped set", () => {
   assert.equal(previewKey("interior", "japandi"), "int:japandi");
   assert.equal(previewKey("exterior", "featured"), null);
   assert.equal(previewKey("aerial", "golden"), "air:golden");
@@ -83,7 +83,8 @@ test("cards map to preview keys; hidden tiles fall back", () => {
   const tiles = SHEETS[2].tiles.map((_, i) => `data:image/jpeg;base64,${i}`);
   const m = previewMap({ air: { id: "air", createdAt: 0, sheet: { mimeType: "image/png", data: "" }, tiles, hidden: [1], issues: [] } });
   assert.equal(m.get("air:default"), tiles[0]);
-  assert.equal(m.has("air:golden"), false);
+  // a hidden tile falls back to the shipped picture, never the hidden one
+  assert.notEqual(m.get("air:golden"), tiles[1]);
 });
 
 test("every style has a short sheet cue, and a redo follows the reference", () => {

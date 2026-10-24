@@ -47,6 +47,7 @@ import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./con
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, findLibraryItem, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
+import { PREVIEW_PACK } from "./preview-pack";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
@@ -1776,9 +1777,11 @@ function previewsRow(): HTMLElement {
       { class: "grow" },
       made
         ? `Style previews: ${made} of ${SHEETS.length} sheets made on this computer.`
+        : Object.keys(PREVIEW_PACK).length
+        ? `Card pictures come with the app. Make your own set of ${total} on your key for about ${sheetCredits() * SHEETS.length} credits.`
         : `Real pictures on the cards: ${total} styles in ${SHEETS.length} images, about ${sheetCredits() * SHEETS.length} credits.`,
     ),
-    button(made ? "Manage" : "Make style previews", null, () => {
+    button(made ? "Manage" : Object.keys(PREVIEW_PACK).length ? "Make my own" : "Make style previews", null, () => {
       state.previewsOpen = true;
       render();
     }, "ghost small"),
