@@ -76,6 +76,11 @@ module AIRenderSuite
       true
     end
 
+    def self.close
+      @dialog.close if @dialog && @dialog.visible?
+      false
+    end
+
     # Chat sites refuse to load inside another page (they block framing),
     # so the browser cannot live inside the panel itself. Instead it is a
     # window snapped to the panel's left edge at the same height.

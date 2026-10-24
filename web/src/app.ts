@@ -112,6 +112,7 @@ interface State {
   frameEditor: boolean;
   /** the docked chat browser is open */
   browserOpen: boolean;
+  browserMenu: boolean;
   onboardStep: number;
   onboardPick: string;
   settings: Settings;
@@ -194,6 +195,7 @@ export async function start(el: HTMLElement): Promise<void> {
     ctxGroup: CONTEXT_GROUPS[0].id,
     frameEditor: false,
     browserOpen: false,
+    browserMenu: false,
     onboardStep: 0,
     onboardPick: "",
     settings,
@@ -726,22 +728,76 @@ function backendPill(): HTMLElement {
   );
 }
 
-/** Computer button: opens the chat site docked to the panel's left side. */
+// A click outside the globe menu closes it.
+document.addEventListener("click", (e) => {
+  if (state?.browserMenu && !(e.target as Element).closest?.(".browser-wrap")) {
+    state.browserMenu = false;
+    render();
+  }
+});
+
+/**
+ * Globe button (SketchUp only): opens Gemini, ChatGPT or Google Flow in a
+ * browser window docked beside the panel, with your own login. The sites
+ * block being shown inside another page, so it is a real browser window.
+ */
 function browserButton(): HTMLElement | null {
-  if (host.kind !== "sketchup" || state.settings.backend !== "browser") return null;
-  const site = BROWSER_SITES.find((x) => x.id === state.settings.browserSite) ?? BROWSER_SITES[0];
-  return iconButton(
-    "monitor",
-    state.browserOpen ? `Close ${site.label}` : `Open ${site.label} beside the panel`,
-    async () => {
-      try {
-        state.browserOpen = await host.call<boolean>("browserToggle", { site: site.id });
-        render();
-      } catch (e) {
-        toast((e as Error).message, "error");
-      }
-    },
-    state.browserOpen ? "browser-btn active" : "browser-btn",
+  if (host.kind !== "sketchup") return null;
+  const btn = iconButton("globe", state.browserOpen ? "Browser: switch site or close" : "Open a browser beside the panel", () => {
+    state.browserMenu = !state.browserMenu;
+    render();
+  }, state.browserOpen ? "browser-btn active" : "browser-btn");
+  return h("div", { class: "browser-wrap" }, btn, state.browserMenu ? browserMenu() : null);
+}
+
+function browserMenu(): HTMLElement {
+  const current = state.settings.browserSite;
+  const go = async (id: Settings["browserSite"]) => {
+    state.browserMenu = false;
+    state.settings.browserSite = id;
+    await persist();
+    try {
+      await host.call("browserOpen", { site: id });
+      state.browserOpen = true;
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+    render();
+  };
+  return h(
+    "div",
+    { class: "browser-menu", role: "menu" },
+    BROWSER_SITES.map((x) =>
+      h(
+        "button",
+        { class: state.browserOpen && x.id === current ? "active" : "", type: "button", role: "menuitem", onclick: () => go(x.id) },
+        h("strong", {}, x.label),
+        h("small", {}, state.browserOpen && x.id === current ? "Open" : new URL(x.url).host),
+      ),
+    ),
+    h(
+      "button",
+      { type: "button", role: "menuitem", class: "ext", onclick: () => ((state.browserMenu = false), openExternal((BROWSER_SITES.find((x) => x.id === current) ?? BROWSER_SITES[0]).url), render()) },
+      icon("share", 14),
+      h("span", {}, "Open in my normal browser"),
+    ),
+    state.browserOpen
+      ? h(
+          "button",
+          {
+            type: "button",
+            role: "menuitem",
+            class: "ext",
+            onclick: async () => {
+              state.browserMenu = false;
+              state.browserOpen = await host.call<boolean>("browserClose", {}).catch(() => false);
+              render();
+            },
+          },
+          icon("close", 14),
+          h("span", {}, "Close browser"),
+        )
+      : null,
   );
 }
 
@@ -848,7 +904,8 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (state.ctxOpen) state.ctxOpen = false;
+  if (state.browserMenu) state.browserMenu = false;
+  else if (state.ctxOpen) state.ctxOpen = false;
   else if (state.analyseOpen) state.analyseOpen = null;
   else if (state.anglesOpen) state.anglesOpen = false;
   else if (state.dynOpen) state.dynOpen = null;
