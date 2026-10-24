@@ -879,18 +879,29 @@ html { overflow-x: hidden; }
   .icon-btn { min-width: 36px; min-height: 36px; }
 }
 
-@media (min-width: 600px) and (max-width: 1000px) {
+@media (min-width: 600px) {
   #app, .render-bar { max-width: 1000px; }
 }
 
-@media (min-width: 1001px) {
-  #app { max-width: 1440px; }
+/* Wide landscape (desktop, iPad sideways): model list on the left, picture,
+   controls. Portrait or narrow windows keep the phone layout. */
+@media (min-width: 1000px) and (orientation: landscape) {
+  #app { max-width: 1600px; }
   .body:not(.tab-render):not(.tab-history) { width: 100%; max-width: 900px; margin: 0 auto; }
-  .render-layout { display: grid; grid-template-columns: minmax(0, 1fr) 440px; align-items: start; gap: 16px; }
-  .picture-col { position: sticky; top: 64px; max-height: calc(100vh - 76px); overflow-y: auto; }
-  .picture-col .stage-img { max-height: calc(100vh - 200px); object-fit: contain; }
-  .render-bar { max-width: none; margin: 0; left: auto; width: 464px; right: max(0px, calc((100vw - 1440px) / 2)); }
+  .render-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; grid-template-areas: "model picture controls"; align-items: start; gap: 14px; }
+  .model-col { grid-area: model; position: sticky; top: 64px; max-height: calc(100vh - 76px); overflow-y: auto; }
+  .picture-col { grid-area: picture; position: sticky; top: 64px; max-height: calc(100vh - 76px); overflow-y: auto; }
+  .picture-col .stage-img { max-height: calc(100vh - 220px); object-fit: contain; }
+  .controls-col { grid-area: controls; }
+  .render-bar { max-width: none; margin: 0; left: auto; width: 404px; right: max(0px, calc((100vw - 1600px) / 2)); }
   .history-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+/* iPad landscape and small laptops: model list and controls share the left side. */
+@media (min-width: 1000px) and (max-width: 1279px) and (orientation: landscape) {
+  .render-layout { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "model picture" "controls picture"; }
+  .picture-col { grid-row: 1 / span 2; }
+  .model-col { position: static; max-height: none; }
+  .render-bar { left: 352px; right: 0; width: auto; }
 }
 
 /* Toasts sit at the top, clear of the Render bar, the tour and bottom sheets. */
@@ -918,3 +929,4 @@ html { overflow-x: hidden; }
 .stage-frame.fresh { animation: result-in 420ms var(--ease-out) both; }
 @keyframes result-in { from { opacity: 0.25; filter: blur(4px); } to { opacity: 1; filter: none; } }
 @media (prefers-reduced-motion: reduce) { .render-btn.long .render-progress i, .stage-frame.fresh { animation: none; } }
+.render-cost, .credit { white-space: nowrap; }

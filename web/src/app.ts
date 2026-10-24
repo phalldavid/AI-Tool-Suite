@@ -1554,7 +1554,7 @@ function presetCard(x: Preset): HTMLElement {
 function quickTab(body: HTMLElement): void {
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+  modelPanel(body);
   body.append(fold(frameSection(), "frame", frameLabel(), false));
   body.append(lockBanner());
   if (!lock) {
@@ -2104,6 +2104,19 @@ function drawQueue(): void {
   else if (state.tab === "render") render();
 }
 
+/**
+ * Wide landscape window (desktop, iPad sideways): the model list gets its own
+ * left panel, always open, so most of the panel fits on one screen.
+ * Portrait or narrow windows use the phone layout.
+ */
+const WIDE = window.matchMedia("(min-width: 1000px) and (orientation: landscape)");
+WIDE.addEventListener?.("change", () => render());
+
+/** The AI model fold, unless the left panel already shows the model list. */
+function modelPanel(body: HTMLElement): void {
+  if (!WIDE.matches) body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+}
+
 function renderTab(main: HTMLElement): void {
   const p = state.preset;
   // Picture column and controls column. Stacked on phones and in the
@@ -2112,13 +2125,14 @@ function renderTab(main: HTMLElement): void {
   const pictureCol = h("div", { class: "picture-col" }, stage(), queue.length ? queueSection() : null);
   const body = h("div", { class: "controls-col" });
   main.append(pictureCol, body);
+  if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection()));
   if (state.settings.simple) {
     quickTab(body);
     return;
   }
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+  modelPanel(body);
   body.append(fold(frameSection(), "frame", frameLabel(), true));
   body.append(lockBanner());
   if (!lock) {
