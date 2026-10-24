@@ -2487,7 +2487,7 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
   return h(
     "div",
     { class: "stage-actions" },
-    primaryButton(host.kind === "sketchup" ? "Save" : "Download", "save", () => saveImage(after, tool)),
+    primaryButton(host.kind === "sketchup" ? "Save" : isIOS() ? "Save" : "Download", "save", () => saveImage(after, tool)),
     button("Edit", "edit", () => {
       if (tool !== "render" && state.editSource && state.editSource !== after) pushEdit(state.editSource);
       else if (tool === "render") state.editStack = [];
@@ -2593,10 +2593,28 @@ function compareSlider(before: ImageData64, after: ImageData64): HTMLElement {
   return wrap;
 }
 
+/** iPhone or iPad (iPadOS reports itself as a Mac with touch). */
+function isIOS(): boolean {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 async function saveImage(img: ImageData64, tool: ToolId): Promise<void> {
   try {
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
     const name = `${tool}_${state.capture?.facts?.sceneName || state.preset.name}_${stamp}`.replace(/[^\w.-]+/g, "_");
+    // iPhone/iPad: a web page can't write to Photos, but the share sheet has
+    // "Save Image" at the top. No await before share(), or Safari drops the tap.
+    if (host.kind !== "sketchup" && isIOS()) {
+      const file = new File([imageBlob(img)], `${name}.${img.mimeType === "image/png" ? "png" : "jpg"}`, { type: img.mimeType });
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+        } catch (e) {
+          if ((e as Error).name !== "AbortError") throw e;
+        }
+        return;
+      }
+    }
     const where = await host.save(img, name);
     toast(`Saved ${where}`, "ok");
   } catch (e) {
