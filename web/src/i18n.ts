@@ -58,6 +58,7 @@ const KM: Record<string, string> = {
   "Clear all": "សម្អាតទាំងអស់",
   "Bring result back": "យកលទ្ធផលមកវិញ",
   "AI backend": "ម៉ាស៊ីន AI",
+  "AI model": "ម៉ូដែល AI",
   Theme: "រូបរាង",
   Dark: "ងងឹត",
   Light: "ភ្លឺ",

@@ -130,7 +130,9 @@ export const GENERATORS: DynGenerator[] = [
         c("noon", "Midday, 12:00", "midday, the sun almost directly overhead, short shadows"),
         c("afternoon", "Afternoon, 15:30", "mid-afternoon, strong sun from the west"),
         c("golden", "Golden hour, 17:30", "golden hour at about 17:30, low warm sun from the west"),
+        c("pastel", "Pastel sunset, 18:00", "pastel sunset at about 18:00, soft pink and peach sky, gentle warm light"),
         c("blue", "Blue hour, 18:20", "blue hour just after sunset, deep blue sky, interior and street lights on"),
+        c("twilight", "Late twilight, 18:40", "late twilight, last trace of light on the western horizon, deep navy sky, artificial lights dominant"),
         c("night", "Night, 20:00", "night, dark sky, warm artificial lighting inside and outside"),
       ]),
       one("season", "Season", [
@@ -147,16 +149,28 @@ export const GENERATORS: DynGenerator[] = [
         c("lightrain", "Light rain", "light rain falling, wet surfaces"),
         c("heavyrain", "Heavy monsoon rain", "heavy monsoon rain, visible rain streaks, water running off the roof"),
         c("haze", "Hazy and humid", "hazy humid air softening the distance"),
+        c("afterrain", "Just after rain", "just after a monsoon shower, clearing sky, wet glistening surfaces"),
+        c("fog", "Morning mist", "low morning mist hanging over the ground and the distance"),
       ]),
       one("ground", "Ground", [
         c("dry", "Dry", "dry ground"),
         c("damp", "Damp", "damp ground with a soft sheen"),
         c("puddles", "Wet with puddles", "wet ground with puddles reflecting the building and sky"),
       ]),
+      one("wind", "Wind", [
+        c("calm", "Calm", "still air, leaves not moving"),
+        c("breeze", "Light breeze", "a light breeze moving the palm fronds and curtains"),
+        c("windy", "Windy", "strong wind bending trees and palms, flags and fabric blowing"),
+      ], true),
+      one("lightdir", "Sun direction", [
+        c("front", "From the front", "sunlight falling on the main facade from in front of the camera"),
+        c("side", "From the side", "raking sunlight from the side, long shadows across the facade"),
+        c("back", "From behind", "backlit, the sun behind the building, rim light on the roof edges and soft facade light"),
+      ], true),
     ],
     build(v) {
       const g = GENERATORS[0];
-      const parts = [pick(g, v, "time"), pick(g, v, "season"), pick(g, v, "sky"), pick(g, v, "ground")].filter(Boolean);
+      const parts = [pick(g, v, "time"), pick(g, v, "season"), pick(g, v, "sky"), pick(g, v, "ground"), pick(g, v, "wind"), pick(g, v, "lightdir")].filter(Boolean);
       return parts.length ? `Time and weather: ${parts.join("; ")}. Shadows and sky must match this time and weather.` : null;
     },
   },
@@ -216,16 +230,46 @@ export const GENERATORS: DynGenerator[] = [
         c("neutral", "Neutral", "in white, silver, grey and black"),
         c("mixed", "Mixed", "in mixed realistic colours"),
       ]),
+      one("model", "Hero car (optional)", [
+        c("lexusrx", "Lexus RX", "a Lexus RX SUV"),
+        c("landcruiser", "Toyota Land Cruiser", "a Toyota Land Cruiser"),
+        c("prius", "Toyota Prius", "a Toyota Prius"),
+        c("camry", "Toyota Camry", "a Toyota Camry"),
+        c("hilux", "Toyota Hilux", "a Toyota Hilux pickup"),
+        c("ranger", "Ford Ranger", "a Ford Ranger pickup"),
+        c("everest", "Ford Everest", "a Ford Everest SUV"),
+        c("rangerover", "Range Rover", "a Range Rover"),
+        c("g63", "Mercedes G-Class", "a Mercedes-Benz G-Class"),
+        c("sclass", "Mercedes S-Class", "a Mercedes-Benz S-Class sedan"),
+        c("x7", "BMW X7", "a BMW X7"),
+        c("modely", "Tesla Model Y", "a Tesla Model Y"),
+        c("byd", "BYD Atto 3", "a BYD Atto 3 electric SUV"),
+        c("cx5", "Mazda CX-5", "a Mazda CX-5"),
+        c("bentley", "Bentley Continental GT", "a Bentley Continental GT"),
+        c("dream", "Honda Dream (motorbike)", "a Honda Dream motorbike"),
+        c("scoopy", "Honda Scoopy (scooter)", "a Honda Scoopy scooter"),
+      ]),
+      many("extras", "Details", [
+        c("plate", "Cambodian plates", "realistic Cambodian licence plates with correct proportions and Phnom Penh province text"),
+        c("grab", "Grab rider", "a ride-hailing rider on a motorbike in a green jacket"),
+        c("tuktukwait", "Tuk-tuk waiting", "a tuk-tuk waiting by the kerb"),
+      ]),
     ],
     build(v) {
       const g = GENERATORS[2];
       const types = picks(g, v, "types");
-      if (!types.length) return null;
+      const model = pick(g, v, "model");
+      const extras = picks(g, v, "extras");
+      if (!types.length && !model && !extras.length) return null;
       const amount = pick(g, v, "amount");
       const motion = pick(g, v, "motion");
       const where = pick(g, v, "where");
       const colour = pick(g, v, "colour");
-      return `Vehicles: add ${[amount, motion].filter(Boolean).join(" ")} ${join(types)}${where ? ` ${where}` : ""}${colour ? `, ${colour}` : ""}. Correct scale and perspective, sitting on the ground with contact shadows.`.replace(/\s+/g, " ");
+      const bits: string[] = [];
+      if (types.length) bits.push(`add ${[amount, motion].filter(Boolean).join(" ")} ${join(types)}${where ? ` ${where}` : ""}${colour ? `, ${colour}` : ""}`);
+      if (model) bits.push(`include ${model}${!types.length && where ? ` ${where}` : ""} as the main vehicle`);
+      if (extras.length) bits.push(`with ${join(extras)}`);
+      return `Vehicles: ${bits.join("; ")}. Correct scale and perspective, sitting on the ground with contact shadows.`.replace(/\s+/g, " ");
     },
   },
   {
@@ -372,6 +416,20 @@ export const GENERATORS: DynGenerator[] = [
         c("fiddle", "Fiddle-leaf fig (indoor)", "potted fiddle-leaf figs"),
         c("pothos", "Hanging pothos (indoor)", "trailing pothos on shelves"),
       ]),
+      many("features", "Garden features", [
+        c("pergola", "Timber pergola", "a timber pergola"),
+        c("stepping", "Stepping stones", "stepping stones across the lawn"),
+        c("stonepath", "Stone path", "a natural stone path"),
+        c("koi", "Koi pond", "a koi pond"),
+        c("fountain", "Fountain", "a small water fountain"),
+        c("waterfall", "Rock waterfall", "a natural rock waterfall"),
+        c("rock", "Zen rock garden", "a raked gravel rock garden"),
+        c("bench", "Garden bench", "a garden bench"),
+        c("seating", "Outdoor seating", "an outdoor seating area"),
+        c("lanterns", "Garden lanterns", "low garden lanterns"),
+        c("uplights", "Landscape lighting", "warm landscape uplights at the base of trees"),
+        c("bamboofence", "Bamboo fence", "a bamboo fence"),
+      ]),
       one("where", "Where", [
         c("front", "Front garden", "in the front garden"),
         c("fence", "Along the boundary wall", "along the boundary wall"),
@@ -401,10 +459,78 @@ export const GENERATORS: DynGenerator[] = [
     build(v) {
       const g = GENERATORS[5];
       const kinds = picks(g, v, "kinds");
+      const features = picks(g, v, "features");
       const where = pick(g, v, "where");
-      if (!kinds.length && !where) return null;
+      if (!kinds.length && !where && !features.length) return null;
       const bits = [pick(g, v, "density"), pick(g, v, "age"), pick(g, v, "season")].filter(Boolean);
-      return `Plants: add ${kinds.length ? join(kinds) : "tropical planting"}${where ? ` ${where}` : ""}${bits.length ? `, ${bits.join(", ")}` : ""}. Real species at true size, never covering windows, doors or the main facade.`;
+      const plants = kinds.length || where ? `add ${kinds.length ? join(kinds) : "tropical planting"}${where ? ` ${where}` : ""}${bits.length ? `, ${bits.join(", ")}` : ""}` : "";
+      const feat = features.length ? `${plants ? "; also " : "add "}${join(features)}` : "";
+      return `Plants: ${plants}${feat}. Real species at true size, never covering windows, doors or the main facade.`;
+    },
+  },
+  {
+    id: "camera",
+    name: "Camera and effects",
+    icon: "capture",
+    blurb: "Viewpoint, lens, depth of field and motion blur.",
+    fields: [
+      one("view", "Viewpoint", [
+        c("eye", "Eye level", "eye-level view at about 1.6 m"),
+        c("raised", "Slightly raised", "slightly raised view at about 4 m"),
+        c("drone", "Drone, 45°", "drone view at about 45 degrees looking down"),
+        c("top", "Top down", "straight top-down aerial view"),
+        c("worm", "Low angle", "low worm's-eye angle looking up at the building"),
+        c("detail", "Close detail", "close-up detail view of the facade or joinery"),
+      ]),
+      one("lens", "Lens", [
+        c("24ts", "24 mm tilt-shift", "24 mm tilt-shift lens with straight vertical lines"),
+        c("35", "35 mm", "35 mm lens with straight vertical lines"),
+        c("50", "50 mm", "50 mm lens, natural perspective"),
+        c("85", "85 mm", "85 mm lens, compressed perspective"),
+      ], true),
+      one("dof", "Depth of field", [
+        c("deep", "All sharp", "deep focus, everything sharp, f/8 to f/11"),
+        c("shallow", "Soft background", "shallow depth of field, the foreground subject sharp and the background softly blurred"),
+      ], true),
+      many("fx", "Effects", [
+        c("motion", "Motion blur", "slight motion blur on moving people and vehicles"),
+        c("caustics", "Water caustics", "light caustics from water on nearby surfaces"),
+        c("reflections", "Rain reflections", "reflections of the building in wet paving"),
+        c("flare", "Soft sun flare", "a soft natural lens flare from the sun"),
+      ]),
+    ],
+    build(v) {
+      const g = findGenerator("camera")!;
+      const parts = [pick(g, v, "view"), pick(g, v, "lens"), pick(g, v, "dof"), ...picks(g, v, "fx")].filter(Boolean);
+      return parts.length ? `Camera and effects: ${parts.join("; ")}. Keep the building's geometry unchanged.` : null;
+    },
+  },
+  {
+    id: "foreground",
+    name: "Foreground",
+    icon: "exterior",
+    blurb: "Something between the camera and the building, for depth.",
+    fields: [
+      many("items", "Foreground", [
+        c("driveway", "Tiled driveway", "a tiled driveway in the immediate foreground"),
+        c("stamped", "Stone and concrete drive", "a modern driveway of dark stone mixed with stamped grey concrete"),
+        c("deck", "Timber deck", "a timber deck in the foreground"),
+        c("gravel", "Gravel path", "a gravel path leading towards the building"),
+        c("lawn", "Manicured lawn", "a manicured lawn in the foreground"),
+        c("flowerbed", "Flower bed", "a flower bed in soft focus in the foreground"),
+        c("paddy", "Rice paddy", "a green rice paddy in the foreground"),
+        c("pool", "Reflecting pool", "a still reflecting pool mirroring the building"),
+        c("sidewalk", "Sidewalk and street", "a clean sidewalk and asphalt street in the immediate foreground"),
+        c("drain", "Street with drain", "a Phnom Penh street edge with a concrete monsoon drain cover"),
+        c("branches", "Overhanging branches", "overhanging tree branches framing the top and sides, with dappled shadows on the ground"),
+        c("shadetree", "Shade tree at one side", "a mature broad-canopy shade tree partly framing the building from one side"),
+        c("spiderlily", "Spider lilies", "spider lilies softly blurred in the foreground"),
+        c("cables", "Power poles and cables", "a concrete power pole with overhead cables at one edge of the frame"),
+      ]),
+    ],
+    build(v) {
+      const items = picks(findGenerator("foreground")!, v, "items");
+      return items.length ? `Foreground: ${join(items)}. Keep the building fully readable behind it.` : null;
     },
   },
 ];

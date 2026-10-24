@@ -50,6 +50,10 @@ const P: Record<string, string> = {
   cabinet: '<rect x="3.5" y="3.5" width="17" height="8" rx="1"/><path d="M12 3.5v8M6 15.5h12" /><path d="M6.5 12l-1.5 6M17.5 12l1.5 6" opacity=".55"/>',
   wallLight: '<path d="M4 4v16"/><path d="M4 9h4l3 3-3 3H4"/><path d="M12.5 9.5l4-2M13 12h5M12.5 14.5l4 2" opacity=".55"/>',
   monitor: '<rect x="3" y="4" width="18" height="12.5" rx="1.8"/><path d="M8.5 20.5h7M12 16.5v4"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+  unlock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 7.7-1.5"/>',
+  thumbUp: '<path d="M7 10.5v9.5H4.5v-9.5zM7 10.5l4-7.5a2 2 0 0 1 2.5 2.4L12.8 9H18a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 16.8 20H7"/>',
+  thumbDown: '<path d="M7 13.5V4H4.5v9.5zM7 13.5l4 7.5a2 2 0 0 0 2.5-2.4L12.8 15H18a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 16.8 4H7"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16 7l2.5 2.5M14 9l2 2"/>',
 };
 

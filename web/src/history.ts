@@ -54,3 +54,27 @@ export async function removeHistory(id: string): Promise<void> {
     memory = memory.filter((m) => m.id !== id);
   }
 }
+
+/** Saves the user's verdict on one render (usable or not). */
+export async function rateHistory(id: string, rating: 1 | -1 | undefined): Promise<void> {
+  try {
+    const item = await withStore<HistoryItem | undefined>("readonly", (s) => s.get(id) as IDBRequest<HistoryItem | undefined>);
+    if (item) await withStore("readwrite", (s) => s.put({ ...item, rating }));
+  } catch {
+    memory = memory.map((m) => (m.id === id ? { ...m, rating } : m));
+  }
+}
+
+/** Usable / not usable counts per preset and model, best first. */
+export function ratingSummary(items: HistoryItem[]): { preset: string; model: string; good: number; bad: number }[] {
+  const rows = new Map<string, { preset: string; model: string; good: number; bad: number }>();
+  for (const it of items) {
+    if (!it.rating || it.tool !== "render") continue;
+    const k = `${it.presetName ?? "Custom"}|${it.model}`;
+    const r = rows.get(k) ?? { preset: it.presetName ?? "Custom", model: it.model, good: 0, bad: 0 };
+    if (it.rating > 0) r.good++;
+    else r.bad++;
+    rows.set(k, r);
+  }
+  return [...rows.values()].sort((a, b) => b.good - b.bad - (a.good - a.bad) || b.good - a.good);
+}
