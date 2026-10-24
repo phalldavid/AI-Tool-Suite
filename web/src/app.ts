@@ -41,6 +41,7 @@ import {
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
+import { nonePreset, parseScene, sceneLabel, scenePreset, scenePrompt, sceneTemplate, type SceneScan } from "./scene-scan";
 import { progressAt, rememberDuration, runningLong, typicalMs } from "./progress";
 import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
@@ -105,7 +106,7 @@ interface State {
   /** Site context picker: open, which group is shown, search text. */
   ctxOpen: boolean;
   /** Open analysis sheet. */
-  analyseOpen: "dna" | "people" | null;
+  analyseOpen: "dna" | "people" | "scene" | null;
   peopleOpts: PeopleOptions;
   ctxGroup: string;
   frameEditor: boolean;
@@ -932,6 +933,7 @@ function render(): void {
   if (state.keysOpen) root.append(shortcutsSheet());
   if (state.analyseOpen === "dna") root.append(dnaSheet());
   if (state.analyseOpen === "people") root.append(peopleSheet());
+  if (state.analyseOpen === "scene") root.append(sceneSheet());
   if (state.dynOpen) {
     const g = findGenerator(state.dynOpen);
     if (g) root.append(dynamicSheet(g));
@@ -1562,9 +1564,12 @@ function quickTab(body: HTMLElement): void {
       section(
         t("Scene"),
         sceneTypeControl(),
-        h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map((x) => h("div", { class: "lib-cell" }, presetCard(x), starButton(x.id, x.name)))),
-        quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-current" }, libCard({ ...state.preset, styleId: "", subjectId: "", colors: [] } as LibItem, true)),
-        button("Browse all", "search", () => openLibrary(), "ghost wide"),
+        h("div", { class: "preset-grid" }, presetCard(nonePreset(state.preset.projectType)), quickLooks(state.preset.projectType).map((x) => h("div", { class: "lib-cell" }, presetCard(x), starButton(x.id, x.name)))),
+        state.preset.id === "none" || quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-current" }, libCard({ ...state.preset, styleId: "", subjectId: "", colors: [] } as LibItem, true)),
+        h("div", { class: "row" },
+          button("Smart Detect", "wand", () => openSceneScan(), "ghost grow"),
+          button("Browse all", "search", () => openLibrary(), "ghost grow"),
+        ),
       ),
     );
   }
@@ -2165,7 +2170,11 @@ function renderTab(main: HTMLElement): void {
     "div",
     { class: "lib-current" },
     libCard({ ...p, styleId: "", subjectId: "", colors: [] } as LibItem, true),
-    button("Browse all", "search", () => openLibrary(), "primary"),
+    h("div", { class: "preset-buttons" },
+      button("Browse all", "search", () => openLibrary(), "primary"),
+      button("Smart Detect", "wand", () => openSceneScan(), "ghost"),
+      p.id !== "none" ? button("Clear", "close", clearPreset, "ghost") : null,
+    ),
   );
   if (!lock) body.append(
     fold(sectionWith(
@@ -2969,6 +2978,14 @@ async function savePresetAs(): Promise<void> {
   await persist();
   render();
   toast(`Saved preset "${name}".`, "ok");
+}
+
+/** Back to no preset: the prompt keeps only the scene type and your own words. */
+async function clearPreset(): Promise<void> {
+  state.preset = nonePreset(state.preset.projectType);
+  await persist();
+  render();
+  toast("Preset cleared", "ok");
 }
 
 async function deletePreset(): Promise<void> {
@@ -4077,7 +4094,7 @@ async function analyse(prompt: string): Promise<string | null> {
     return await run(prompt, img);
   } catch (e) {
     const who = state.settings.geminiKey.trim() ? "Gemini" : "Kie.ai";
-    toast(`${who} couldn't analyse the image.`, "error", (e as Error).message);
+    toast(`${who} couldn't read the image.`, "error", (e as Error).message);
     return null;
   } finally {
     analysing = false;
@@ -4094,11 +4111,11 @@ function analysePreview(): HTMLElement | null {
 function analysisFold(): HTMLElement {
   const tags = activeDna();
   const conflicts = dnaConflicts(state.notes, tags);
-  const card = (id: "dna" | "people", iconName: string, title: string, blurb: string, status: string) =>
+  const card = (id: "dna" | "people" | "scene", iconName: string, title: string, blurb: string, status: string, big = false) =>
     h(
       "button",
       {
-        class: status ? "dyn-card active" : "dyn-card",
+        class: `dyn-card${status ? " active" : ""}${big ? " big" : ""}`,
         type: "button",
         onclick: () => {
           if (id === "dna" && state.settings.styleLock) {
@@ -4114,11 +4131,12 @@ function analysisFold(): HTMLElement {
       h("small", {}, status || blurb),
     );
   const sec = section(
-    "Scene analysis",
+    "Scene Analysis",
     h("p", { class: "hint" }, `The AI reads the image first, then writes the details into the prompt. Runs on ${analyserLabel()}.`),
     h(
       "div",
       { class: "dyn-grid" },
+      card("scene", "wand", "Smart Detect", "Reads your image, says what it is (e.g. bathroom, Scandinavian) and sets the matching style and prompt.", "", true),
       card("dna", "palette", "Material Scan", "Lists every surface and its material, so the render keeps them.", state.settings.styleLock ? `Locked · ${tags.length} tags` : tags.length ? `${tags.length} material tags on` : ""),
       card("people", "eye", "Place People", "Looks at the space and writes where people go.", state.people.trim() ? "People line ready" : ""),
     ),
@@ -4183,7 +4201,7 @@ function dnaSheet(): HTMLElement {
           "div",
           { class: "dna-empty" },
           icon("palette", 28),
-          h("p", {}, fromModel ? "Read from model lists the materials SketchUp can see in your view: instant and free. Analyse with AI reads the image instead, for photos and sketches. Edit, switch off or add tags before they go into the prompt." : "The AI looks at your image and writes one line per surface and object, like \"Floor: light grey porcelain tiles, matt\". Edit, switch off or add tags before they go into the prompt."),
+          h("p", {}, fromModel ? "Read from model lists the materials SketchUp can see in your view: instant and free. Scan with AI reads the image instead, for photos and sketches. Edit, switch off or add tags before they go into the prompt." : "The AI looks at your image and writes one line per surface and object, like \"Floor: light grey porcelain tiles, matt\". Edit, switch off or add tags before they go into the prompt."),
         ),
       );
       return;
@@ -4235,7 +4253,7 @@ function dnaSheet(): HTMLElement {
       toast("Reading model...");
       const list = await host.call<ModelMaterial[]>("modelMaterials", { ratio: findFrame(state.capturedFrameId || state.frameId).ratio });
       const lines = modelDnaTags(list ?? [], state.preset.projectType);
-      if (!lines.length) return toast("No painted materials in view.", "error", "Every face in the view uses SketchUp's default material. Paint them, or use Analyse with AI.");
+      if (!lines.length) return toast("No painted materials in view.", "error", "Every face in the view uses SketchUp's default material. Paint them, or use Scan with AI.");
       work = lines.map((l) => newTag(l));
       toast(`${lines.length} tags found`, "ok");
       draw();
@@ -4262,7 +4280,7 @@ function dnaSheet(): HTMLElement {
       "div",
       { class: "dna-tools" },
       fromModel ? button("Read from model", "capture", readModel, "primary") : null,
-      button(fromModel ? "Analyse with AI" : "Analyse image", "wand", runAnalysis, fromModel ? "ghost" : "primary"),
+      button(fromModel ? "Scan with AI" : "Scan image", "wand", runAnalysis, fromModel ? "ghost" : "primary"),
       segHolder,
     ),
     h(
@@ -4304,6 +4322,65 @@ function dnaSheet(): HTMLElement {
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close(false) }, sheet);
 }
 
+function openSceneScan(): void {
+  if (state.settings.styleLock) return toast("The project look is locked. Unlock to change the style.");
+  state.analyseOpen = "scene";
+  render();
+}
+
+/** Smart Detect: the AI names the scene and style; you check it, then Apply sets the template. */
+function sceneSheet(): HTMLElement {
+  let result: SceneScan | null = null;
+  const close = () => {
+    state.analyseOpen = null;
+    render();
+  };
+  const out = h("div", { class: "scene-result" }, h("p", { class: "hint" }, "Nothing yet. Press Detect scene."));
+  const details = h("textarea", { rows: 3, placeholder: "What the AI saw in the image. Edit before you apply." }) as HTMLTextAreaElement;
+  const apply = primaryButton("Apply", "check", async () => {
+    if (!result) return;
+    result.details = details.value.trim();
+    rememberSetup();
+    state.preset = scenePreset(result, state.preset);
+    await persist();
+    close();
+    toast(`Style set: ${state.preset.name}`, "ok");
+  });
+  (apply as HTMLButtonElement).disabled = true;
+  const draw = () => {
+    clear(out);
+    if (!result) return;
+    const tpl = sceneTemplate(result);
+    out.append(
+      h("div", { class: "scene-chip" }, icon("check", 16), h("strong", {}, sceneLabel(result))),
+      h("p", { class: "hint" }, tpl ? `Template: ${tpl.name}. You can still change it in Browse all after.` : "No matching template; only the scene type and what the AI saw are used."),
+      h("label", { class: "field" }, h("span", {}, "Seen in the image (added to the style)"), details),
+    );
+    details.value = result.details;
+    (apply as HTMLButtonElement).disabled = false;
+  };
+  const sheet = h(
+    "div",
+    { class: "sheet", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "sheet-head" }, h("h2", {}, "Smart Detect"), iconButton("close", "Close", close)),
+    analysePreview(),
+    h("p", { class: "hint" }, `The AI says what the image is, for example "Interior · Bathroom · Scandinavian", and picks the matching style. Nothing changes until you press Apply. Runs on ${analyserLabel()}.`),
+    button("Detect scene", "wand", async () => {
+      const text = await analyse(scenePrompt());
+      if (text === null) return;
+      result = parseScene(text);
+      if (!result) {
+        return toast("Couldn't read the scene, try again", "error", `Smart Detect reply could not be read: ${text.slice(0, 300)}`);
+      }
+      draw();
+      toast(sceneLabel(result), "ok");
+    }, "primary"),
+    out,
+    h("div", { class: "sheet-actions" }, button("Cancel", null, async () => close(), "ghost"), apply),
+  );
+  return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() }, sheet);
+}
+
 function peopleSheet(): HTMLElement {
   const o = { ...state.peopleOpts };
   let text = state.people;
@@ -4315,7 +4392,7 @@ function peopleSheet(): HTMLElement {
     state.analyseOpen = null;
     render();
   };
-  const ta = h("textarea", { rows: 6, placeholder: "Run Analyse, or write the people yourself: who, where and doing what." }, text) as HTMLTextAreaElement;
+  const ta = h("textarea", { rows: 6, placeholder: "Press Place people, or write the people yourself: who, where and doing what." }, text) as HTMLTextAreaElement;
   ta.addEventListener("input", () => (text = ta.value));
   const chips = (list: { id: string; label: string }[], key: keyof PeopleOptions) => {
     const wrap = h("div", { class: "chips" });
@@ -4335,7 +4412,7 @@ function peopleSheet(): HTMLElement {
     h("div", { class: "field" }, h("span", {}, "Type of space"), chips(PEOPLE_SCENES, "scene")),
     h("div", { class: "field" }, h("span", {}, "How many"), chips(PEOPLE_COUNTS, "count")),
     h("div", { class: "field" }, h("span", {}, "Who"), chips(PEOPLE_WHO, "who")),
-    button("Analyse image", "wand", async () => {
+    button("Place people", "wand", async () => {
       const out = await analyse(peoplePrompt(o));
       if (out === null) return;
       text = cleanPeople(out);

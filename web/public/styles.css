@@ -932,3 +932,10 @@ html { overflow-x: hidden; }
 @keyframes result-in { from { opacity: 0.25; filter: blur(4px); } to { opacity: 1; filter: none; } }
 @media (prefers-reduced-motion: reduce) { .render-btn.long .render-progress i, .stage-frame.fresh { animation: none; } }
 .render-cost, .credit { white-space: nowrap; }
+
+/* Scene Scan and preset buttons */
+.preset-buttons { display: flex; flex-direction: column; gap: 8px; }
+.scene-result { display: flex; flex-direction: column; gap: 10px; }
+.scene-chip { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
+.dyn-card.big { grid-column: 1 / -1; border-color: var(--accent); background: var(--accent-soft); padding: 14px; }
+.dyn-card.big strong { font-size: 15px; color: var(--accent-text); }
