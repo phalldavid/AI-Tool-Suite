@@ -756,3 +756,5 @@ table.rated th { color: var(--muted); font-weight: 600; }
 .crop-handle.se { right: 0; bottom: 0; border-left: 0; border-top: 0; cursor: nwse-resize; }
 .crop-sheet .sheet-actions { align-items: center; }
 .crop-sheet .sheet-actions small { margin-right: auto; font-variant-numeric: tabular-nums; }
+.ob-later { display: flex; justify-content: center; }
+.onboard .row { flex-wrap: wrap; gap: 8px; }

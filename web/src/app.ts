@@ -595,11 +595,16 @@ function presetSwatches(p: Preset): string[] {
 
 // ---------- layout ----------
 
+/** True when the chosen AI service has what it needs to render. */
+function isConnected(): boolean {
+  const s = state.settings;
+  return s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : s.backend === "kie" ? Boolean(s.kieKey.trim()) : Boolean(s.geminiKey.trim());
+}
+
 function backendPill(): HTMLElement {
   const s = state.settings;
   const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
-  const ready =
-    s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : s.backend === "kie" ? Boolean(s.kieKey) : Boolean(s.geminiKey);
+  const ready = isConnected();
   const platform =
     s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? site.label : s.backend === "kie" ? findKieModel(s.kieModel).label : "Gemini API";
   const title =
@@ -2037,6 +2042,12 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
 async function runRender(): Promise<void> {
   const cap = state.capture;
   if (!cap) return;
+  if (!isConnected()) {
+    state.settingsKie = state.settings.backend === "kie";
+    openSettings();
+    toast("Add a key in Settings to render", "error");
+    return;
+  }
   const prompt = renderPrompt();
   const ref = activeReference();
   const images = [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])];
@@ -4326,6 +4337,14 @@ function onboarding(): HTMLElement {
     render();
     toast("All set", "ok");
   };
+  // Lets people look around first; the top bar then says Not connected.
+  const later = () =>
+    button("Set up later", null, async () => {
+      s.onboarded = true;
+      await persist();
+      render();
+      toast("You can add a key any time in Settings");
+    }, "ghost");
   const card = h("div", { class: "onboard" });
   card.append(logo(40), h("h2", {}, "Welcome to David Render Studio"));
   if (state.onboardStep === 0) {
@@ -4358,6 +4377,7 @@ function onboarding(): HTMLElement {
         state.onboardStep = 1;
         render();
       }, !picked, "wide"),
+      h("div", { class: "ob-later" }, later()),
     );
   } else {
     const back = button("Back", "arrowLeft", () => {
@@ -4377,7 +4397,7 @@ function onboarding(): HTMLElement {
               }
             }, false, "wide")
           : h("p", { class: "hint warn" }, "Account sign-in works inside the SketchUp plugin. In the web app, pick Gemini API key instead."),
-        h("div", { class: "row" }, back, h("span", { class: "grow" }), button("I've signed in", "check", finish, "primary")),
+        h("div", { class: "row" }, back, h("span", { class: "grow" }), later(), button("I've signed in", "check", finish, "primary")),
       );
     } else if (s.backend === "kie") {
       const key = h("input", { type: "password", value: s.kieKey, placeholder: "Paste your Kie.ai API key", autocomplete: "off" }) as HTMLInputElement;
@@ -4395,6 +4415,7 @@ function onboarding(): HTMLElement {
           { class: "row" },
           back,
           h("span", { class: "grow" }),
+          later(),
           button("Test and finish", "check", async () => {
             s.kieKey = key.value.trim();
             if (!s.kieKey) return toast("Paste a key first.", "error");
@@ -4418,6 +4439,7 @@ function onboarding(): HTMLElement {
           { class: "row" },
           back,
           h("span", { class: "grow" }),
+          later(),
           button("Test and finish", "check", async () => {
             s.geminiKey = key.value.trim();
             if (!s.geminiKey) return toast("Paste a key first.", "error");
