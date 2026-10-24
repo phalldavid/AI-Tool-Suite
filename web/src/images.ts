@@ -133,3 +133,17 @@ export async function resizeTo(img: ImageData64, width: number, height: number):
   ctx.drawImage(el, 0, 0, width, height);
   return canvasToImage(c, "image/png");
 }
+
+/** A smaller JPEG copy, long side at most maxSide px (for analysis and uploads). */
+export async function shrinkJpeg(img: ImageData64, maxSide: number, quality = 0.88): Promise<ImageData64> {
+  const el = await loadImage(img);
+  const scale = Math.min(1, maxSide / Math.max(el.naturalWidth, el.naturalHeight));
+  const w = Math.round(el.naturalWidth * scale);
+  const h = Math.round(el.naturalHeight * scale);
+  const [c, ctx] = makeCanvas(w, h);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(el, 0, 0, w, h);
+  return canvasToImage(c, "image/jpeg", quality);
+}

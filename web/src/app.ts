@@ -3,9 +3,9 @@
 import { clear, h } from "./dom";
 import { cropImage, cropToRatio, FRAMES, findFrame, isListed, ratioFromPixels, swapFrameId } from "./frame";
 import { detectHost, type Host } from "./host";
-import { addHistory, listHistory, removeHistory } from "./history";
+import { addHistory, listHistory, rateHistory, ratingSummary, removeHistory } from "./history";
 import { icon, iconSvg, logo } from "./icons";
-import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOverlay } from "./images";
+import { compositeMasked, fileToImage, imageSize, resizeTo, shrinkJpeg, toDataUrl, zoneOverlay } from "./images";
 import { ZONES, ZonePainter, type PaintTool } from "./zones";
 import {
   BEAMS,
@@ -20,6 +20,7 @@ import {
 } from "./lightgen";
 import { BUILT_IN_PRESETS, newPresetId, parsePresetFile } from "./presets";
 import {
+  DEFAULT_AVOID,
   ENVIRONMENTS,
   LIGHTING,
   PROJECT_TYPES,
@@ -39,11 +40,33 @@ import {
   type Option,
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
+import { KIE_KEY_PAGE } from "./providers/kie";
+import { findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
+import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
-import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings } from "./settings";
+import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
+import {
+  cleanPeople,
+  dnaConflicts,
+  dnaGroup,
+  dnaPrompt,
+  DNA_GROUPS,
+  geminiAnalyser,
+  kieAnalyser,
+  newTag,
+  parseDna,
+  peoplePrompt,
+  PEOPLE_COUNTS,
+  PEOPLE_SCENES,
+  PEOPLE_WHO,
+  type Analyser,
+  type DnaTag,
+  type PeopleOptions,
+} from "./analysis";
+import { hostTransport } from "./providers/kie";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, ToolId } from "./types";
 
 type Tab = "render" | "edit" | "lights" | "mirror" | "history";
@@ -67,11 +90,16 @@ interface LedSettings {
 interface State {
   tab: Tab;
   settingsOpen: boolean;
+  /** Settings opened from the model picker: show the Kie.ai key first. */
+  settingsKie: boolean;
   /** Open dynamic prompt generator, by id. */
   dynOpen: string | null;
   lookOpen: boolean;
   /** Site context picker: open, which group is shown, search text. */
   ctxOpen: boolean;
+  /** Open analysis sheet. */
+  analyseOpen: "dna" | "people" | null;
+  peopleOpts: PeopleOptions;
   ctxGroup: string;
   frameEditor: boolean;
   /** the docked chat browser is open */
@@ -88,7 +116,18 @@ interface State {
   showFrame: boolean;
   preset: Preset;
   notes: string;
+  /** The user's own edit of the render prompt, or null to build it. */
+  promptEdit: string | null;
+  /** People line from Analyse people (editable). */
+  people: string;
+  /** Style reference image sent after the view. */
+  reference: ImageData64 | null;
+  /** Material DNA tags for the current view. */
+  dna: DnaTag[];
   result: ImageData64 | null;
+  /** All images from the last render (1 to 4); result is the one shown. */
+  results: ImageData64[];
+  anglesOpen: boolean;
   editSource: ImageData64 | null;
   editMode: "spot" | "relight";
   editInstruction: string;
@@ -121,9 +160,12 @@ export async function start(el: HTMLElement): Promise<void> {
   state = {
     tab: "render",
     settingsOpen: false,
+    settingsKie: false,
     dynOpen: null,
     lookOpen: false,
     ctxOpen: false,
+    analyseOpen: null,
+    peopleOpts: { scene: "domestic", count: "few", who: "everyday" },
     ctxGroup: CONTEXT_GROUPS[0].id,
     frameEditor: false,
     browserOpen: false,
@@ -135,9 +177,15 @@ export async function start(el: HTMLElement): Promise<void> {
     frameId: settings.frameId ?? "16:9",
     capturedFrameId: "",
     showFrame: true,
-    preset: { ...BUILT_IN_PRESETS[0] },
+    preset: settings.styleLock ? { ...settings.styleLock.preset } : { ...BUILT_IN_PRESETS[0] },
     notes: "",
+    promptEdit: null,
+    people: "",
+    reference: null,
+    dna: [],
     result: null,
+    results: [],
+    anglesOpen: false,
     editSource: null,
     editMode: "spot",
     editInstruction: "",
@@ -196,13 +244,81 @@ function allPresets(): Preset[] {
   return [...BUILT_IN_PRESETS.map((p) => ({ ...p, builtIn: true })), ...state.settings.userPresets];
 }
 
-function toast(text: string, kind: "info" | "error" | "ok" = "info"): void {
+// Everything shown in a toast goes into the log with its full details;
+// the toast itself stays short. An error toast opens the log when clicked.
+interface LogEntry {
+  at: number;
+  kind: "info" | "error" | "ok";
+  text: string;
+  detail?: string;
+}
+const activityLog: LogEntry[] = [];
+
+/** The first sentence only: the toast says what happened, the log says why. */
+function shortText(text: string): string {
+  const first = text.split(/(?<=[.!?])\s+/)[0] ?? text;
+  return first.length > 90 ? `${first.slice(0, 87).trimEnd()}...` : first;
+}
+
+function toast(text: string, kind: "info" | "error" | "ok" = "info", detail?: string): void {
+  if (kind === "error" && working) working.failed = true;
+  const short = shortText(text);
+  const more = detail ?? (short !== text ? text : undefined);
+  activityLog.unshift({ at: Date.now(), kind, text: short, detail: more });
+  activityLog.length = Math.min(activityLog.length, 100);
+  if (kind === "error") console.warn("[David Render Studio]", text, detail ?? "");
   const bar = document.getElementById("status");
   if (!bar) return;
-  bar.textContent = text;
+  bar.replaceChildren(short.replace(/[.]$/, ""), kind === "error" ? h("button", { class: "toast-log", type: "button", onclick: openLog }, "See log") : "");
   bar.className = `toast show ${kind}`;
   window.clearTimeout((bar as HTMLElement & { _t?: number })._t);
   (bar as HTMLElement & { _t?: number })._t = window.setTimeout(() => (bar.className = `toast ${kind}`), kind === "error" ? 9000 : 4500);
+}
+
+/** Opens on top of whatever is open, without redrawing, so nothing in a sheet is lost. */
+function openLog(): void {
+  document.getElementById("log-sheet")?.remove();
+  root.append(logSheet());
+}
+
+function logSheet(): HTMLElement {
+  const close = () => document.getElementById("log-sheet")?.remove();
+  const text = () =>
+    activityLog
+      .map((e) => `${new Date(e.at).toLocaleTimeString()} [${e.kind}] ${e.text}${e.detail ? `\n    ${e.detail}` : ""}`)
+      .join("\n");
+  return h(
+    "div",
+    { class: "sheet-backdrop log-backdrop", id: "log-sheet", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet", role: "dialog", "aria-modal": "true" },
+      h("div", { class: "sheet-head" }, h("h2", {}, "Log"), iconButton("close", "Close", close)),
+      activityLog.length
+        ? h(
+            "ol",
+            { class: "log-list" },
+            activityLog.map((e) =>
+              h(
+                "li",
+                { class: `log-${e.kind}` },
+                h("time", {}, new Date(e.at).toLocaleTimeString()),
+                h("strong", {}, e.text),
+                e.detail ? h("pre", {}, e.detail) : null,
+              ),
+            ),
+          )
+        : h("p", { class: "hint" }, "Nothing yet. Messages from this session appear here."),
+      h(
+        "div",
+        { class: "sheet-actions" },
+        button("Copy log", "check", async () => {
+          await navigator.clipboard.writeText(text());
+          toast("Log copied", "ok");
+        }, "ghost"),
+      ),
+    ),
+  );
 }
 
 async function persist(): Promise<void> {
@@ -232,6 +348,74 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 
 function sectionWith(title: string, aside: Node | null, ...children: (Node | null | false)[]): HTMLElement {
   return h("section", { class: "section" }, h("div", { class: "section-head" }, h("h3", {}, title), aside), ...children);
+}
+
+// Folding sections: the header becomes a toggle, and a closed section shows
+// a one-line summary of its current value. Open/closed is remembered per
+// section on this computer.
+const FOLD_KEY = "airs.folds";
+function foldState(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+function fold(el: HTMLElement, id: string, summary: string, openByDefault: boolean): HTMLElement {
+  const saved = foldState()[id];
+  let open = saved === undefined ? openByDefault : saved;
+  const head = el.querySelector(":scope > .section-head") as HTMLElement | null;
+  const title = head?.querySelector("h3");
+  if (!head || !title) return el;
+  const bodyId = `fold-${id}`;
+  const sum = h("span", { class: "fold-sum" }, summary);
+  const toggle = h(
+    "button",
+    { class: "fold-toggle", type: "button", "aria-expanded": String(open), "aria-controls": bodyId },
+    icon("chevron", 16),
+    h("h3", {}, title.textContent ?? ""),
+    sum,
+  ) as HTMLButtonElement;
+  title.replaceWith(toggle);
+  const inner = h("div", { class: "fold-body", id: bodyId });
+  while (head.nextSibling) inner.append(head.nextSibling);
+  el.append(inner);
+  const apply = () => {
+    el.classList.toggle("closed", !open);
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+  toggle.addEventListener("click", () => {
+    open = !open;
+    try {
+      localStorage.setItem(FOLD_KEY, JSON.stringify({ ...foldState(), [id]: open }));
+    } catch {
+      /* storage blocked: folding still works for this session */
+    }
+    apply();
+  });
+  el.classList.add("fold");
+  apply();
+  return el;
+}
+
+/** A link that opens in the system browser (from SketchUp) or a new tab. */
+function extLink(url: string, label: string): HTMLElement {
+  return h(
+    "a",
+    {
+      href: url,
+      target: "_blank",
+      rel: "noopener",
+      class: "link",
+      onclick: (e: Event) => {
+        if (host.kind !== "sketchup") return;
+        e.preventDefault();
+        host.call("openUrl", { url }).catch(() => undefined);
+      },
+    },
+    label,
+  );
 }
 
 function chip(label: string, active: boolean, onclick: () => void, extra?: Node, title?: string): HTMLElement {
@@ -276,16 +460,61 @@ function textarea(value: string, placeholder: string, rows: number, onInput: (v:
   return t;
 }
 
+// Feedback for every button. When a click starts async work, the button
+// shows a spinner (and the seconds after a moment) until it finishes, then a
+// short tick or cross. A toast shown while it runs decides which: an error
+// toast means it failed.
+let working: { btn: HTMLElement; failed: boolean } | null = null;
+
+function withFeedback(onclick: () => unknown): (e: Event) => void {
+  return (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    if (btn.classList.contains("working")) return;
+    const out = onclick();
+    if (!(out instanceof Promise)) return;
+    const job = { btn, failed: false };
+    working = job;
+    btn.classList.add("working");
+    btn.setAttribute("aria-busy", "true");
+    const label = btn.querySelector(":scope > span");
+    const text = label?.textContent ?? "";
+    const t0 = Date.now();
+    const tick = window.setInterval(() => {
+      const secs = Math.round((Date.now() - t0) / 1000);
+      if (label && secs >= 2) label.textContent = `${text} ${secs} s`;
+    }, 1000);
+    const end = (failed: boolean) => {
+      window.clearInterval(tick);
+      if (working === job) working = null;
+      if (label) label.textContent = text;
+      btn.classList.remove("working");
+      btn.removeAttribute("aria-busy");
+      // The button may have been redrawn already; then nothing to flash.
+      if (!btn.isConnected) return;
+      const cls = failed ? "failed" : "done";
+      btn.classList.add(cls);
+      window.setTimeout(() => btn.classList.remove(cls), 1600);
+    };
+    out.then(
+      () => end(job.failed),
+      (err: unknown) => {
+        toast((err as Error)?.message || "Something went wrong.", "error");
+        end(true);
+      },
+    );
+  };
+}
+
 function primaryButton(label: string, iconName: string, onclick: () => void, disabled = false, cls = ""): HTMLElement {
-  return h("button", { class: `btn primary ${cls}`, onclick, disabled, type: "button" }, icon(iconName, 18), h("span", {}, label));
+  return h("button", { class: `btn primary ${cls}`, onclick: withFeedback(onclick), disabled, type: "button" }, icon(iconName, 18), h("span", {}, label));
 }
 
 function button(label: string, iconName: string | null, onclick: () => void, cls = "", disabled = false): HTMLElement {
-  return h("button", { class: `btn ${cls}`, onclick, disabled, type: "button" }, iconName ? icon(iconName, 16) : null, h("span", {}, label));
+  return h("button", { class: `btn ${cls}`, onclick: withFeedback(onclick), disabled, type: "button" }, iconName ? icon(iconName, 16) : null, h("span", {}, label));
 }
 
 function iconButton(iconName: string, title: string, onclick: () => void, cls = ""): HTMLElement {
-  return h("button", { class: `icon-btn ${cls}`, onclick, title, "aria-label": title, type: "button" }, icon(iconName, 18));
+  return h("button", { class: `icon-btn ${cls}`, onclick: withFeedback(onclick), title, "aria-label": title, type: "button" }, icon(iconName, 18));
 }
 
 // Material colour hints for preset cards, read from the style text.
@@ -316,14 +545,17 @@ function presetSwatches(p: Preset): string[] {
 function backendPill(): HTMLElement {
   const s = state.settings;
   const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
-  const ready = s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : Boolean(s.geminiKey);
-  const platform = s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? site.label : "Gemini API";
-  const title = s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : "Backend settings";
+  const ready =
+    s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : s.backend === "kie" ? Boolean(s.kieKey) : Boolean(s.geminiKey);
+  const platform =
+    s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? site.label : s.backend === "kie" ? findKieModel(s.kieModel).label : "Gemini API";
+  const title =
+    s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : s.backend === "kie" ? `Kie.ai, ${findKieModel(s.kieModel).label}` : "Backend settings";
   return h(
     "button",
     { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title, type: "button" },
     h("span", { class: "dot" }),
-    ready ? h("span", {}, h("strong", {}, platform), " · Connected") : "Set up backend",
+    ready ? h("span", {}, h("strong", {}, platform), h("span", { class: "pill-state" }, " · Connected")) : "Set up backend",
   );
 }
 
@@ -376,6 +608,8 @@ function restoreFocus(path: number[] | null): void {
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (state.ctxOpen) state.ctxOpen = false;
+  else if (state.analyseOpen) state.analyseOpen = null;
+  else if (state.anglesOpen) state.anglesOpen = false;
   else if (state.dynOpen) state.dynOpen = null;
   else if (state.lookOpen) state.lookOpen = false;
   else if (state.settingsOpen) state.settingsOpen = false;
@@ -445,6 +679,9 @@ function render(): void {
   if (!state.settings.onboarded) root.append(onboarding());
   if (state.lookOpen) root.append(lookSheet());
   if (state.ctxOpen) root.append(contextSheet());
+  if (state.anglesOpen) root.append(anglesSheet());
+  if (state.analyseOpen === "dna") root.append(dnaSheet());
+  if (state.analyseOpen === "people") root.append(peopleSheet());
   if (state.dynOpen) {
     const g = findGenerator(state.dynOpen);
     if (g) root.append(dynamicSheet(g));
@@ -460,9 +697,17 @@ function frameLabel(): string {
   return `${findFrame(state.capturedFrameId || state.frameId).label} · ${cap.view.width ?? "?"} × ${cap.view.height ?? "?"} px`;
 }
 
+/** The radiating scan on the stage, for short jobs that do not set busy. */
+function stageScan(on: boolean): void {
+  const frame = document.querySelector(".stage-frame");
+  frame?.querySelector(":scope > .scan.temp")?.remove();
+  if (on) frame?.append(h("div", { class: "scan temp" }));
+}
+
 async function doCapture(): Promise<void> {
+  stageScan(true);
   try {
-    toast("Capturing the SketchUp view...");
+    toast("Capturing...");
     const frame = findFrame(state.frameId);
     const raw = await host.capture({
       size: state.settings.captureSize,
@@ -487,6 +732,7 @@ async function doCapture(): Promise<void> {
     if (l && (l.spots || l.leds || l.mirrors)) bits.push(`${l.spots + l.leds} lights, ${l.mirrors} mirrors`);
     toast(bits.join(" · "), "ok");
   } catch (e) {
+    stageScan(false);
     toast((e as Error).message, "error");
   }
 }
@@ -504,6 +750,10 @@ async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
   state.capture = { view, source: "upload" };
   state.capturedFrameId = state.frameId;
   state.result = null;
+  // A different picture: its material tags and people no longer apply.
+  if (state.dna.length || state.people) toast("New image: Material DNA and people were cleared.");
+  state.dna = [];
+  state.people = "";
   render();
 }
 
@@ -559,6 +809,29 @@ function stage(): HTMLElement {
       state.busy ? h("div", { class: "scan" }) : null,
     ),
     stale ? h("div", { class: "notice" }, icon("info", 16), "The frame changed. Recapture to use it.", button("Recapture", "capture", doCapture, "small")) : null,
+    state.result && state.results.length > 1 && state.results.includes(state.result)
+      ? h(
+          "div",
+          { class: "result-strip", role: "listbox", "aria-label": "Renders" },
+          state.results.map((img, i) =>
+            h(
+              "button",
+              {
+                class: img === state.result ? "result-thumb active" : "result-thumb",
+                type: "button",
+                role: "option",
+                "aria-selected": String(img === state.result),
+                title: `Render ${i + 1}`,
+                onclick: () => {
+                  state.result = img;
+                  render();
+                },
+              },
+              h("img", { src: toDataUrl(img), alt: `Render ${i + 1}` }),
+            ),
+          ),
+        )
+      : null,
     state.result ? resultActions(state.result, "render") : actions,
   );
 }
@@ -715,76 +988,205 @@ function lightingOptions(): Option[] {
   return host.kind === "sketchup" ? [SKETCHUP_SUN, ...LIGHTING] : LIGHTING;
 }
 
+// Quick render offers four starter looks per scene type. They are the
+// built-in presets with the plainest, most reliable wording; David's own
+// test renders should decide the final four.
+const QUICK_LOOKS: Record<ProjectType, string[]> = {
+  exterior: ["shophouse-row-day", "twin-villa-golden", "borey-villa-dusk", "link-house-overcast"],
+  interior: ["living-room-warm", "kitchen-white-oak", "bedroom-soft", "condo-lobby-evening"],
+  aerial: ["borey-masterplan", "masterplan-aerial", "mixed-use-district", "township-blue-hour"],
+  sketch: ["sketch-to-photo", "massing-to-photo", "sketch-interior", "elevation-to-photo"],
+};
+
+function quickLooks(type: ProjectType): Preset[] {
+  return QUICK_LOOKS[type].map((id) => allPresets().find((x) => x.id === id)).filter((x): x is Preset => Boolean(x));
+}
+
+/**
+ * Saves the current look for every later view of the project. With a render,
+ * that render becomes the reference so the next views match it.
+ */
+async function lockLook(fromRender?: ImageData64): Promise<void> {
+  const lock: StyleLock = {
+    preset: { ...state.preset },
+    look: state.settings.styleLock?.look ?? state.settings.look,
+    dna: activeDna(),
+    reference: fromRender ? await shrinkJpeg(fromRender, 768, 0.85) : state.reference ? await shrinkJpeg(state.reference, 768, 0.85) : null,
+    referenceIsRender: Boolean(fromRender),
+    savedAt: new Date().toISOString(),
+  };
+  state.settings.styleLock = lock;
+  await persist();
+  toast("Look locked", "ok");
+  render();
+}
+
+async function unlockLook(): Promise<void> {
+  state.settings.styleLock = null;
+  await persist();
+  render();
+}
+
+function lockBanner(): HTMLElement {
+  const lock = state.settings.styleLock;
+  if (!lock) {
+    return h(
+      "div",
+      { class: "lock-bar" },
+      icon("unlock", 16),
+      h("span", { class: "grow" }, h("strong", {}, "Project look"), h("small", {}, "Lock it so every view gets the same materials and sky.")),
+      button("Lock", "lock", () => lockLook(), "ghost small", !state.capture),
+    );
+  }
+  return h(
+    "div",
+    { class: "lock-bar on" },
+    lock.reference ? h("img", { class: "ref-thumb", src: toDataUrl(lock.reference), alt: "Locked reference" }) : icon("lock", 16),
+    h(
+      "span",
+      { class: "grow" },
+      h("strong", {}, `Locked: ${lock.preset.name}`),
+      h(
+        "small",
+        {},
+        [lock.look === "cgi" ? "3D render" : "Photo", lock.dna.length ? `${lock.dna.length} materials` : "", lock.referenceIsRender ? "matches a saved render" : lock.reference ? "with reference" : ""].filter(Boolean).join(" · "),
+      ),
+    ),
+    button("Unlock", "unlock", unlockLook, "ghost small"),
+  );
+}
+
+function modeSwitch(): HTMLElement {
+  return h(
+    "div",
+    { class: "mode-row" },
+    segmented(
+      [
+        { id: "quick", label: "Quick" },
+        { id: "all", label: "All controls" },
+      ],
+      state.settings.simple ? "quick" : "all",
+      async (v) => {
+        state.settings.simple = v === "quick";
+        await persist();
+        render();
+      },
+    ),
+  );
+}
+
+function sceneTypeControl(): HTMLElement {
+  const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
+  return segmented(
+    (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
+    state.preset.projectType,
+    (v) => {
+      if (state.settings.simple) state.preset = { ...(quickLooks(v)[0] ?? state.preset), projectType: v };
+      else state.preset.projectType = v;
+      render();
+    },
+  );
+}
+
+function presetCard(x: Preset): HTMLElement {
+  return h(
+    "button",
+    {
+      class: x.id === state.preset.id ? "preset active" : "preset",
+      type: "button",
+      "aria-pressed": String(x.id === state.preset.id),
+      onclick: () => {
+        state.preset = { ...x };
+        render();
+      },
+    },
+    h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
+    h("strong", {}, x.name),
+    x.builtIn ? null : h("small", {}, "Your preset"),
+  );
+}
+
+function quickTab(body: HTMLElement): void {
+  const lock = state.settings.styleLock;
+  body.append(modeSwitch());
+  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+  body.append(fold(frameSection(), "frame", frameLabel(), false));
+  body.append(lockBanner());
+  if (!lock) {
+    body.append(
+      section(t("Scene"), sceneTypeControl(), h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map(presetCard))),
+    );
+  }
+  body.append(
+    section(
+      t("Notes for this view"),
+      textarea(state.notes, "e.g. add a parked Honda Dream by the gate", 2, (v) => {
+        state.notes = v;
+      }),
+      h("p", { class: "hint" }, "Lighting, people, cars, material lists and the prompt itself are under All controls. In Quick they are not sent."),
+    ),
+  );
+}
+
+function modelSummaryText(): string {
+  const m = findKieModel(state.settings.kieModel);
+  if (state.settings.backend === "browser") return `${BROWSER_SITES.find((x) => x.id === state.settings.browserSite)?.label ?? "Browser"} (fallback)`;
+  if (state.settings.backend !== "kie") return state.settings.backend === "gemini" ? "Gemini API key" : "ComfyUI";
+  return state.settings.kieKey
+    ? `${m.label} · ${resolutionFor(m, state.settings.kieResolution)}${state.settings.imageCount > 1 ? ` · ×${state.settings.imageCount}` : ""}`
+    : "Add a Kie.ai key";
+}
+
 function renderTab(body: HTMLElement): void {
   const p = state.preset;
   body.append(stage());
-  body.append(frameSection());
-
-  const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
-  body.append(
-    section(
-      t("Scene"),
-      segmented(
-        (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
-        p.projectType,
-        (v) => {
-          state.preset.projectType = v;
-          render();
-        },
-      ),
-    ),
-  );
-
-  body.append(fixturesSection());
-
-  body.append(
-    section(
-      t("Environment"),
-      sunDial(),
-      h(
-        "div",
-        { class: "light-grid" },
-        lightingOptions().map((o) =>
-          lightingCard(o, o.id === p.lighting, () => {
-            state.preset.lighting = o.id;
-            render();
-          }),
+  if (state.settings.simple) {
+    quickTab(body);
+    return;
+  }
+  const lock = state.settings.styleLock;
+  body.append(modeSwitch());
+  body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
+  body.append(fold(frameSection(), "frame", frameLabel(), true));
+  body.append(lockBanner());
+  if (!lock) {
+    body.append(
+      section(
+        t("Scene"),
+        sceneTypeControl(),
+        h(
+          "div",
+          { class: "look-row" },
+          h("span", { class: "muted small" }, "Look"),
+          segmented(
+            [
+              { id: "photo", label: "Photo", icon: "capture" },
+              { id: "cgi", label: "3D render", icon: "render" },
+            ],
+            state.settings.look,
+            async (v) => {
+              state.settings.look = v as Settings["look"];
+              await persist();
+              render();
+            },
+          ),
         ),
       ),
-    ),
-  );
-
-  body.append(surroundingsSection());
-
-  body.append(dynamicSection());
+    );
+  }
 
   const presetCards = h(
     "div",
     { class: "preset-grid" },
     allPresets()
       .filter((x) => x.projectType === p.projectType)
-      .map((x) =>
-      h(
-        "button",
-        {
-          class: x.id === p.id ? "preset active" : "preset",
-          type: "button",
-          onclick: () => {
-            state.preset = { ...x };
-            render();
-          },
-        },
-        h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
-        h("strong", {}, x.name),
-        h("small", {}, `${PROJECT_TYPES[x.projectType].label.replace(" / masterplan", "")}${x.builtIn ? "" : " · mine"}`),
-      ),
-    ),
+      .map(presetCard),
   );
-  if (!presetCards.childElementCount) {
+  if (!lock && !presetCards.childElementCount) {
     presetCards.append(h("p", { class: "hint" }, "No presets for this scene yet. Set it up and press + to save one."));
   }
-  body.append(
-    sectionWith(
+  if (!lock) body.append(
+    fold(sectionWith(
       t("Style preset"),
       h(
         "div",
@@ -804,19 +1206,39 @@ function renderTab(body: HTMLElement): void {
           updatePromptPreview();
         }),
       ),
-      h(
-        "label",
-        { class: "field" },
-        h("span", {}, t("Notes for this view")),
-        textarea(state.notes, "e.g. add a parked Honda Dream by the gate", 2, (v) => {
-          state.notes = v;
-          updatePromptPreview();
-        }),
-      ),
-    ),
-  );
+      notesField(),
+      referenceField(),
+    ), "preset", p.name, true));
 
-  if (host.kind === "sketchup") body.append(geometrySection());
+  body.append(analysisFold());
+
+  const timeSet = Boolean(state.settings.dynamic.time?.time);
+  if (!lock) body.append(
+    fold(section(
+      t("Environment"),
+      timeSet
+        ? h("p", { class: "notice" }, icon("info", 16), h("span", {}, "Time of day is set under Dynamic, Time and weather, so this lighting is not sent. Clear it there to use this one."))
+        : null,
+      sunDial(),
+      h(
+        "div",
+        { class: "light-grid" },
+        lightingOptions().map((o) =>
+          lightingCard(o, o.id === p.lighting, () => {
+            state.preset.lighting = o.id;
+            render();
+          }),
+        ),
+      ),
+    ), "environment", lightingOptions().find((o) => o.id === p.lighting)?.label ?? "", true));
+
+  if (!lock) body.append(fold(surroundingsSection(), "surroundings", parseContexts(p.environment).map(contextLabel).join(", ") || "As modelled", false));
+  body.append(fixturesFold());
+  body.append(fold(dynamicSection(), "dynamic", dynamicSummary(), false));
+
+  const st = state.settings;
+  const geoBits = [host.kind === "sketchup" && st.linePass ? `Lines ${st.lineStrength.toFixed(2)}` : "", st.materialLock ? "Materials" : "", st.boundaryLock ? "Boundaries" : ""].filter(Boolean);
+  body.append(fold(geometrySection(), "geometry", geoBits.join(" · ") || "Off", false));
   body.append(
     h(
       "details",
@@ -842,9 +1264,99 @@ function renderTab(body: HTMLElement): void {
             ),
           )
         : null,
-      h("div", { class: "field" }, h("span", {}, "Prompt sent to the AI"), h("pre", { id: "prompt-preview" }, currentRenderPrompt())),
+      h(
+        "label",
+        { class: "field" },
+        h("span", {}, "Avoid (added to every render)"),
+        textarea(state.settings.avoid, DEFAULT_AVOID, 2, (v) => {
+          state.settings.avoid = v;
+          persist();
+          updatePromptPreview();
+        }),
+      ),
+      promptEditor(),
     ),
   );
+}
+
+const QUICK_TEMPLATES: { label: string; text: string }[] = [
+  { label: "Cambodian plates", text: "Give every car a realistic Cambodian licence plate with correct proportions, fonts and Phnom Penh province text." },
+  { label: "Ground mist", text: "Add a thin, low ground mist that softens the base of the trees and the distance." },
+  { label: "Green to mirror", text: "Turn the flat green-coloured surfaces into real opaque mirrors with correct reflections." },
+  { label: "Orange to LED", text: "Turn the orange and yellow lines on the ceiling into glowing warm-white LED strips." },
+  { label: "Blue to water", text: "Turn the flat blue-coloured areas into real clear water with ripples and reflections." },
+  { label: "Clean site", text: "Remove any construction clutter; the site is finished, clean and tidy." },
+];
+
+function notesField(): HTMLElement {
+  const ta = textarea(state.notes, "e.g. add a parked Honda Dream by the gate", 2, (v) => {
+    state.notes = v;
+    updatePromptPreview();
+  });
+  return h(
+    "div",
+    { class: "field" },
+    h("span", {}, t("Notes for this view")),
+    ta,
+    h(
+      "div",
+      { class: "chips quick" },
+      QUICK_TEMPLATES.map((q) =>
+        chip(`+ ${q.label}`, state.notes.includes(q.text), () => {
+          state.notes = state.notes.includes(q.text) ? state.notes.replace(q.text, "").replace(/\s{2,}/g, " ").trim() : `${state.notes.trim()}${state.notes.trim() && !/[.!?។]$/.test(state.notes.trim()) ? "." : ""} ${q.text}`.trim();
+          render();
+        }, undefined, q.text),
+      ),
+    ),
+  );
+}
+
+function referenceField(): HTMLElement {
+  const input = h("input", { type: "file", accept: "image/*", class: "hidden" }) as HTMLInputElement;
+  input.addEventListener("change", async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    state.reference = await fileToImage(f, 1536);
+    render();
+  });
+  const ref = state.reference;
+  return h(
+    "div",
+    { class: "field" },
+    h("span", {}, "Style reference (optional)"),
+    h(
+      "div",
+      { class: "ref-row" },
+      ref ? h("img", { class: "ref-thumb", src: toDataUrl(ref), alt: "Style reference" }) : h("span", { class: "ref-thumb empty" }, icon("upload", 16)),
+      h("small", { class: "muted" }, ref ? "Mood, colours and material quality are matched. Its geometry is never copied." : "A photo whose mood and materials you like. Sent as an extra image."),
+      ref
+        ? iconButton("trash", "Remove reference", () => {
+            state.reference = null;
+            render();
+          }, "small")
+        : button("Add", "upload", () => input.click(), "ghost small"),
+      input,
+    ),
+  );
+}
+
+function activeDna(): string[] {
+  const lock = state.settings.styleLock;
+  if (lock) return lock.dna;
+  if (state.settings.simple) return [];
+  return state.dna.filter((t) => t.on && t.text.trim()).map((t) => t.text.trim());
+}
+
+function dynamicSummary(): string {
+  const n = GENERATORS.filter((g) => dynamicLines({ [g.id]: state.settings.dynamic[g.id] ?? {} }).length).length;
+  return n ? `${n} on` : "Off";
+}
+
+function fixturesFold(): HTMLElement {
+  const f = state.settings.fixtures;
+  const interior = state.preset.projectType === "interior";
+  const on = interior ? [f.led && "LED", f.strip && "Strip", f.cabinet && "Cabinet"].filter(Boolean).join(", ") : f.exterior === true ? "On" : f.exterior === false ? "Off" : "";
+  return fold(fixturesSection(), "fixtures", on ? `${on} · ${f.kelvin}K` : "As modelled", false);
 }
 
 function renderBar(): HTMLElement {
@@ -866,37 +1378,126 @@ function renderBar(): HTMLElement {
   );
 }
 
+/**
+ * Quick render sends only the scene type, the starter look, the notes and the
+ * project lock. Settings made under All controls stay saved but are not sent,
+ * so what you see in Quick is what the AI gets.
+ */
 function currentRenderPrompt(): string {
+  const st = state.settings;
+  const quick = st.simple;
+  const lock = st.styleLock;
+  const dyn = quick ? {} : st.dynamic;
+  const ref = activeReference();
   return buildRenderPrompt({
     preset: state.preset,
     notes: state.notes,
     facts: state.capture?.facts,
     hasLinePass: Boolean(state.capture?.lines),
-    extras: [fixtureSettingsLine(state.preset.projectType, state.settings.fixtures), ...dynamicLines(state.settings.dynamic)].filter((x): x is string => Boolean(x)),
-    lineStrength: state.settings.lineStrength,
+    extras: quick ? [] : [fixtureSettingsLine(state.preset.projectType, st.fixtures), ...dynamicLines(dyn)].filter((x): x is string => Boolean(x)),
+    lightingFromDynamic: Boolean(dyn.time?.time),
+    lineStrength: st.lineStrength,
+    look: lock ? lock.look : st.look,
+    materialLock: !quick && st.materialLock,
+    boundaryLock: !quick && st.boundaryLock,
+    avoid: st.avoid,
+    dna: activeDna(),
+    people: quick ? "" : state.people,
+    referenceIndex: ref ? (state.capture?.lines ? 3 : 2) : undefined,
+    referenceIsRender: Boolean(lock?.reference && lock.referenceIsRender),
   });
 }
 
+/** The reference image the next render sends: the project lock's, else the one added here. */
+function activeReference(): ImageData64 | null {
+  const lock = state.settings.styleLock;
+  if (lock) return lock.reference;
+  return state.settings.simple ? null : state.reference;
+}
+
+/** The prompt the next render sends: the user's own edit, or the built one. */
+function renderPrompt(): string {
+  return (!state.settings.simple && state.promptEdit) || currentRenderPrompt();
+}
+
+function promptEditor(): HTMLElement {
+  const edited = state.promptEdit !== null;
+  const ta = h("textarea", { id: "prompt-preview", rows: 12, class: "prompt-edit", "aria-label": "Prompt sent to the AI" }, renderPrompt()) as HTMLTextAreaElement;
+  ta.addEventListener("input", () => {
+    const was = state.promptEdit !== null;
+    state.promptEdit = ta.value;
+    if (!was) document.getElementById("prompt-state")?.replaceChildren("Edited by you; the panel's settings no longer change it.");
+  });
+  return h(
+    "div",
+    { class: "field" },
+    h(
+      "div",
+      { class: "row" },
+      h("span", { class: "grow" }, "Prompt sent to the AI"),
+      edited
+        ? button("Undo my edits", "undo", () => {
+            state.promptEdit = null;
+            render();
+          }, "ghost small")
+        : null,
+    ),
+    ta,
+    h("small", { class: "muted", id: "prompt-state" }, edited ? "Edited by you; the panel's settings no longer change it." : "You can edit it here before rendering."),
+  );
+}
+
 function updatePromptPreview(): void {
-  const pre = document.getElementById("prompt-preview");
-  if (pre) pre.textContent = currentRenderPrompt();
+  if (state.promptEdit !== null) return;
+  const pre = document.getElementById("prompt-preview") as HTMLTextAreaElement | null;
+  if (pre) pre.value = currentRenderPrompt();
+}
+
+function rateButtons(after: ImageData64): HTMLElement | null {
+  const id = historyIds.get(after);
+  if (!id) return null;
+  const item = state.history.find((x) => x.id === id);
+  const rate = async (r: 1 | -1) => {
+    const next = item?.rating === r ? undefined : r;
+    await rateHistory(id, next);
+    state.history = await listHistory();
+    if (next) toast(next > 0 ? "Marked usable" : "Marked not usable", "ok");
+    render();
+  };
+  return h(
+    "span",
+    { class: "rate", role: "group", "aria-label": "Is this render usable?" },
+    iconButton("thumbUp", "Usable", () => rate(1), item?.rating === 1 ? "ghost on" : "ghost"),
+    iconButton("thumbDown", "Not usable", () => rate(-1), item?.rating === -1 ? "ghost on" : "ghost"),
+  );
 }
 
 function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
   return h(
     "div",
     { class: "stage-actions" },
-    primaryButton(host.kind === "sketchup" ? "Save to model folder" : "Download", "save", () => saveImage(after, tool)),
+    primaryButton(host.kind === "sketchup" ? "Save" : "Download", "save", () => saveImage(after, tool)),
     button("Edit", "edit", () => {
       state.editSource = after;
       painter = null;
       state.tab = "edit";
       render();
     }, "ghost"),
+    tool === "render" ? rateButtons(after) : null,
+    tool === "render"
+      ? iconButton("lock", "Lock this look for every view of the project", () => lockLook(after), state.settings.styleLock?.referenceIsRender ? "ghost on" : "ghost")
+      : null,
+    tool === "render"
+      ? iconButton("aerial", "More angles from this render", () => {
+          state.anglesOpen = true;
+          render();
+        }, "ghost")
+      : null,
     host.kind === "sketchup" ? iconButton("folder", "Open the AI Renders folder", () => host.openRenderFolder().catch((e) => toast(e.message, "error")), "ghost") : null,
     tool === "render"
       ? iconButton("close", "Back to the source view", () => {
           state.result = null;
+          state.results = [];
           render();
         }, "ghost")
       : null,
@@ -999,33 +1600,53 @@ function setBusy(on: boolean): void {
 }
 
 async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: string): Promise<ImageData64 | null> {
+  return (await runProviderMany(prompt, images, aspectRatio, 1))[0] ?? null;
+}
+
+/** Runs the same request `count` times side by side; returns the ones that worked. */
+async function runProviderMany(prompt: string, images: ImageData64[], aspectRatio: string | undefined, count: number): Promise<ImageData64[]> {
   const provider = makeProvider(state.settings, host);
+  // The browser backend is one chat at a time.
+  const n = state.settings.backend === "browser" ? 1 : Math.max(1, Math.min(4, count));
   setBusy(true);
   // Older SketchUp versions embed a Chromium without AbortController.
   state.abort = typeof AbortController === "undefined" ? null : new AbortController();
   render();
-  toast(`Sending to ${provider.label}...`);
+  toast(n > 1 ? `Rendering ${n}...` : "Rendering...");
   try {
-    const res = await provider.render({ prompt, images, aspectRatio }, state.abort?.signal);
-    toast(`Done in ${Math.round((Date.now() - state.busySince) / 1000)} s.`, "ok");
-    return res.image;
+    const runs = await Promise.allSettled(
+      Array.from({ length: n }, () => provider.render({ prompt, images, aspectRatio }, state.abort?.signal)),
+    );
+    const ok = runs.flatMap((r) => (r.status === "fulfilled" ? [r.value.image] : []));
+    const failed = runs.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    const secs = Math.round((Date.now() - state.busySince) / 1000);
+    if (failed && !ok.length) throw failed.reason;
+    if (failed) toast(`${ok.length} of ${n} done in ${secs} s. One failed: ${(failed.reason as Error).message}`, "error");
+    else toast(`Done in ${secs} s.`, "ok");
+    return ok;
   } catch (e) {
     const err = e as Error;
     toast(err.name === "AbortError" ? "Cancelled." : err.message, err.name === "AbortError" ? "info" : "error");
-    return null;
+    return [];
   } finally {
     setBusy(false);
     state.abort = null;
   }
 }
 
+/** History id of each image on the stage, so it can be rated. */
+const historyIds = new WeakMap<ImageData64, string>();
+
 async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64): Promise<void> {
   const provider = makeProvider(state.settings, host);
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  historyIds.set(after, id);
   await addHistory({
-    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    id,
     createdAt: Date.now(),
     tool,
     presetName: tool === "render" ? state.preset.name : undefined,
+    presetId: tool === "render" ? state.preset.id : undefined,
     prompt,
     before,
     after,
@@ -1038,19 +1659,75 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
 async function runRender(): Promise<void> {
   const cap = state.capture;
   if (!cap) return;
-  const prompt = currentRenderPrompt();
-  const images = [cap.view, ...(cap.lines ? [cap.lines] : [])];
+  const prompt = renderPrompt();
+  const ref = activeReference();
+  const images = [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])];
   const size = await imageSize(cap.view);
-  const raw = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height));
+  const raws = await runProviderMany(prompt, images, nearestAspectRatio(size.width, size.height), state.settings.imageCount);
+  await showRenders(raws, prompt, cap.view);
+}
+
+/** Puts new renders on the stage and in history. */
+async function showRenders(raws: ImageData64[], prompt: string, before: ImageData64, keep = false): Promise<void> {
   // A ratio the model cannot output (e.g. 7:3) comes back at the nearest one;
   // trim it to the exact frame so it matches the capture.
   const frame = findFrame(state.capturedFrameId || state.frameId);
-  const out = raw && frame.ratio && !isListed(frame.id) ? await cropToRatio(raw, frame.ratio) : raw;
-  if (out) {
-    state.result = out;
-    await record("render", prompt, cap.view, out);
+  const outs: ImageData64[] = [];
+  for (const raw of raws) outs.push(frame.ratio && !isListed(frame.id) ? await cropToRatio(raw, frame.ratio) : raw);
+  if (outs.length) {
+    state.results = keep ? [...state.results, ...outs] : outs;
+    state.result = outs[0];
+    for (const out of outs) await record("render", prompt, before, out);
   }
   render();
+}
+
+const ANGLES: { id: string; label: string; text: string }[] = [
+  { id: "closer", label: "Closer", text: "a closer view of the main entrance and facade, about half the distance" },
+  { id: "wider", label: "Wider", text: "a wider view showing the whole building and more of its surroundings" },
+  { id: "corner", label: "Corner, eye level", text: "an eye-level view from the front corner, two-point perspective with straight verticals" },
+  { id: "drone", label: "Drone 45°", text: "a drone view from about 45 degrees above, looking down at the building and site" },
+  { id: "top", label: "Top down", text: "a straight top-down aerial view of the building and site" },
+  { id: "low", label: "Low angle", text: "a low worm's-eye angle looking up at the building" },
+  { id: "detail", label: "Detail", text: "a close detail view of the most interesting material junction or joinery" },
+  { id: "interior-wide", label: "Room, other side", text: "the same room seen from the opposite side, eye level, 24 mm lens" },
+];
+
+async function runAngle(text: string): Promise<void> {
+  const from = state.result;
+  const cap = state.capture;
+  if (!from || !cap) return;
+  state.anglesOpen = false;
+  const prompt = [
+    "The image is a finished architectural photograph.",
+    `Show the same building with the same design, materials, colours, lighting, weather and surroundings, from a new camera position: ${text}.`,
+    "Keep every design detail consistent with the image; invent only what the new view reveals, in the same style. Real photograph, no text, no watermark.",
+  ].join("\n");
+  const size = await imageSize(from);
+  const raws = await runProviderMany(prompt, [from], nearestAspectRatio(size.width, size.height), 1);
+  await showRenders(raws, prompt, from, true);
+}
+
+function anglesSheet(): HTMLElement {
+  const close = () => {
+    state.anglesOpen = false;
+    render();
+  };
+  return h(
+    "div",
+    { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet", role: "dialog", "aria-modal": "true" },
+      h("div", { class: "sheet-head" }, h("h2", {}, "More angles"), iconButton("close", "Close", close)),
+      h("p", { class: "hint" }, "Makes a new camera view from this render, keeping its design, materials and light. One image each."),
+      h(
+        "div",
+        { class: "angle-grid" },
+        ANGLES.map((a) => button(a.label, "capture", () => runAngle(a.text), "ghost")),
+      ),
+    ),
+  );
 }
 
 // ---------- presets ----------
@@ -1279,7 +1956,7 @@ function spotEditor(src: ImageData64): HTMLElement[] {
       h("small", { class: "head-hint" }, "Pick a zone, paint, then describe it"),
       zoneRow,
       bar,
-      h("div", { class: "paint-box" }, surface),
+      h("div", { class: "paint-box" }, surface, state.busy ? h("div", { class: "scan" }) : null),
     ),
     section(
       "What should change",
@@ -1641,7 +2318,7 @@ function spotPanel(body: HTMLElement): void {
     primaryButton("Place spotlights", "spot", async () => {
       try {
         await host.call("placeSpots", { settings: s, texture: beamTexture(s) });
-        toast("Click walls or ceilings in SketchUp where each light sits. Esc to finish.", "ok");
+        toast("Click where each light goes. Esc to finish.", "ok");
       } catch (e) {
         toast((e as Error).message, "error");
       }
@@ -1756,6 +2433,21 @@ function historyTab(body: HTMLElement): void {
     return;
   }
   const detail = h("div", {});
+  const rated = ratingSummary(state.history).slice(0, 5);
+  if (rated.length) {
+    body.append(
+      section(
+        "What works for you",
+        h("p", { class: "hint" }, "From your thumbs up and down on renders."),
+        h(
+          "table",
+          { class: "rated" },
+          h("tr", {}, h("th", {}, "Look"), h("th", {}, "Model"), h("th", {}, "Usable")),
+          rated.map((r) => h("tr", {}, h("td", {}, r.preset), h("td", {}, r.model), h("td", {}, `${r.good} of ${r.good + r.bad}`))),
+        ),
+      ),
+    );
+  }
   body.append(
     h(
       "div",
@@ -1774,7 +2466,7 @@ function historyTab(body: HTMLElement): void {
             },
           },
           h("img", { src: toDataUrl(item.after), alt: item.presetName ?? item.tool, loading: "lazy" }),
-          h("span", {}, item.presetName ?? toolLabel(item.tool)),
+          h("span", {}, `${item.rating === 1 ? "👍 " : item.rating === -1 ? "👎 " : ""}${item.presetName ?? toolLabel(item.tool)}`),
         ),
       ),
     ),
@@ -1783,6 +2475,7 @@ function historyTab(body: HTMLElement): void {
 }
 
 function historyDetail(item: HistoryItem): HTMLElement {
+  historyIds.set(item.after, item.id);
   return section(
     `${toolLabel(item.tool)}${item.presetName ? ` · ${item.presetName}` : ""}`,
     h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}`),
@@ -1797,39 +2490,539 @@ function historyDetail(item: HistoryItem): HTMLElement {
   );
 }
 
+
+// ---------- AI model picker (Kie.ai) ----------
+
+const FAMILY_MARK: Record<KieFamilyId, string> = { nano: "NB", gpt: "GPT", seedream: "SD" };
+
+function modelSection(): HTMLElement {
+  const s = state.settings;
+  const hasKey = Boolean(s.kieKey.trim());
+  const usingKie = s.backend === "kie" && hasKey;
+  const current = findKieModel(s.kieModel);
+  const pick = async (id: string) => {
+    if (!hasKey) {
+      state.settingsKie = true;
+      return openSettings();
+    }
+    s.kieModel = id;
+    s.backend = "kie";
+    await persist();
+    render();
+  };
+  const cards = KIE_FAMILIES.map((f) => {
+    const list = modelsIn(f.id);
+    const chosen = current.family === f.id ? current : list[0];
+    const active = usingKie && current.family === f.id;
+    const sel = h(
+      "select",
+      { class: "model-sub", "aria-label": `${f.label} version`, disabled: !hasKey, onclick: (e: Event) => e.stopPropagation() },
+      list.map((m) => h("option", { value: m.id, selected: m.id === chosen.id }, m.label.replace(f.label.replace(/ Image$/, ""), "").replace(/^ Image/, "").trim())),
+    ) as HTMLSelectElement;
+    sel.addEventListener("change", () => pick(sel.value));
+    return h(
+      "div",
+      {
+        class: `model-card${active ? " active" : ""}${hasKey ? "" : " locked"}`,
+        role: "button",
+        tabindex: 0,
+        "aria-pressed": active,
+        title: hasKey ? `${chosen.label}: ${chosen.note}` : "Add your Kie.ai key in Settings to use this model",
+        onclick: () => pick(chosen.id),
+        onkeydown: (e: Event) => {
+          const k = (e as KeyboardEvent).key;
+          if (k !== "Enter" && k !== " ") return;
+          e.preventDefault();
+          pick(chosen.id);
+        },
+      },
+      h(
+        "div",
+        { class: "model-top" },
+        h("span", { class: `model-mark ${f.id}` }, FAMILY_MARK[f.id]),
+        h("span", { class: "model-badge" }, f.badge),
+      ),
+      h("strong", {}, f.label),
+      h("small", {}, f.maker),
+      h("span", { class: "model-price" }, priceFor(chosen, s.kieResolution) === null ? "Price on kie.ai" : `${priceText(chosen, s.kieResolution)} / image`),
+      sel,
+    );
+  });
+  const resolution = usingKie
+    ? h(
+        "div",
+        { class: "model-res" },
+        h("span", { class: "muted" }, "Output size"),
+        segmented(
+          (["1K", "2K", "4K"] as KieResolution[]).map((r) => ({ id: r, label: r })),
+          current.resolutions.includes(s.kieResolution) ? s.kieResolution : current.resolutions[0],
+          async (v) => {
+            s.kieResolution = v;
+            await persist();
+            render();
+          },
+        ),
+        current.resolutions.length < 3 ? h("small", { class: "muted" }, `${current.label}: ${current.resolutions.join(" / ")} only`) : null,
+      )
+    : null;
+  const aside = hasKey
+    ? usingKie
+      ? h("span", { class: "muted small" }, "Kie.ai")
+      : button("Use", null, () => pick(current.id), "ghost small")
+    : button("Add Kie key", "key", () => {
+        state.settingsKie = true;
+        openSettings();
+      }, "ghost small");
+  const per = usingKie ? priceFor(current, s.kieResolution) : null;
+  const count = s.backend === "browser"
+    ? null
+    : h(
+        "div",
+        { class: "model-res" },
+        h("span", { class: "muted" }, "Images per render"),
+        segmented(
+          ["1", "2", "3", "4"].map((n) => ({ id: n, label: n })),
+          String(s.imageCount),
+          async (v) => {
+            s.imageCount = Number(v);
+            await persist();
+            render();
+          },
+        ),
+        per !== null && s.imageCount > 1 ? h("small", { class: "muted" }, `~$${(per * s.imageCount).toFixed(2)} per render`) : null,
+      );
+  return sectionWith(
+    t("AI model"),
+    aside,
+    h("div", { class: "model-grid" }, cards),
+    resolution,
+    count,
+    !hasKey ? h("p", { class: "hint" }, "One Kie.ai key unlocks all of these. You pay Kie directly, per image.") : null,
+  );
+}
+
+
+// ---------- Scene analysis: Material DNA and people ----------
+
+/**
+ * One key unlocks everything; a second key only makes it cheaper. A Gemini
+ * key (free allowance on AI Studio) is used for analysis when present,
+ * otherwise the Kie key's Gemini Flash.
+ */
+function pickAnalyser(): Analyser {
+  const s = state.settings;
+  if (s.geminiKey.trim()) return geminiAnalyser(s.geminiKey.trim());
+  if (s.kieKey.trim()) return kieAnalyser(s.kieKey.trim(), host.kind === "sketchup" ? hostTransport(host) : undefined);
+  throw new Error("Analysis needs a Kie.ai key or a Gemini API key. Add one in Settings.");
+}
+
+function analyserLabel(): string {
+  const s = state.settings;
+  return s.geminiKey.trim() ? "your Gemini key (Google's free allowance)" : s.kieKey.trim() ? "your Kie.ai key (a fraction of a cent each)" : "a key you add in Settings";
+}
+
+/** Optional Gemini key in the Kie settings, used only for analysis. */
+function analysisKeySection(): HTMLElement {
+  const s = state.settings;
+  const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Optional: paste a Gemini API key", autocomplete: "off" }) as HTMLInputElement;
+  key.addEventListener("change", async () => {
+    s.geminiKey = key.value.trim();
+    await persist();
+    toast(s.geminiKey ? "Scene analysis now uses your Gemini key." : "Scene analysis now uses your Kie.ai key.", "ok");
+    render();
+  });
+  return section(
+    "Save money on analysis (optional)",
+    h("label", { class: "field" }, h("span", {}, "Gemini API key"), key),
+    h(
+      "p",
+      { class: "hint" },
+      "Material DNA and Analyse people work with your Kie key alone. Add a free key from ",
+      extLink("https://aistudio.google.com/apikey", "aistudio.google.com/apikey"),
+      " and analysis runs on Google's free daily allowance instead. Renders still use Kie. Skip this and nothing is lost.",
+    ),
+  );
+}
+
+let analysing = false;
+
+async function analyse(prompt: string): Promise<string | null> {
+  const src = state.capture?.view;
+  if (!src) {
+    toast("Capture a view or upload an image first.", "error");
+    return null;
+  }
+  if (analysing) return null;
+  analysing = true;
+  try {
+    const run = pickAnalyser();
+    toast("Reading image...");
+    for (const el of document.querySelectorAll(".analyse-preview")) el.append(h("div", { class: "scan" }));
+    // 1024 px is plenty to read materials and keeps the upload small.
+    const img = await shrinkJpeg(src, 1024, 0.85);
+    return await run(prompt, img);
+  } catch (e) {
+    const who = state.settings.geminiKey.trim() ? "Gemini" : "Kie.ai";
+    toast(`${who} couldn't analyse the image.`, "error", (e as Error).message);
+    return null;
+  } finally {
+    analysing = false;
+    for (const el of document.querySelectorAll(".analyse-preview .scan")) el.remove();
+  }
+}
+
+/** The image the AI reads, shown in the analysis sheets so the scan is visible. */
+function analysePreview(): HTMLElement | null {
+  const src = state.capture?.view;
+  return src ? h("div", { class: "analyse-preview" }, h("img", { src: toDataUrl(src), alt: "Image to analyse" })) : null;
+}
+
+function analysisFold(): HTMLElement {
+  const tags = activeDna();
+  const conflicts = dnaConflicts(state.notes, tags);
+  const card = (id: "dna" | "people", iconName: string, title: string, blurb: string, status: string) =>
+    h(
+      "button",
+      {
+        class: status ? "dyn-card active" : "dyn-card",
+        type: "button",
+        onclick: () => {
+          if (id === "dna" && state.settings.styleLock) {
+            toast("Materials are locked. Unlock to change.");
+            return;
+          }
+          state.analyseOpen = id;
+          render();
+        },
+      },
+      icon(iconName, 18),
+      h("strong", {}, title),
+      h("small", {}, status || blurb),
+    );
+  const sec = section(
+    "Scene analysis",
+    h("p", { class: "hint" }, `The AI reads the image first, then writes the details into the prompt. Runs on ${analyserLabel()}.`),
+    h(
+      "div",
+      { class: "dyn-grid" },
+      card("dna", "palette", "Material DNA", "Lists every surface and its material, so the render keeps them.", state.settings.styleLock ? `Locked · ${tags.length} tags` : tags.length ? `${tags.length} material tags on` : ""),
+      card("people", "eye", "Analyse people", "Looks at the space and writes where people go.", state.people.trim() ? "People line ready" : ""),
+    ),
+    conflicts.length
+      ? h(
+          "p",
+          { class: "notice" },
+          icon("info", 16),
+          h("span", {}, `Your notes touch ${conflicts.length === 1 ? "a material tag" : `${conflicts.length} material tags`} (${conflicts.slice(0, 2).map((x) => `"${x.split(":")[0]}"`).join(", ")}). Your notes win over the tags.`),
+        )
+      : null,
+  );
+  const bits = [tags.length ? `${tags.length} tags` : "", state.people.trim() ? "people" : ""].filter(Boolean);
+  return fold(sec, "analysis", bits.join(" · ") || "Off", false);
+}
+
+function dnaSheet(): HTMLElement {
+  let work: DnaTag[] = state.dna.map((x) => ({ ...x }));
+  let grouped = true;
+  let raw = false;
+  const close = (save: boolean) => {
+    if (save) state.dna = work.filter((x) => x.text.trim());
+    state.analyseOpen = null;
+    render();
+  };
+  const list = h("div", { class: "dna-list" });
+  const count = h("span", { class: "badge" });
+  const find = h("input", { type: "text", placeholder: "Find", "aria-label": "Find in tags" }) as HTMLInputElement;
+  const repl = h("input", { type: "text", placeholder: "Replace with", "aria-label": "Replace with" }) as HTMLInputElement;
+  const row = (tag: DnaTag) => {
+    const input = h("input", { type: "text", value: tag.text, "aria-label": "Material tag", class: tag.on ? "" : "off" }) as HTMLInputElement;
+    input.addEventListener("input", () => (tag.text = input.value));
+    return h(
+      "div",
+      { class: tag.on ? "dna-row" : "dna-row off" },
+      h(
+        "label",
+        { class: "dna-check", title: tag.on ? "Used in the prompt" : "Left out" },
+        h("input", {
+          type: "checkbox",
+          checked: tag.on,
+          onchange: (e: Event) => {
+            tag.on = (e.target as HTMLInputElement).checked;
+            draw();
+          },
+        }),
+        h("span", {}, icon("check", 12)),
+      ),
+      input,
+      iconButton("trash", "Remove tag", () => {
+        work = work.filter((x) => x !== tag);
+        draw();
+      }, "small"),
+    );
+  };
+  const draw = () => {
+    clear(list);
+    count.textContent = `${work.filter((x) => x.on).length} of ${work.length} on`;
+    if (!work.length) {
+      list.append(
+        h(
+          "div",
+          { class: "dna-empty" },
+          icon("palette", 28),
+          h("p", {}, fromModel ? "Read from model lists the materials SketchUp can see in your view: instant and free. Analyse with AI reads the image instead, for photos and sketches. Edit, switch off or add tags before they go into the prompt." : "The AI looks at your image and writes one line per surface and object, like \"Floor: light grey porcelain tiles, matt\". Edit, switch off or add tags before they go into the prompt."),
+        ),
+      );
+      return;
+    }
+    if (raw) {
+      const ta = h("textarea", { rows: 14, "aria-label": "Material tags as text" }, work.map((x) => `${x.on ? "" : "# "}${x.text}`).join("\n")) as HTMLTextAreaElement;
+      ta.addEventListener("change", () => {
+        work = ta.value
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .map((l) => ({ ...newTag(l.replace(/^#\s*/, "")), on: !l.startsWith("#") }));
+      });
+      list.append(ta, h("p", { class: "hint" }, "One tag per line. Start a line with # to switch it off."));
+      return;
+    }
+    if (!grouped) {
+      list.append(...work.map(row));
+      return;
+    }
+    const groups = [...DNA_GROUPS.map((g) => ({ id: g.id, label: g.label })), { id: "other", label: "Other" }];
+    for (const g of groups) {
+      const items = work.filter((x) => dnaGroup(x.text) === g.id);
+      if (!items.length) continue;
+      list.append(h("div", { class: "dna-group" }, h("h4", {}, g.label, h("em", {}, String(items.length))), ...items.map(row)));
+    }
+  };
+  const viewSeg = () =>
+    segmented(
+      [
+        { id: "zone", label: "By zone" },
+        { id: "list", label: "List" },
+        { id: "text", label: "Text" },
+      ],
+      raw ? "text" : grouped ? "zone" : "list",
+      (v) => {
+        raw = v === "text";
+        grouped = v === "zone";
+        segHolder.replaceChildren(viewSeg());
+        draw();
+      },
+    );
+  const segHolder = h("div", { class: "dna-view" }, viewSeg());
+  // Model views read their materials straight from SketchUp: instant and
+  // free. Photos and sketches need the AI.
+  const fromModel = host.kind === "sketchup" && state.capture?.source === "sketchup";
+  const readModel = async () => {
+    try {
+      toast("Reading model...");
+      const list = await host.call<ModelMaterial[]>("modelMaterials", { ratio: findFrame(state.capturedFrameId || state.frameId).ratio });
+      const lines = modelDnaTags(list ?? [], state.preset.projectType);
+      if (!lines.length) return toast("No painted materials in view.", "error", "Every face in the view uses SketchUp's default material. Paint them, or use Analyse with AI.");
+      work = lines.map((l) => newTag(l));
+      toast(`${lines.length} tags found`, "ok");
+      draw();
+    } catch (e) {
+      toast("Couldn't read the model.", "error", (e as Error).message);
+    }
+  };
+  const runAnalysis = async () => {
+    const text = await analyse(dnaPrompt(state.preset.projectType));
+    if (text === null) return;
+    const tags = parseDna(text);
+    if (!tags.length) return toast("No tags found. Try again.", "error");
+    work = tags;
+    toast(`${tags.length} tags found`, "ok");
+    draw();
+  };
+  draw();
+  const sheet = h(
+    "div",
+    { class: "sheet wide", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "sheet-head" }, h("h2", {}, "Material DNA"), count, iconButton("close", "Close", () => close(false))),
+    analysePreview(),
+    h(
+      "div",
+      { class: "dna-tools" },
+      fromModel ? button("Read from model", "capture", readModel, "primary") : null,
+      button(fromModel ? "Analyse with AI" : "Analyse image", "wand", runAnalysis, fromModel ? "ghost" : "primary"),
+      segHolder,
+    ),
+    h(
+      "div",
+      { class: "dna-replace" },
+      find,
+      repl,
+      button("Replace", "swap", () => {
+        const f = find.value.trim();
+        if (!f) return;
+        const re = new RegExp(f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+        let n = 0;
+        for (const x of work) {
+          const next = x.text.replace(re, () => (n++, repl.value));
+          x.text = next;
+        }
+        toast(n ? `Replaced ${n}.` : "Nothing matched.", n ? "ok" : "info");
+        draw();
+      }, "ghost small"),
+    ),
+    list,
+    button("Add tag", "plus", () => {
+      work.push(newTag("Object: material"));
+      raw = false;
+      draw();
+      const inputs = list.querySelectorAll<HTMLInputElement>(".dna-row input[type=text]");
+      inputs[inputs.length - 1]?.select();
+    }, "ghost small"),
+    h(
+      "div",
+      { class: "sheet-actions" },
+      button("Clear all", "trash", () => {
+        work = [];
+        draw();
+      }, "ghost"),
+      primaryButton("Apply to prompt", "check", () => close(true)),
+    ),
+  );
+  return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close(false) }, sheet);
+}
+
+function peopleSheet(): HTMLElement {
+  const o = { ...state.peopleOpts };
+  let text = state.people;
+  const close = (save: boolean) => {
+    if (save) {
+      state.people = text.trim();
+      state.peopleOpts = o;
+    }
+    state.analyseOpen = null;
+    render();
+  };
+  const ta = h("textarea", { rows: 6, placeholder: "Run Analyse, or write the people yourself: who, where and doing what." }, text) as HTMLTextAreaElement;
+  ta.addEventListener("input", () => (text = ta.value));
+  const chips = (list: { id: string; label: string }[], key: keyof PeopleOptions) => {
+    const wrap = h("div", { class: "chips" });
+    const draw = () => {
+      clear(wrap);
+      for (const c of list) wrap.append(chip(c.label, o[key] === c.id, () => ((o[key] = c.id), draw())));
+    };
+    draw();
+    return wrap;
+  };
+  const sheet = h(
+    "div",
+    { class: "sheet", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "sheet-head" }, h("h2", {}, "Analyse people"), iconButton("close", "Close", () => close(false))),
+    analysePreview(),
+    h("p", { class: "hint" }, "The AI looks at the actual space, then places people only where they could really stand or sit."),
+    h("div", { class: "field" }, h("span", {}, "Type of space"), chips(PEOPLE_SCENES, "scene")),
+    h("div", { class: "field" }, h("span", {}, "How many"), chips(PEOPLE_COUNTS, "count")),
+    h("div", { class: "field" }, h("span", {}, "Who"), chips(PEOPLE_WHO, "who")),
+    button("Analyse image", "wand", async () => {
+      const out = await analyse(peoplePrompt(o));
+      if (out === null) return;
+      text = cleanPeople(out);
+      ta.value = text;
+      toast("People added", "ok");
+    }, "primary"),
+    h("label", { class: "field" }, h("span", {}, "People line in the prompt"), ta),
+    h(
+      "div",
+      { class: "sheet-actions" },
+      button("Clear", "trash", () => {
+        text = "";
+        ta.value = "";
+      }, "ghost"),
+      primaryButton("Apply to prompt", "check", () => close(true)),
+    ),
+  );
+  return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close(false) }, sheet);
+}
+
 // ---------- Settings sheet ----------
 
 function settingsSheet(): HTMLElement {
   const s = state.settings;
   const close = () => {
     state.settingsOpen = false;
+    state.settingsKie = false;
     render();
   };
   const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true" });
   sheet.append(
-    h("div", { class: "sheet-head" }, h("h2", {}, t("Settings")), iconButton("close", "Close", close)),
+    h("div", { class: "sheet-head" }, h("h2", {}, t("Settings")), h("div", { class: "head-actions" }, iconButton("history", "Log", openLog), iconButton("close", "Close", close))),
     section(
       t("AI backend"),
-      segmented(
+      h("div", { class: "backend-pick" }, segmented(
         [
-          { id: "gemini", label: "Gemini API key", icon: "key" },
-          { id: "browser", label: "Your account", icon: "eye" },
-          { id: "comfyui", label: "ComfyUI (local)", icon: "gear" },
+          { id: "kie", label: "Kie.ai key", icon: "key" },
+          { id: "gemini", label: "Gemini key", icon: "key" },
+          { id: "browser", label: "Browser (fallback)", icon: "eye" },
+          { id: "comfyui", label: "ComfyUI", icon: "gear" },
         ],
-        s.backend,
+        state.settingsKie ? "kie" : s.backend,
         async (v) => {
           s.backend = v as Settings["backend"];
+          state.settingsKie = false;
           await persist();
           render();
         },
-      ),
+      )),
     ),
   );
 
-  if (s.backend === "browser") {
+  const view = state.settingsKie ? "kie" : s.backend;
+  if (view === "kie") {
+    const key = h("input", { type: "password", value: s.kieKey, placeholder: "Paste your Kie.ai API key", autocomplete: "off" }) as HTMLInputElement;
+    key.addEventListener("change", async () => {
+      s.kieKey = key.value.trim();
+      // Adding a key means "render with Kie".
+      if (s.kieKey) s.backend = "kie";
+      state.settingsKie = false;
+      await persist();
+      render();
+    });
+    sheet.append(
+      section(
+        "Kie.ai",
+        h("label", { class: "field" }, h("span", {}, "API key"), key),
+        h(
+          "p",
+          { class: "hint" },
+          "One key for Nano Banana, GPT Image and Seedream. Get it at ",
+          extLink(KIE_KEY_PAGE, "kie.ai/api-key"),
+          ". Images are billed to your own Kie credits. The key stays on this computer only; it is never put in history or presets.",
+        ),
+        h("p", { class: "hint" }, "Pick the model on the Render tab, under AI model."),
+        button("Test key", "check", async () => {
+          try {
+            s.kieKey = key.value.trim();
+            if (s.kieKey) s.backend = "kie";
+            state.settingsKie = false;
+            await persist();
+            toast("Checking key...");
+            toast(await makeProvider(s, host).test(), "ok");
+            render();
+          } catch (e) {
+            toast((e as Error).message, "error");
+          }
+        }, "ghost"),
+      ),
+      analysisKeySection(),
+    );
+  } else if (view === "browser") {
     sheet.append(
       section(
         "Your own account, in a browser window",
+        h(
+          "p",
+          { class: "notice" },
+          icon("info", 16),
+          h("span", {}, "Fallback only. It types into Gemini, ChatGPT or Flow pages, which change without notice, so a step may need doing by hand. For steady work, use a Kie.ai key. Some Google accounts also refuse to sign in inside SketchUp."),
+        ),
         segmented(
           BROWSER_SITES.map((x) => ({ id: x.id, label: x.label })),
           s.browserSite,
@@ -1858,7 +3051,7 @@ function settingsSheet(): HTMLElement {
           : h("p", { class: "hint" }, "This mode works inside the SketchUp plugin only."),
       ),
     );
-  } else if (s.backend === "gemini") {
+  } else if (view === "gemini") {
     const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Paste your Gemini API key", autocomplete: "off" }) as HTMLInputElement;
     key.addEventListener("change", async () => {
       s.geminiKey = key.value.trim();
@@ -1873,13 +3066,13 @@ function settingsSheet(): HTMLElement {
       section(
         "Gemini",
         h("label", { class: "field" }, h("span", {}, "API key"), key),
-        h("p", { class: "hint" }, "Get a key at aistudio.google.com. Google bills image generation to that key's account. The key is saved on this computer in plain text, so avoid saving it on a shared office PC."),
+        h("p", { class: "hint" }, "Get a key at aistudio.google.com. This one key runs both renders and scene analysis. Google bills image generation to that key's account. The key is saved on this computer in plain text, so avoid saving it on a shared office PC."),
         h("label", { class: "field" }, h("span", {}, "Model"), modelSel),
         button("Test key and load models", "check", async () => {
           try {
             s.geminiKey = key.value.trim();
             await persist();
-            toast("Checking the key...");
+            toast("Checking key...");
             const models = await new GeminiProvider(s.geminiKey).listImageModels();
             clear(modelSel);
             const list = models.includes(s.geminiModel) || !models.length ? models : [s.geminiModel, ...models];
@@ -2178,8 +3371,33 @@ function geometrySection(): HTMLElement {
   });
   input.addEventListener("change", () => persist());
   fill();
+  const lock = (label: string, tip: string, get: () => boolean, set: (v: boolean) => void) =>
+    h(
+      "label",
+      { class: "switch", title: tip },
+      h("input", {
+        type: "checkbox",
+        checked: get(),
+        onchange: async (e: Event) => {
+          set((e.target as HTMLInputElement).checked);
+          await persist();
+          updatePromptPreview();
+        },
+      }),
+      h("span", { class: "track" }),
+      label,
+    );
+  const locks = h(
+    "div",
+    { class: "lock-row" },
+    lock("Material lock", "Keep every material and colour exactly as modelled", () => s.materialLock, (v) => (s.materialLock = v)),
+    lock("Boundary lock", "Only improve realism inside each material's own area", () => s.boundaryLock, (v) => (s.boundaryLock = v)),
+  );
+  if (host.kind !== "sketchup") return sectionWith(t("Geometry"), null, locks);
   return sectionWith(
     t("Geometry"),
+    null,
+    locks,
     h("label", { class: "switch" }, sw, h("span", { class: "track" }), t("Send line drawing to hold geometry")),
     s.linePass
       ? h(
@@ -2617,20 +3835,27 @@ function fixturesSection(): HTMLElement {
 
 function onboarding(): HTMLElement {
   const s = state.settings;
+  // Keys first: they are the steady way. The browser options copy into chat
+  // sites whose pages change without notice, so they are the fallback.
   const choices: { id: string; label: string; sub: string; iconName: string; apply: () => void }[] = [
-    { id: "b-gemini", label: "Gemini", sub: "Your Google account", iconName: "render", apply: () => ((s.backend = "browser"), (s.browserSite = "gemini")) },
-    { id: "b-chatgpt", label: "ChatGPT", sub: "Your OpenAI account", iconName: "wand", apply: () => ((s.backend = "browser"), (s.browserSite = "chatgpt")) },
-    { id: "b-flow", label: "Google Flow", sub: "Your Google account", iconName: "aerial", apply: () => ((s.backend = "browser"), (s.browserSite = "flow")) },
+    { id: "kie", label: "Kie.ai key", sub: "Recommended · Nano Banana, GPT, Seedream", iconName: "key", apply: () => (s.backend = "kie") },
     { id: "key", label: "Gemini API key", sub: "From Google AI Studio", iconName: "key", apply: () => (s.backend = "gemini") },
+    ...(host.kind === "sketchup"
+      ? [
+          { id: "b-gemini", label: "Gemini", sub: "Fallback · your Google account", iconName: "render", apply: () => ((s.backend = "browser"), (s.browserSite = "gemini")) },
+          { id: "b-chatgpt", label: "ChatGPT", sub: "Fallback · your OpenAI account", iconName: "wand", apply: () => ((s.backend = "browser"), (s.browserSite = "chatgpt")) },
+          { id: "b-flow", label: "Google Flow", sub: "Fallback · your Google account", iconName: "aerial", apply: () => ((s.backend = "browser"), (s.browserSite = "flow")) },
+        ]
+      : []),
     { id: "comfy", label: "ComfyUI", sub: "Local models on this PC", iconName: "gear", apply: () => (s.backend = "comfyui") },
   ];
   const picked =
-    s.backend === "browser" ? `b-${s.browserSite}` : s.backend === "comfyui" ? "comfy" : s.backend === "gemini" && state.onboardStep > 0 ? "key" : state.onboardPick;
+    s.backend === "browser" ? `b-${s.browserSite}` : s.backend === "comfyui" ? "comfy" : s.backend === "kie" ? "kie" : s.backend === "gemini" && state.onboardStep > 0 ? "key" : state.onboardPick;
   const finish = async () => {
     s.onboarded = true;
     await persist();
     render();
-    toast("All set. Frame a view and press Capture.", "ok");
+    toast("All set", "ok");
   };
   const card = h("div", { class: "onboard" });
   card.append(logo(40), h("h2", {}, "Welcome to David Render Studio"));
@@ -2685,6 +3910,35 @@ function onboarding(): HTMLElement {
           : h("p", { class: "hint warn" }, "Account sign-in works inside the SketchUp plugin. In the web app, pick Gemini API key instead."),
         h("div", { class: "row" }, back, h("span", { class: "grow" }), button("I've signed in", "check", finish, "primary")),
       );
+    } else if (s.backend === "kie") {
+      const key = h("input", { type: "password", value: s.kieKey, placeholder: "Paste your Kie.ai API key", autocomplete: "off" }) as HTMLInputElement;
+      card.append(
+        h(
+          "p",
+          { class: "hint" },
+          "Get a key at ",
+          extLink(KIE_KEY_PAGE, "kie.ai/api-key"),
+          ". One key covers Nano Banana, GPT Image and Seedream, billed to your own Kie credits.",
+        ),
+        key,
+        h(
+          "div",
+          { class: "row" },
+          back,
+          h("span", { class: "grow" }),
+          button("Test and finish", "check", async () => {
+            s.kieKey = key.value.trim();
+            if (!s.kieKey) return toast("Paste a key first.", "error");
+            try {
+              toast("Checking key...");
+              toast(await makeProvider(s, host).test(), "ok");
+              await finish();
+            } catch (e) {
+              toast((e as Error).message, "error");
+            }
+          }, "primary"),
+        ),
+      );
     } else if (s.backend === "gemini") {
       const key = h("input", { type: "password", value: s.geminiKey, placeholder: "Paste your Gemini API key", autocomplete: "off" }) as HTMLInputElement;
       card.append(
@@ -2699,7 +3953,7 @@ function onboarding(): HTMLElement {
             s.geminiKey = key.value.trim();
             if (!s.geminiKey) return toast("Paste a key first.", "error");
             try {
-              toast("Checking the key...");
+              toast("Checking key...");
               await new GeminiProvider(s.geminiKey).listImageModels();
               await finish();
             } catch (e) {

@@ -345,7 +345,35 @@ export interface RenderPromptInput {
   extras?: string[];
   /** How strictly the render must match the line drawing, 0..1. */
   lineStrength?: number;
+  /** "photo" = real photograph (default), "cgi" = high-end 3D render look. */
+  look?: RenderLook;
+  /** Copy every material from the model one-to-one. */
+  materialLock?: boolean;
+  /** Improve realism only inside each material's own area. */
+  boundaryLock?: boolean;
+  /** Material list from Material DNA, one "Object: material" per line. */
+  dna?: string[];
+  /** People line written by Analyse people. */
+  people?: string;
+  /** A style reference image is sent after the view (and line pass). */
+  referenceIndex?: number;
+  /** The reference image is an earlier render of this project (style lock). */
+  referenceIsRender?: boolean;
+  /** Time of day comes from the Time generator, so the preset's lighting is left out. */
+  lightingFromDynamic?: boolean;
+  /** Things to avoid, comma separated. */
+  avoid?: string;
 }
+
+export type RenderLook = "photo" | "cgi";
+
+export const DEFAULT_AVOID =
+  "CGI look, plastic or fake materials, flat lighting, unrealistic reflections, overexposure, low contrast, cartoon or illustration style, warped lines, text, watermark";
+
+export const MATERIAL_LOCK =
+  "Material lock: keep every material, colour and texture exactly as modelled, one to one, with no substitutions.";
+export const BOUNDARY_LOCK =
+  "Boundary lock: only make each material more realistic inside its own existing area; do not move, merge or blend the edges between materials.";
 
 /**
  * Prompt lines for the hidden-line pass. `strength` 0..1 sets how strictly
@@ -384,32 +412,72 @@ export function geometryLines(strength: number): string[] {
 
 export function buildRenderPrompt(input: RenderPromptInput): string {
   const { preset, notes, facts, hasLinePass, extras } = input;
+  const cgi = input.look === "cgi";
   const strength = input.lineStrength ?? 0.8;
   const type = PROJECT_TYPES[preset.projectType];
   const lighting = lightingText(preset.lighting, facts);
   const env = contextText(preset.environment);
 
   const lines: string[] = [];
-  lines.push(`Turn the first image into ${type.text}.`);
+  lines.push(
+    cgi
+      ? `Turn the first image into a high-end architectural 3D visualisation (V-Ray or Corona quality) of this ${/of this (.+?)(,|$)/.exec(type.text)?.[1] ?? "design"}.`
+      : `Turn the first image into ${type.text}.`,
+  );
   if (!hasLinePass || strength >= 0.6) {
     lines.push(
       "Keep the exact geometry: building outline, massing, roof shape, floor levels, window and door positions, and camera angle must not change. Do not add or remove storeys, columns or openings.",
     );
   }
   if (hasLinePass) lines.push(...geometryLines(strength));
-  if (preset.style.trim()) lines.push(`Materials and style: ${preset.style.trim()}.`);
-  if (lighting) lines.push(`Lighting: ${lighting}.`);
+  if (input.materialLock) lines.push(MATERIAL_LOCK);
+  if (input.boundaryLock) lines.push(BOUNDARY_LOCK);
+  // One source of truth per topic, so the model never gets two answers:
+  // the material lock beats the preset's materials, a material list turns
+  // the preset into overall style only, and the Time generator replaces the
+  // preset's lighting.
+  const hasDna = Boolean(input.dna?.length);
+  const style = preset.style.trim();
+  if (style) {
+    if (input.materialLock) lines.push(`Finish quality and mood (materials stay as modelled): ${style}.`);
+    else if (hasDna) lines.push(`Overall style: ${style}.`);
+    else lines.push(`Materials and style: ${style}.`);
+  }
+  if (hasDna) {
+    lines.push(`Material list (one line per surface or object, keep these materials):\n${input.dna!.map((t) => `- ${t}`).join("\n")}`);
+  }
+  if (input.referenceIndex) {
+    lines.push(
+      input.referenceIsRender
+        ? `Image ${input.referenceIndex} is an earlier render of this same project from another angle: use exactly the same materials, colours, sky and lighting mood, so both images look like one photo shoot. Take only the geometry and camera from the first image, never from image ${input.referenceIndex}.`
+        : `Image ${input.referenceIndex} is a style reference only: match its mood, colour palette and material quality, but never copy its geometry, layout or objects.`,
+    );
+  }
+  if (lighting && !input.lightingFromDynamic) lines.push(`Lighting: ${lighting}.`);
   lines.push(...fixtureLines(facts));
   if (env) lines.push(`Surroundings: ${env}.`);
-  if (extras?.length) lines.push(...extras);
-  lines.push(`Camera: ${lensHint(preset.projectType, facts)}.`);
-  if (notes?.trim()) {
-    const khmer = /[\u1780-\u17FF]/.test(notes);
-    lines.push(`Additional notes${khmer ? " (written in Khmer; read them in Khmer and follow them)" : ""}: ${notes.trim()}.`);
+  const peopleSet = Boolean(input.people?.trim());
+  const extra = (extras ?? []).filter(
+    (x) => !(peopleSet && x.startsWith("People:")) && !(input.materialLock && x.startsWith("Materials:")),
+  );
+  lines.push(...extra);
+  if (peopleSet) lines.push(`People: ${input.people!.trim()}`);
+  if (!extra.some((x) => x.startsWith("Camera and effects:"))) lines.push(`Camera: ${lensHint(preset.projectType, facts)}.`);
+  const n = notes?.trim() ?? "";
+  if (n) {
+    const khmer = /[\u1780-\u17FF]/.test(n);
+    lines.push(`Additional notes${khmer ? " (written in Khmer; read them in Khmer and follow them)" : ""}: ${n}${/[.!?។]$/.test(n) ? "" : "."}`);
+  }
+  if (n && (hasDna || input.materialLock || style)) {
+    lines.push("If any of these instructions disagree, follow the additional notes first, then the material list or material lock, then the style.");
   }
   lines.push(
-    "Make it look like a real photograph by a professional architectural photographer: true-to-life materials, accurate scale, natural colour. No text, no watermark, no illustration style.",
+    cgi
+      ? "Make it a clean, polished 3D visualisation: accurate scale, crisp materials, balanced lighting. No text, no watermark."
+      : "Make it look like a real photograph by a professional architectural photographer: true-to-life materials, accurate scale, natural colour. No text, no watermark, no illustration style.",
   );
+  const avoid = input.avoid === undefined ? "" : input.avoid.trim();
+  if (avoid) lines.push(`Avoid: ${cgi ? avoid.replace(/CGI look,?\s*/i, "") : avoid}.`);
   return lines.join("\n");
 }
 

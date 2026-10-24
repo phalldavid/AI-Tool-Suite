@@ -5,7 +5,8 @@ import type { RenderRequest, RenderResult } from "../types";
 import { ProviderError, type Provider } from "./types";
 
 const API = "https://generativelanguage.googleapis.com/v1beta";
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-image";
+// Nano Banana 2 on Google's own API.
+export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-image";
 
 interface GeminiPart {
   text?: string;
