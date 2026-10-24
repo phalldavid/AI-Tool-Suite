@@ -696,3 +696,42 @@ table.rated th { color: var(--muted); font-weight: 600; }
 /* On filled buttons the sweep is light, so it shows on the accent colour. */
 .btn.primary.working::after { background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.45) 50%, transparent 75%); background-size: 250% 100%; animation: scan 1.2s linear infinite; }
 .btn.working::after { animation-duration: 1.2s; }
+
+/* Template library */
+.lib-sheet { max-width: 1100px; height: 92vh; }
+.lib-sheet .sheet-head > div { display: flex; flex-direction: column; gap: 2px; }
+.lib-count { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.lib-search { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; }
+.lib-search:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.lib-filters { display: flex; flex-direction: column; gap: 8px; }
+.lib-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.lib-chips .chip { flex: 0 0 auto; white-space: nowrap; }
+.lib-rooms { display: flex; flex-direction: column; gap: 6px; }
+.lib-room-group { display: flex; flex-direction: column; gap: 4px; }
+.lib-room-group small { font-size: 11px; color: var(--muted); font-weight: 600; }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-content: start; }
+.lib-card { position: relative; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--field); color: var(--text); cursor: pointer; text-align: left; transition: border-color var(--dur, 0.15s), transform var(--dur, 0.15s); }
+.lib-card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.lib-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lib-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.lib-card strong { padding: 8px 10px 10px; font-size: 12px; font-weight: 650; line-height: 1.3; }
+.lib-art { position: relative; display: block; aspect-ratio: 4 / 3; overflow: hidden; }
+.lib-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lib-board { position: absolute; inset: 0; display: flex; align-items: flex-end; }
+.lib-blocks { display: flex; width: 100%; height: 42%; }
+.lib-blocks i { flex: 1; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18); }
+.lib-blocks i:first-child { flex: 1.6; }
+.lib-badge { position: absolute; left: 6px; top: 6px; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-style: normal; font-weight: 700; background: rgba(0, 0, 0, 0.6); color: #fff; }
+.lib-check { position: absolute; right: 6px; top: 6px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent, #1b1206); }
+.lib-current { display: flex; gap: 10px; align-items: center; }
+.lib-current .lib-card { width: 150px; flex: 0 0 auto; }
+.lib-current .btn { flex: 1; }
+@media (max-width: 380px) { .lib-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 700px) { .lib-chips { flex-wrap: wrap; overflow: visible; } }
+
+/* Kie balance next to Render */
+.credit { flex: 0 0 auto; height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: 600 13px/1 var(--font, inherit); font-variant-numeric: tabular-nums; cursor: pointer; }
+.credit:hover { color: var(--text); border-color: var(--accent); }
+.credit.low { color: var(--warn, #e0a030); border-color: var(--warn, #e0a030); }
+/* Narrow panels: library tabs show icons only, so no label gets cut off */
+@media (max-width: 520px) { .lib-sheet .seg button { font-size: 0; gap: 0; } .lib-sheet .seg button svg { width: 18px; height: 18px; } }

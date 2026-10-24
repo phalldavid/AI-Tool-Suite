@@ -66,7 +66,7 @@ test("kie failures and bad keys read as plain messages", async () => {
 
 test("kie test reports the balance in credits and dollars", async () => {
   const { t } = fakeTransport([]);
-  assert.match(await new KieProvider("k", "nano-banana-2-1", "1K", t).test(), /100 credits \(about \$0\.50\)/);
+  assert.match(await new KieProvider("k", "nano-banana-2-1", "1K", t).test(), /\$0\.50 left \(100 credits\)/);
 });
 
 test("kie model helpers: prices, resolutions, ratios, results", () => {

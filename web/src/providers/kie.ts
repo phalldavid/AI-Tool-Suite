@@ -195,11 +195,18 @@ export class KieProvider implements Provider {
     }
   }
 
+  /** Credits left on the key, or null if Kie does not say. */
+  async balance(): Promise<number | null> {
+    if (!this.apiKey) return null;
+    const credits = Number(await this.call("GET", `${API}/chat/credit`));
+    return Number.isFinite(credits) ? credits : null;
+  }
+
   async test(): Promise<string> {
     if (!this.apiKey) throw new ProviderError("Paste your Kie.ai API key first.");
     const credits = Number(await this.call("GET", `${API}/chat/credit`));
     if (!Number.isFinite(credits)) return "Key works.";
-    return `Key works. Balance: ${Math.round(credits * 10) / 10} credits (about $${(credits * USD_PER_CREDIT).toFixed(2)}).`;
+    return `Key works · $${(credits * USD_PER_CREDIT).toFixed(2)} left (${Math.round(credits)} credits)`;
   }
 }
 
