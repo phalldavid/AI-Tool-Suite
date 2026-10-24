@@ -85,4 +85,6 @@ export interface HistoryItem {
   presetId?: string;
   /** The user's verdict: 1 usable, -1 not usable. */
   rating?: 1 | -1;
+  /** Kie credits this image cost, when known. */
+  credits?: number;
 }

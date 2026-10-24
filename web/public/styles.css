@@ -737,3 +737,22 @@ table.rated th { color: var(--muted); font-weight: 600; }
 @media (max-width: 520px) { .lib-sheet .seg button { font-size: 0; gap: 0; } .lib-sheet .seg button svg { width: 18px; height: 18px; } }
 .help-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .help-row .btn { flex: 1 1 160px; }
+.render-cost { font-size: 12px; font-weight: 600; opacity: 0.75; padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.12); font-variant-numeric: tabular-nums; }
+.spend-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.spend-row > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--field); border: 1px solid var(--line); }
+.spend-row strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.spend-row small { font-size: 11px; color: var(--muted); }
+
+/* Crop popup for uploads */
+.crop-backdrop { z-index: 60; }
+.crop-stage { position: relative; align-self: center; max-width: 100%; touch-action: none; user-select: none; line-height: 0; }
+.crop-stage img { max-width: 100%; max-height: 56vh; display: block; border-radius: 8px; }
+.crop-box { position: absolute; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55); outline: 2px solid var(--accent); outline-offset: -2px; cursor: move; background-image: linear-gradient(to right, transparent 33.2%, rgba(255,255,255,0.35) 33.3%, transparent 33.5%, transparent 66.5%, rgba(255,255,255,0.35) 66.6%, transparent 66.8%), linear-gradient(to bottom, transparent 33.2%, rgba(255,255,255,0.35) 33.3%, transparent 33.5%, transparent 66.5%, rgba(255,255,255,0.35) 66.6%, transparent 66.8%); }
+.crop-stage { overflow: hidden; border-radius: 8px; }
+.crop-handle { position: absolute; width: 22px; height: 22px; border: 3px solid #fff; border-radius: 3px; }
+.crop-handle.nw { left: 0; top: 0; border-right: 0; border-bottom: 0; cursor: nwse-resize; }
+.crop-handle.ne { right: 0; top: 0; border-left: 0; border-bottom: 0; cursor: nesw-resize; }
+.crop-handle.sw { left: 0; bottom: 0; border-right: 0; border-top: 0; cursor: nesw-resize; }
+.crop-handle.se { right: 0; bottom: 0; border-left: 0; border-top: 0; cursor: nwse-resize; }
+.crop-sheet .sheet-actions { align-items: center; }
+.crop-sheet .sheet-actions small { margin-right: auto; font-variant-numeric: tabular-nums; }

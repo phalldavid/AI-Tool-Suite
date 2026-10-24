@@ -206,7 +206,7 @@ export class KieProvider implements Provider {
     if (!this.apiKey) throw new ProviderError("Paste your Kie.ai API key first.");
     const credits = Number(await this.call("GET", `${API}/chat/credit`));
     if (!Number.isFinite(credits)) return "Key works.";
-    return `Key works · $${(credits * USD_PER_CREDIT).toFixed(2)} left (${Math.round(credits)} credits)`;
+    return `Key works · ${Math.floor(credits).toLocaleString("en-US")} credits left (about $${(credits * USD_PER_CREDIT).toFixed(2)})`;
   }
 }
 

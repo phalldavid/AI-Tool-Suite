@@ -41,7 +41,7 @@ import {
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
-import { USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieResolution } from "./providers/kie-models";
+import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
@@ -367,7 +367,7 @@ function helpSection(): HTMLElement {
     h(
       "div",
       { class: "help-row" },
-      button("Contact on Telegram", "send", async () => openExternal(CONTACT_URL), "ghost"),
+      button("Contact", "send", async () => openExternal(CONTACT_URL), "ghost"),
       button("Report a bug", "bug", reportBug, "ghost"),
     ),
     h("p", { class: "hint" }, `Contact: ${CONTACT_LABEL}. Report a bug copies your version, AI service and recent log (never your keys), then opens Telegram so you can paste it. Version ${APP_VERSION}.`),
@@ -606,9 +606,9 @@ function backendPill(): HTMLElement {
     s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : s.backend === "kie" ? `Kie.ai, ${findKieModel(s.kieModel).label}` : "Backend settings";
   return h(
     "button",
-    { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title, type: "button" },
+    { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title: ready ? `${platform}. ${title}` : "Not connected. Open Settings to add a key.", type: "button" },
     h("span", { class: "dot" }),
-    ready ? h("span", {}, h("strong", {}, platform), h("span", { class: "pill-state" }, " · Connected")) : "Set up backend",
+    h("span", {}, ready ? "Connected" : "Not connected"),
   );
 }
 
@@ -791,8 +791,148 @@ async function doCapture(): Promise<void> {
   }
 }
 
+interface CropChoice {
+  rect: [number, number, number, number];
+  /** frame id the crop was drawn at, "free" when not locked to a ratio */
+  frameId: string;
+}
+
+/**
+ * Crop popup for an uploaded picture. Resolves with the chosen rectangle in
+ * image pixels, or null when the user keeps the whole image.
+ */
+function cropUpload(img: ImageData64, natural: { width: number; height: number }): Promise<CropChoice | null> {
+  return new Promise((resolve) => {
+    const W = natural.width;
+    const H = natural.height;
+    const startFrame = findFrame(state.frameId);
+    let frameId = startFrame.ratio ? startFrame.id : "free";
+    // Box in image pixels.
+    let box = { x: 0, y: 0, w: W, h: H };
+    const ratioOf = (id: string) => (id === "free" ? 0 : findFrame(id).ratio);
+    const fit = (ratio: number) => {
+      if (!ratio) return { x: 0, y: 0, w: W, h: H };
+      let w = W;
+      let h = w / ratio;
+      if (h > H) {
+        h = H;
+        w = h * ratio;
+      }
+      return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+    };
+    box = fit(ratioOf(frameId));
+
+    const frameEl = h("div", { class: "crop-box" },
+      ...["nw", "ne", "sw", "se"].map((c) => h("i", { class: `crop-handle ${c}`, "data-corner": c })),
+    );
+    const imgEl = h("img", { src: toDataUrl(img), alt: "Uploaded image", draggable: "false" });
+    const wrap = h("div", { class: "crop-stage" }, imgEl, frameEl);
+    const sizeOut = h("small", { class: "muted" });
+    const place = () => {
+      frameEl.style.left = `${(box.x / W) * 100}%`;
+      frameEl.style.top = `${(box.y / H) * 100}%`;
+      frameEl.style.width = `${(box.w / W) * 100}%`;
+      frameEl.style.height = `${(box.h / H) * 100}%`;
+      sizeOut.textContent = `${Math.round(box.w)} × ${Math.round(box.h)} px`;
+    };
+
+    let drag: { mode: string; px: number; py: number; start: typeof box } | null = null;
+    wrap.addEventListener("pointerdown", (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      const corner = t.dataset.corner;
+      if (!corner && !frameEl.contains(t)) return;
+      e.preventDefault();
+      wrap.setPointerCapture(e.pointerId);
+      drag = { mode: corner ?? "move", px: e.clientX, py: e.clientY, start: { ...box } };
+    });
+    wrap.addEventListener("pointermove", (e: PointerEvent) => {
+      if (!drag) return;
+      const scale = W / wrap.getBoundingClientRect().width;
+      const dx = (e.clientX - drag.px) * scale;
+      const dy = (e.clientY - drag.py) * scale;
+      const b = { ...drag.start };
+      const ratio = ratioOf(frameId);
+      const min = Math.min(W, H) * 0.08;
+      if (drag.mode === "move") {
+        b.x = Math.min(Math.max(0, b.x + dx), W - b.w);
+        b.y = Math.min(Math.max(0, b.y + dy), H - b.h);
+      } else {
+        const left = drag.mode.includes("w");
+        const top = drag.mode.includes("n");
+        // Fixed corner stays put; the dragged one follows the pointer.
+        const fx = left ? b.x + b.w : b.x;
+        const fy = top ? b.y + b.h : b.y;
+        let w = Math.max(min, left ? b.w - dx : b.w + dx);
+        let hh = Math.max(min, top ? b.h - dy : b.h + dy);
+        w = Math.min(w, left ? fx : W - fx);
+        hh = Math.min(hh, top ? fy : H - fy);
+        if (ratio) {
+          if (w / hh > ratio) w = hh * ratio;
+          else hh = w / ratio;
+        }
+        b.w = w;
+        b.h = hh;
+        b.x = left ? fx - w : fx;
+        b.y = top ? fy - hh : fy;
+      }
+      box = b;
+      place();
+    });
+    const end = () => (drag = null);
+    wrap.addEventListener("pointerup", end);
+    wrap.addEventListener("pointercancel", end);
+
+    const chips = h("div", { class: "chips" });
+    const drawChips = () => {
+      clear(chips);
+      const opts = [{ id: "free", label: "Free" }, ...FRAMES.filter((f) => f.ratio).map((f) => ({ id: f.id, label: f.label }))];
+      for (const o of opts) {
+        chips.append(chip(o.label, o.id === frameId, () => {
+          frameId = o.id;
+          box = fit(ratioOf(frameId));
+          place();
+          drawChips();
+        }));
+      }
+    };
+    drawChips();
+
+    const done = (choice: CropChoice | null) => {
+      backdrop.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(choice);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && done(null);
+    document.addEventListener("keydown", onKey);
+    const sheet = h(
+      "div",
+      { class: "sheet wide crop-sheet", role: "dialog", "aria-modal": "true", "aria-label": "Crop image" },
+      h("div", { class: "sheet-head" }, h("h2", {}, "Crop image"), iconButton("close", "Use whole image", () => done(null))),
+      h("p", { class: "hint" }, "Drag the box to move it, drag a corner to resize. The render comes out at this shape."),
+      chips,
+      wrap,
+      h(
+        "div",
+        { class: "sheet-actions" },
+        sizeOut,
+        button("Use whole image", "close", async () => done(null), "ghost"),
+        primaryButton("Crop", "check", async () => done({ rect: [box.x, box.y, box.w, box.h], frameId }), false),
+      ),
+    );
+    const backdrop = h("div", { class: "sheet-backdrop crop-backdrop" }, sheet);
+    root.append(backdrop);
+    place();
+  });
+}
+
 async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
-  const img = await fileToImage(file);
+  let img = await fileToImage(file);
+  const natural = await imageSize(img);
+  const choice = await cropUpload(img, natural);
+  if (choice) {
+    img = await cropImage(img, choice.rect);
+    if (target === "render") state.frameId = choice.frameId;
+  }
   if (target === "edit") {
     state.editSource = img;
     painter = null;
@@ -800,7 +940,7 @@ async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
     return;
   }
   state.original = img;
-  const view = await cropToRatio(img, findFrame(state.frameId).ratio);
+  const view = choice ? img : await cropToRatio(img, findFrame(state.frameId).ratio);
   state.capture = { view, source: "upload" };
   state.capturedFrameId = state.frameId;
   state.result = null;
@@ -1173,7 +1313,7 @@ function quickTab(body: HTMLElement): void {
         sceneTypeControl(),
         h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map(presetCard)),
         quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-current" }, libCard({ ...state.preset, styleId: "", subjectId: "", colors: [] } as LibItem, true)),
-        button("More styles", "search", () => openLibrary(), "ghost wide"),
+        button("Browse all", "search", () => openLibrary(), "ghost wide"),
       ),
     );
   }
@@ -1418,7 +1558,7 @@ function renderTab(body: HTMLElement): void {
     "div",
     { class: "lib-current" },
     libCard({ ...p, styleId: "", subjectId: "", colors: [] } as LibItem, true),
-    button(`Browse ${libraryItems().length} styles`, "search", () => openLibrary(), "primary"),
+    button("Browse all", "search", () => openLibrary(), "primary"),
   );
   if (!lock) body.append(
     fold(sectionWith(
@@ -1601,6 +1741,7 @@ function renderBar(): HTMLElement {
     { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: runRender, type: "button" },
     icon("render", 20),
     h("span", { id: "render-label" }, t(state.busy ? "Rendering..." : state.result ? "Render again" : "Render")),
+    !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${renderCost()} credits`) : null,
   );
   return h(
     "div",
@@ -1888,6 +2029,7 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
     after,
     provider: provider.label,
     model: provider.modelName ?? state.settings.comfyUrl,
+    credits: state.settings.backend === "kie" ? creditsFor(findKieModel(state.settings.kieModel), state.settings.kieResolution) ?? undefined : undefined,
   });
   state.history = await listHistory();
 }
@@ -1918,21 +2060,30 @@ async function refreshCredits(): Promise<void> {
 }
 
 function creditText(c: number): string {
-  return `$${(c * USD_PER_CREDIT).toFixed(2)}`;
+  return `${Math.floor(c).toLocaleString("en-US")} credits`;
+}
+
+/** Credits one press of Render costs on Kie, all images included; null when unknown. */
+function renderCost(): number | null {
+  const s = state.settings;
+  if (s.backend !== "kie") return null;
+  const per = creditsFor(findKieModel(s.kieModel), s.kieResolution);
+  return per === null ? null : per * Math.max(1, s.imageCount);
 }
 
 function creditReadout(): HTMLElement {
   const c = state.kieCredits;
   const s = state.settings;
   if (s.backend !== "kie" || !s.kieKey || c === null) return h("span", { id: "credit-readout", hidden: true });
-  const low = c * USD_PER_CREDIT < 1;
+  const cost = renderCost();
+  const low = cost ? c < cost * 3 : c * USD_PER_CREDIT < 1;
   return h(
     "button",
     {
       id: "credit-readout",
       class: `credit${low ? " low" : ""}`,
       type: "button",
-      title: `${Math.round(c * 10) / 10} Kie credits left. Click to refresh.`,
+      title: `${creditText(c)} left on Kie (about $${(c * USD_PER_CREDIT).toFixed(2)}). Click to refresh.`,
       "aria-label": `Kie balance ${creditText(c)}. Click to refresh.`,
       onclick: withFeedback(refreshCredits),
     },
@@ -2707,6 +2858,7 @@ function historyTab(body: HTMLElement): void {
     return;
   }
   const detail = h("div", {});
+  body.append(spendingSection());
   const rated = ratingSummary(state.history).slice(0, 5);
   if (rated.length) {
     body.append(
@@ -2748,11 +2900,38 @@ function historyTab(body: HTMLElement): void {
   );
 }
 
+/** Credits spent from this app, from its own history. Kie has no API for the account log. */
+function spendingSection(): HTMLElement {
+  const month = new Date();
+  month.setDate(1);
+  month.setHours(0, 0, 0, 0);
+  const paid = state.history.filter((x) => x.credits !== undefined);
+  const sum = (list: HistoryItem[]) => list.reduce((n, x) => n + (x.credits ?? 0), 0);
+  const thisMonth = paid.filter((x) => x.createdAt >= month.getTime());
+  return section(
+    "Credits used",
+    h(
+      "div",
+      { class: "spend-row" },
+      h("div", {}, h("strong", {}, sum(thisMonth).toLocaleString("en-US")), h("small", {}, "this month")),
+      h("div", {}, h("strong", {}, sum(paid).toLocaleString("en-US")), h("small", {}, `all ${paid.length} Kie renders here`)),
+      state.kieCredits !== null ? h("div", {}, h("strong", {}, Math.floor(state.kieCredits).toLocaleString("en-US")), h("small", {}, "left on Kie")) : null,
+    ),
+    h(
+      "p",
+      { class: "hint" },
+      "Counted from renders made in this app on this computer. Kie does not let apps read your account log, so for every charge see the Logs tab on ",
+      extLink("https://kie.ai", "kie.ai"),
+      ".",
+    ),
+  );
+}
+
 function historyDetail(item: HistoryItem): HTMLElement {
   historyIds.set(item.after, item.id);
   return section(
     `${toolLabel(item.tool)}${item.presetName ? ` · ${item.presetName}` : ""}`,
-    h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}`),
+    h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}${item.credits !== undefined ? ` · ${item.credits} credits` : ""}`),
     h("div", { class: "stage-frame" }, compareSlider(item.before, item.after)),
     resultActions(item.after, item.tool),
     h("details", {}, h("summary", {}, "Prompt used"), h("pre", {}, item.prompt)),
@@ -3275,7 +3454,7 @@ function settingsSheet(): HTMLElement {
           ? h(
               "div",
               { class: "row balance-row" },
-              h("span", { class: "grow" }, state.kieCredits === null ? "Balance: not checked yet" : `Balance: ${creditText(state.kieCredits)} (${Math.round(state.kieCredits)} credits)`),
+              h("span", { class: "grow" }, state.kieCredits === null ? "Balance: not checked yet" : `Balance: ${creditText(state.kieCredits)} (about $${(state.kieCredits * USD_PER_CREDIT).toFixed(2)})`),
               button("Refresh", "refresh", async () => {
                 await refreshCredits();
                 if (state.kieCredits === null) toast("Couldn't get the balance.", "error");

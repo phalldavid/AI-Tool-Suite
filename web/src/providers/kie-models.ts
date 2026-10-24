@@ -169,3 +169,9 @@ export function ratioFor(m: KieModel, wanted?: string): string {
 
 /** Kie credits are bought at 200 per US dollar (list rate). */
 export const USD_PER_CREDIT = 0.005;
+
+/** Credits per image at the resolution used, or null when Kie does not publish the price. */
+export function creditsFor(m: KieModel, wanted: KieResolution): number | null {
+  const p = priceFor(m, wanted);
+  return p === null ? null : Math.round(p / USD_PER_CREDIT);
+}
