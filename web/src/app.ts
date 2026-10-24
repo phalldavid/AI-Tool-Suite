@@ -47,6 +47,8 @@ import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./con
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, findLibraryItem, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
+import { PREVIEW_PACK } from "./preview-pack";
+import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
 import { friendlyError, KIE_TOPUP_URL, type FixAction } from "./errors";
@@ -135,6 +137,11 @@ interface State {
   /** Kie credits left, null until checked. */
   kieCredits: number | null;
   lib: { open: boolean; type: ProjectType | "mine"; style: string; subject: string; query: string };
+  /** Style preview sheets made on this computer, by sheet id. */
+  sheets: Record<string, SheetRecord>;
+  /** Card pictures from style previews, by key ("int:japandi"). */
+  previews: Map<string, string>;
+  previewsOpen: boolean;
   modelSheet: boolean;
   keysOpen: boolean;
   tourStep: number;
@@ -202,6 +209,9 @@ export async function start(el: HTMLElement): Promise<void> {
     anglesOpen: false,
     kieCredits: null,
     lib: { open: false, type: "exterior", style: "all", subject: "all", query: "" },
+    sheets: {},
+    previews: new Map(),
+    previewsOpen: false,
     modelSheet: false,
     keysOpen: false,
     tourStep: 0,
@@ -226,6 +236,8 @@ export async function start(el: HTMLElement): Promise<void> {
     busySince: 0,
     abort: null,
   };
+  state.sheets = await loadSheets();
+  state.previews = previewMap(state.sheets);
   document.body.dataset.host = host.kind;
   applyLook(settings);
   setLang(settings.lang);
@@ -918,6 +930,7 @@ function render(): void {
   if (state.ctxOpen) root.append(contextSheet());
   if (state.anglesOpen) root.append(anglesSheet());
   if (state.lib.open) root.append(librarySheet());
+  if (state.previewsOpen) root.append(previewsSheet());
   if (state.modelSheet) root.append(modelSheet());
   if (state.keysOpen) root.append(shortcutsSheet());
   if (state.analyseOpen === "dna") root.append(dnaSheet());
@@ -1608,12 +1621,20 @@ function ownThumb(id: string): ImageData64 | null {
   return (mine.find((x) => x.rating === 1) ?? mine[0])?.after ?? null;
 }
 
+/** The card base subject each preview sheet was drawn on. */
+const SAMPLE_SUBJECT: Partial<Record<ProjectType, string>> = { exterior: "villa", interior: "living", aerial: "borey" };
+
 function libCard(x: LibItem, current = false): HTMLElement {
   const thumb = ownThumb(x.id);
+  const key = thumb ? null : previewKey(x.projectType, x.styleId);
+  const sample = key ? state.previews.get(key) : undefined;
   const [sky, glow] = lightSwatch(x.lighting);
   const blocks = x.colors.length ? x.colors : presetSwatches(x);
+  const badge = thumb ? "Your render" : sample && x.subjectId !== SAMPLE_SUBJECT[x.projectType] ? "Style sample" : null;
   const art = thumb
     ? h("img", { src: toDataUrl(thumb), alt: "", loading: "lazy" })
+    : sample
+    ? h("img", { src: sample, alt: "", loading: "lazy" })
     : h(
         "span",
         { class: "lib-board", style: `background:linear-gradient(180deg, ${sky}, ${glow})` },
@@ -1635,7 +1656,7 @@ function libCard(x: LibItem, current = false): HTMLElement {
         toast(x.name, "ok");
       },
     },
-    h("span", { class: "lib-art" }, art, thumb ? h("em", { class: "lib-badge" }, "Your render") : null, active ? h("span", { class: "lib-check" }, icon("check", 14)) : null),
+    h("span", { class: "lib-art" }, art, badge ? h("em", { class: "lib-badge" }, badge) : null, active ? h("span", { class: "lib-check" }, icon("check", 14)) : null),
     h("strong", {}, x.name),
   );
   return current ? card : h("div", { class: "lib-cell" }, card, starButton(x.id, x.name));
@@ -1754,9 +1775,197 @@ function librarySheet(): HTMLElement {
         render();
       }),
       filters,
+      L.type === "exterior" || L.type === "interior" || L.type === "aerial" ? previewsRow() : null,
       grid,
     ),
   );
+}
+
+// ---------- Style previews ----------
+
+/** Credits for one sheet, from the model list so it follows price changes. */
+function sheetCredits(): number {
+  return creditsFor(findKieModel(SHEET_MODEL), SHEET_RESOLUTION) ?? 6;
+}
+
+/** Credits for redoing one tile as its own 1K render. */
+function tileCredits(): number {
+  return creditsFor(findKieModel(SHEET_MODEL), "1K") ?? 4;
+}
+
+/** Redoes one style as a single 1K render, following a good tile from the same sheet. */
+async function redoTile(def: SheetDef, i: number): Promise<void> {
+  const rec = state.sheets[def.id];
+  const key = state.settings.kieKey.trim();
+  if (!rec) return;
+  if (!key) throw new Error("Style previews run on your Kie.ai key. Add it in Settings first.");
+  if (sheetJob) throw new Error("A preview is already being made. Wait for it to finish.");
+  sheetJob = new AbortController();
+  try {
+    // Prefer the first tile, which sets the room for the whole sheet.
+    const ref = rec.tiles.findIndex((x, n) => n !== i && x && !rec.hidden.includes(n));
+    const images = ref >= 0 ? [tileImage(rec.tiles[ref])] : [];
+    const p = new KieProvider(key, SHEET_MODEL, "1K", host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
+    toast(`Redoing ${def.tiles[i].label}...`);
+    const res = await p.render({ prompt: tilePrompt(def, i, images.length > 0), images, aspectRatio: "4:3" }, sheetJob.signal);
+    rec.tiles[i] = await tileFromImage(res.image);
+    rec.hidden = rec.hidden.filter((n) => n !== i);
+    rec.redone = [...new Set([...(rec.redone ?? []), i])];
+    rec.credits = (rec.credits ?? 0) + tileCredits();
+    await saveSheet(rec);
+    state.previews = previewMap(state.sheets);
+    toast(`${def.tiles[i].label} redone.`, "ok");
+  } finally {
+    sheetJob = null;
+    refreshCredits();
+  }
+}
+
+function previewsRow(): HTMLElement {
+  const made = SHEETS.filter((d) => state.sheets[d.id]).length;
+  const total = SHEETS.reduce((n, d) => n + d.tiles.length, 0);
+  return h(
+    "div",
+    { class: "pv-row" },
+    icon("wand", 16),
+    h(
+      "span",
+      { class: "grow" },
+      made
+        ? `Style previews: ${made} of ${SHEETS.length} sheets made on this computer.`
+        : Object.keys(PREVIEW_PACK).length
+        ? `Card pictures come with the app. Make your own set of ${total} on your key for about ${sheetCredits() * SHEETS.length} credits.`
+        : `Real pictures on the cards: ${total} styles in ${SHEETS.length} images, about ${sheetCredits() * SHEETS.length} credits.`,
+    ),
+    button(made ? "Manage" : Object.keys(PREVIEW_PACK).length ? "Make my own" : "Make style previews", null, () => {
+      state.previewsOpen = true;
+      render();
+    }, "ghost small"),
+  );
+}
+
+let sheetJob: AbortController | null = null;
+
+/** Asks Kie for one contact sheet, cuts it and keeps the tiles. */
+async function makeSheet(def: SheetDef): Promise<void> {
+  const key = state.settings.kieKey.trim();
+  if (!key) throw new Error("Style previews run on your Kie.ai key. Add it in Settings first.");
+  if (sheetJob) throw new Error("A preview sheet is already being made. Wait for it to finish.");
+  sheetJob = new AbortController();
+  try {
+    const p = new KieProvider(key, SHEET_MODEL, SHEET_RESOLUTION, host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
+    toast(`Making ${def.label.toLowerCase()} sheet...`);
+    const res = await p.render({ prompt: sheetPrompt(def), images: [], aspectRatio: def.ratio }, sheetJob.signal);
+    const cut = await cutSheet(res.image, def);
+    const rec: SheetRecord = { id: def.id, createdAt: Date.now(), sheet: res.image, tiles: cut.tiles, hidden: [], issues: cut.check.issues, credits: sheetCredits() };
+    await saveSheet(rec);
+    state.sheets = { ...state.sheets, [def.id]: rec };
+    state.previews = previewMap(state.sheets);
+    toast(cut.check.ok ? `${def.label}: ${cut.tiles.length} previews ready.` : `${def.label}: made, but check the tiles.`, cut.check.ok ? "ok" : "info", cut.check.issues.join(" "));
+  } finally {
+    sheetJob = null;
+    refreshCredits();
+  }
+}
+
+function exportPreviews(): void {
+  const json = exportJson(state.sheets);
+  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+  const a = h("a", { href: url, download: "style-previews.json" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+  toast("Saved style-previews.json. Send it to David's Telegram to add these to the app for everyone.", "ok");
+}
+
+function previewsSheet(): HTMLElement {
+  const close = () => {
+    state.previewsOpen = false;
+    render();
+  };
+  const per = sheetCredits();
+  const missing = SHEETS.filter((d) => !state.sheets[d.id]);
+  const keyless = !state.settings.kieKey.trim();
+  const sheetBlock = (def: SheetDef): HTMLElement => {
+    const rec = state.sheets[def.id];
+    const tiles = h(
+      "div",
+      { class: "pv-tiles", style: `grid-template-columns:repeat(${Math.min(def.cols, 4)}, minmax(0, 1fr))` },
+      def.tiles.map((t, i) => {
+        const src = rec?.tiles[i];
+        const off = rec?.hidden.includes(i) ?? false;
+        const toggle = async () => {
+          if (!rec) return;
+          rec.hidden = off ? rec.hidden.filter((n) => n !== i) : [...rec.hidden, i];
+          await saveSheet(rec);
+          state.previews = previewMap(state.sheets);
+          render();
+        };
+        return h(
+          "div",
+          { class: `pv-tile${off ? " off" : ""}${rec?.redone?.includes(i) ? " redone" : ""}` },
+          src ? h("img", { src, alt: `${t.label} preview` }) : h("span", { class: "pv-empty" }),
+          src
+            ? h(
+                "span",
+                { class: "pv-tools" },
+                iconButton("refresh", `Redo ${t.label} on its own · ${tileCredits()} credits`, () => redoTile(def, i).then(render), "ghost"),
+                iconButton(off ? "eye" : "eyeOff", off ? `Use ${t.label} again` : `Hide ${t.label}: wrong or out of order`, toggle, "ghost"),
+              )
+            : null,
+          h("small", {}, t.label),
+        );
+      }),
+    );
+    return h(
+      "div",
+      { class: "pv-sheet" },
+      h(
+        "div",
+        { class: "pv-head" },
+        h("div", { class: "grow" }, h("strong", {}, def.label), h("small", { class: "muted" }, ` ${def.tiles.length} styles · ${per} credits`)),
+        rec
+          ? button("Re-run", "refresh", () => makeSheet(def).then(render), "ghost small", keyless)
+          : button("Make", "wand", () => makeSheet(def).then(render), "small", keyless),
+        rec
+          ? iconButton("trash", `Remove ${def.label.toLowerCase()} previews`, async () => {
+              await removeSheet(def.id);
+              const { [def.id]: _gone, ...rest } = state.sheets;
+              state.sheets = rest;
+              state.previews = previewMap(state.sheets);
+              render();
+            }, "ghost")
+          : null,
+      ),
+      rec?.issues.length ? h("p", { class: "pv-warn" }, icon("info", 14), h("span", {}, rec.issues.join(" "))) : null,
+      tiles,
+    );
+  };
+  const sheet = h(
+    "div",
+    { class: "sheet pv-sheet-wrap", role: "dialog", "aria-modal": "true", "aria-label": "Style previews" },
+    h("div", { class: "sheet-head" }, h("h2", {}, "Style previews"), iconButton("close", "Close", close)),
+    h(
+      "p",
+      { class: "hint" },
+      `The AI draws one picture with the same villa, living room or estate in a grid of styles, then the app cuts it into card pictures. Runs on your Kie key with ${findKieModel(SHEET_MODEL).label} at ${SHEET_RESOLUTION}: ${per} credits per sheet. Your own render for a style still takes the card first. If one tile is wrong, redo just that style (${tileCredits()} credits) or hide it so its card goes back to colours.`,
+    ),
+    keyless ? h("p", { class: "pv-warn" }, icon("key", 14), h("span", {}, "Add your Kie.ai key in Settings to make previews.")) : null,
+    ...SHEETS.map(sheetBlock),
+    h(
+      "div",
+      { class: "sheet-actions" },
+      Object.keys(state.sheets).length ? button("Export for the app", "save", exportPreviews, "ghost") : null,
+      missing.length
+        ? primaryButton(`Make ${missing.length === SHEETS.length ? "all" : "the rest"} · ${per * missing.length} credits`, "wand", async () => {
+            for (const d of missing) await makeSheet(d);
+            render();
+          }, keyless)
+        : null,
+    ),
+  );
+  return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && !sheetJob && close() }, sheet);
 }
 
 // ---------- Render queue: line up views, walk away ----------
