@@ -942,6 +942,9 @@ function lockScroll(on: boolean): void {
   }
 }
 
+// Windows added outside render() (crop, log) pin the page too.
+new MutationObserver(() => lockScroll(Boolean(document.querySelector(".sheet-backdrop, .onboard-backdrop")))).observe(document.body, { childList: true, subtree: true });
+
 function render(): void {
   const focused = focusPath();
   // Keep the page height while redrawing, so a tap does not make the page jump.
@@ -1245,6 +1248,13 @@ function uploadInput(target: "render" | "edit"): HTMLInputElement {
   return input;
 }
 
+/** Width over height of what the stage shows. */
+function stageRatio(cap: State["capture"]): number {
+  const v = cap?.view;
+  if (v?.width && v.height) return v.width / v.height;
+  return findFrame(state.frameId).ratio || 16 / 9;
+}
+
 function stage(): HTMLElement {
   const cap = state.capture;
   const input = uploadInput("render");
@@ -1282,7 +1292,8 @@ function stage(): HTMLElement {
     { class: "stage" },
     h(
       "div",
-      { class: freshResult && state.result ? "stage-frame fresh" : "stage-frame" },
+      // Tall pictures get narrower instead of taller, so the buttons stay on screen.
+      { class: freshResult && state.result ? "stage-frame fresh" : "stage-frame", style: `max-width:calc(60vh * ${stageRatio(cap).toFixed(3)})` },
       content,
       cap ? h("span", { class: "badge" }, frameLabel()) : null,
       state.result ? h("span", { class: "badge right" }, "Drag to compare") : null,
@@ -4068,7 +4079,7 @@ function modelList(pick: (id: string) => void): HTMLElement {
 /** Quick switch next to Render: the chosen model and size, opens the list in a sheet. */
 function modelChip(): HTMLElement | null {
   const s = state.settings;
-  if (s.backend !== "kie" || !s.kieKey.trim()) return null;
+  if (s.backend !== "kie") return null;
   const m = findKieModel(s.kieModel);
   return h(
     "button",
