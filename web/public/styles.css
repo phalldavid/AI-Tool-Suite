@@ -809,6 +809,22 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 7px; border-radius: 6
 .tour-dots i.on { background: var(--accent); width: 16px; border-radius: 3px; }
 .tour-target { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 12px; position: relative; z-index: 5; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35); }
 @media (prefers-reduced-motion: reduce) { .tour { animation: none; } }
+.project-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.project-row .field { min-width: 160px; flex: 1; margin: 0; }
+.project-new { display: flex; gap: 6px; flex: 1 1 220px; }
+.project-new input { flex: 1; min-width: 0; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; }
+.queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.queue-list li { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); }
+.queue-list img { width: 56px; height: 38px; object-fit: cover; border-radius: 6px; }
+.queue-list .grow { display: flex; flex-direction: column; min-width: 0; }
+.queue-list strong { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-list small { font-size: 11px; color: var(--muted); }
+.queue-list em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted); }
+.queue-list .q-running em { color: var(--accent-text, var(--accent)); }
+.queue-list .q-done em { color: var(--ok, #4cb782); }
+.queue-list .q-failed em { color: var(--danger, #e5484d); }
+.queue-list .q-running { border-color: var(--accent); }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 14px; min-height: 32px; } .check-row input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 /* Style previews */
 .pv-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: 12px; color: var(--muted); }

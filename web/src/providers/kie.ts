@@ -174,6 +174,7 @@ export class KieProvider implements Provider {
     })) as { taskId?: string } | undefined;
     const taskId = started?.taskId;
     if (!taskId) throw new ProviderError("Kie.ai did not start the job. Try again.");
+    req.onJob?.(taskId);
 
     const t0 = Date.now();
     for (;;) {
@@ -193,6 +194,21 @@ export class KieProvider implements Provider {
         throw new ProviderError("Kie.ai is taking more than 10 minutes. The job may still finish in your Kie.ai logs.");
       }
     }
+  }
+
+  /**
+   * Checks a job started earlier (e.g. before SketchUp closed): the image when
+   * it finished, "running" while it is still going, null when it failed.
+   */
+  async resume(taskId: string): Promise<ImageData64 | "running" | null> {
+    const info = (await this.call("GET", `${API}/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`)) as TaskInfo | undefined;
+    const state = info?.state ?? "";
+    if (state === "success") {
+      const url = resultUrl(info?.resultJson);
+      return url ? this.transport.image(url) : null;
+    }
+    if (state === "fail") return null;
+    return "running";
   }
 
   /** Credits left on the key, or null if Kie does not say. */

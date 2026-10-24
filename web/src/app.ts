@@ -52,6 +52,7 @@ import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets,
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
 import { friendlyError, KIE_TOPUP_URL, type FixAction } from "./errors";
+import { applyBackup, makeBackup } from "./backup";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
 import {
   cleanPeople,
@@ -144,6 +145,8 @@ interface State {
   modelSheet: boolean;
   keysOpen: boolean;
   tourStep: number;
+  /** History filter: "" all, a project name, or "No project". */
+  historyProject: string;
   editSource: ImageData64 | null;
   /** Earlier versions of the image being edited, newest last (Undo last edit). */
   editStack: ImageData64[];
@@ -212,6 +215,7 @@ export async function start(el: HTMLElement): Promise<void> {
     modelSheet: false,
     keysOpen: false,
     tourStep: 0,
+    historyProject: "",
     editSource: null,
     editStack: [],
     editMode: "spot",
@@ -226,7 +230,8 @@ export async function start(el: HTMLElement): Promise<void> {
     led: { profile: "soft", kelvin: 3000, intensity: 75, widthMm: 170 },
     mirrorFov: 60,
     lights: null,
-    history: await listHistory(),
+    // Loaded right after the first paint, so the panel opens at once.
+    history: [],
     busy: false,
     busySince: 0,
     abort: null,
@@ -266,6 +271,12 @@ export async function start(el: HTMLElement): Promise<void> {
   }
   render();
   refreshCredits();
+  listHistory().then((items) => {
+    state.history = items;
+    // Tab count, own-render cards and History need it: one redraw.
+    if (items.length) render();
+    recoverPending();
+  });
 }
 
 // ---------- helpers ----------
@@ -410,6 +421,50 @@ async function reportBug(): Promise<void> {
   }
   openExternal(CONTACT_URL);
   toast("Report copied, paste it in Telegram", "ok");
+}
+
+function downloadJson(data: unknown, name: string): void {
+  const a = h("a", { href: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data, null, 2))}`, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+/** Move presets, favourites, projects and choices to the other app or a new PC. */
+function backupSection(): HTMLElement {
+  const keys = h("input", { type: "checkbox" }) as HTMLInputElement;
+  const file = h("input", { type: "file", accept: "application/json,.json", class: "hidden" }) as HTMLInputElement;
+  file.addEventListener("change", async () => {
+    const f = file.files?.[0];
+    if (!f) return;
+    try {
+      const { settings, summary } = applyBackup(state.settings, JSON.parse(await f.text()));
+      state.settings = settings;
+      await persist();
+      applyLook(settings);
+      setLang(settings.lang);
+      render();
+      toast(`Imported: ${summary}`, "ok");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  });
+  return section(
+    "Backup and move",
+    h("p", { class: "hint" }, "One file with your presets, favourites, projects and choices. Import it in the SketchUp plugin or the web app, or on a new PC."),
+    h("label", { class: "check-row" }, keys, h("span", {}, "Include my API keys (keep that file private)")),
+    h(
+      "div",
+      { class: "help-row" },
+      button("Export settings", "save", async () => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        downloadJson(makeBackup(state.settings, keys.checked), `render-studio-settings-${stamp}.json`);
+        toast(keys.checked ? "Exported, keys included" : "Exported, keys left out", "ok");
+      }, "ghost"),
+      button("Import settings", "upload", async () => file.click(), "ghost"),
+      file,
+    ),
+  );
 }
 
 function helpSection(): HTMLElement {
@@ -1113,6 +1168,7 @@ function stage(): HTMLElement {
     { class: "stage-actions" },
     host.kind === "sketchup" ? primaryButton(t(cap ? "Recapture" : "Capture view"), "capture", doCapture, state.busy) : null,
     button(t("Upload"), "upload", () => input.click(), host.kind === "sketchup" ? "ghost" : "primary", state.busy),
+    cap ? button("Add to queue", "plus", addToQueue, "ghost") : null,
     input,
   );
   let content: HTMLElement;
@@ -1912,9 +1968,149 @@ function previewsSheet(): HTMLElement {
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && !sheetJob && close() }, sheet);
 }
 
+// ---------- Render queue: line up views, walk away ----------
+
+interface QueueItem {
+  id: string;
+  label: string;
+  preset: Preset;
+  prompt: string;
+  images: ImageData64[];
+  aspect: string | undefined;
+  status: "waiting" | "running" | "done" | "failed";
+  error?: string;
+  cost: number | null;
+}
+
+const queue: QueueItem[] = [];
+let queueRunning = false;
+
+function queueCost(): number {
+  return queue.filter((q) => q.status === "waiting" || q.status === "running").reduce((n, q) => n + (q.cost ?? 0), 0);
+}
+
+/** Snapshots the current view and settings; renders run one after another. */
+async function addToQueue(): Promise<void> {
+  const cap = state.capture;
+  if (!cap) return;
+  if (!isConnected()) return toast("Add a key in Settings to render", "error");
+  const cost = renderCost();
+  if (cost !== null && state.kieCredits !== null && queueCost() + cost > state.kieCredits) {
+    return toast(`Not enough Kie credits: the queue needs ${queueCost() + cost}, you have ${Math.floor(state.kieCredits)}`, "error");
+  }
+  const ref = activeReference();
+  const size = await imageSize(cap.view);
+  const label = cap.facts?.sceneName || `View ${queue.length + 1}`;
+  queue.push({
+    id: Math.random().toString(36).slice(2, 9),
+    label,
+    preset: { ...state.preset },
+    prompt: renderPrompt(),
+    images: [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])],
+    aspect: nearestAspectRatio(size.width, size.height),
+    status: "waiting",
+    cost,
+  });
+  render();
+  toast(`${label} added to the queue. Capture the next view`, "ok");
+  runQueue();
+}
+
+async function runQueue(): Promise<void> {
+  if (queueRunning) return;
+  queueRunning = true;
+  try {
+    for (;;) {
+      const item = queue.find((q) => q.status === "waiting");
+      if (!item) break;
+      item.status = "running";
+      drawQueue();
+      const pendingIds: string[] = [];
+      try {
+        const provider = makeProvider(state.settings, host);
+        const out = await provider.render({
+          prompt: item.prompt,
+          images: item.images,
+          aspectRatio: item.aspect,
+          onJob: (job) => void notePending(job, item.prompt, item.images[0]).then((id) => id && pendingIds.push(id)),
+        });
+        for (const id of pendingIds) await removeHistory(id).catch(() => undefined);
+        await record("render", item.prompt, item.images[0], out.image, item.preset);
+        item.status = "done";
+      } catch (e) {
+        for (const id of pendingIds) await removeHistory(id).catch(() => undefined);
+        item.status = "failed";
+        item.error = (e as Error).message;
+        toast(`Queue: ${item.label} failed. ${item.error}`, "error");
+      }
+      drawQueue();
+      refreshCredits();
+    }
+    const done = queue.filter((q) => q.status === "done").length;
+    if (done) toast(`Queue finished: ${done} render${done > 1 ? "s" : ""} in History`, "ok");
+  } finally {
+    queueRunning = false;
+    drawQueue();
+  }
+}
+
+function queueSection(): HTMLElement {
+  const waiting = queue.filter((q) => q.status === "waiting").length;
+  const done = queue.filter((q) => q.status === "done").length;
+  return h(
+    "section",
+    { class: "section queue", id: "queue" },
+    h(
+      "div",
+      { class: "section-head" },
+      h("h3", {}, `Queue · ${done} of ${queue.length} done`),
+      h(
+        "div",
+        { class: "row" },
+        done ? button("See in History", "history", () => ((state.tab = "history"), render()), "ghost small") : null,
+        !queueRunning || waiting === 0
+          ? button("Clear finished", "close", () => {
+              for (let i = queue.length - 1; i >= 0; i--) if (queue[i].status === "done" || queue[i].status === "failed") queue.splice(i, 1);
+              render();
+            }, "ghost small")
+          : null,
+      ),
+    ),
+    h(
+      "ol",
+      { class: "queue-list" },
+      queue.map((q) =>
+        h(
+          "li",
+          { class: `q-${q.status}` },
+          h("img", { src: toDataUrl(q.images[0]), alt: "" }),
+          h("span", { class: "grow" }, h("strong", {}, q.label), h("small", {}, `${q.preset.name}${q.cost !== null ? ` · ${q.cost} credits` : ""}`)),
+          h("em", { title: q.error ?? "" }, q.status === "waiting" ? "Waiting" : q.status === "running" ? "Rendering…" : q.status === "done" ? "Done" : "Failed"),
+          q.status === "waiting"
+            ? iconButton("close", `Remove ${q.label}`, () => {
+                queue.splice(queue.indexOf(q), 1);
+                render();
+              }, "ghost")
+            : null,
+        ),
+      ),
+    ),
+    h("p", { class: "hint" }, "Each view renders with the settings it had when you added it. You can keep working, or walk away."),
+  );
+}
+
+/** Redraws only the queue box, so a running queue does not reset what you are doing. */
+function drawQueue(): void {
+  const el = document.getElementById("queue");
+  if (!queue.length) return el?.remove();
+  if (el) el.replaceWith(queueSection());
+  else if (state.tab === "render") render();
+}
+
 function renderTab(body: HTMLElement): void {
   const p = state.preset;
   body.append(stage());
+  if (queue.length) body.append(queueSection());
   if (state.settings.simple) {
     quickTab(body);
     return;
@@ -2005,16 +2201,17 @@ function renderTab(body: HTMLElement): void {
 
   if (!lock) body.append(fold(surroundingsSection(), "surroundings", parseContexts(p.environment).map(contextLabel).join(", ") || "As modelled", false));
   body.append(fixturesFold());
-  body.append(fold(dynamicSection(), "dynamic", dynamicSummary(), false));
-
   const st = state.settings;
   const geoBits = [host.kind === "sketchup" && st.linePass ? `Lines ${st.lineStrength.toFixed(2)}` : "", st.materialLock ? "Materials" : "", st.boundaryLock ? "Boundaries" : ""].filter(Boolean);
-  body.append(fold(geometrySection(), "geometry", geoBits.join(" · ") || "Off", false));
+  // Less-used controls live under Advanced; it opens by itself when one is in use.
+  const advancedInUse = dynamicSummary() !== "Off" || st.materialLock || st.boundaryLock || state.promptEdit !== null;
   body.append(
     h(
       "details",
-      { class: "section advanced" },
-      h("summary", {}, t("Advanced")),
+      { class: "section advanced", open: advancedInUse || undefined },
+      h("summary", {}, t("Advanced"), h("small", { class: "muted" }, " · dynamic prompts, geometry, prompt")),
+      fold(dynamicSection(), "dynamic", dynamicSummary(), false),
+      fold(geometrySection(), "geometry", geoBits.join(" · ") || "Off", false),
       host.kind === "sketchup"
         ? h(
             "div",
@@ -2434,9 +2631,10 @@ async function runProviderMany(prompt: string, images: ImageData64[], aspectRati
   state.abort = typeof AbortController === "undefined" ? null : new AbortController();
   render();
   toast(n > 1 ? `Rendering ${n}...` : "Rendering...");
+  const pendingIds: string[] = [];
   try {
     const runs = await Promise.allSettled(
-      Array.from({ length: n }, () => provider.render({ prompt, images, aspectRatio }, state.abort?.signal)),
+      Array.from({ length: n }, () => provider.render({ prompt, images, aspectRatio, onJob: (job) => notePending(job, prompt, images[0]).then((id) => id && pendingIds.push(id)) }, state.abort?.signal)),
     );
     const ok = runs.flatMap((r) => (r.status === "fulfilled" ? [r.value.image] : []));
     const failed = runs.find((r): r is PromiseRejectedResult => r.status === "rejected");
@@ -2452,13 +2650,68 @@ async function runProviderMany(prompt: string, images: ImageData64[], aspectRati
   } finally {
     setBusy(false);
     state.abort = null;
+    // Finished renders are recorded as usual; these markers are only for a crash.
+    for (const id of pendingIds) await removeHistory(id).catch(() => undefined);
   }
+}
+
+/**
+ * Notes a running Kie job in History, so a render that finishes after
+ * SketchUp closes (or crashes) is picked up next time. Returns its id.
+ */
+async function notePending(jobId: string, prompt: string, before: ImageData64 | undefined): Promise<string | null> {
+  if (state.settings.backend !== "kie" || !before) return null;
+  const id = `job-${jobId}`;
+  await addHistory({
+    id,
+    createdAt: Date.now(),
+    tool: "render",
+    presetName: state.preset.name,
+    presetId: state.preset.id,
+    prompt,
+    before,
+    after: before,
+    provider: "Kie.ai",
+    model: state.settings.kieModel,
+    project: state.settings.project || undefined,
+    pending: { jobId, model: state.settings.kieModel },
+  }).catch(() => undefined);
+  return id;
+}
+
+/** On start: finish renders whose job was still running when the panel closed. */
+async function recoverPending(round = 0): Promise<void> {
+  const s = state.settings;
+  const open = state.history.filter((x) => x.pending);
+  if (!open.length || !s.kieKey) return;
+  const p = new KieProvider(s.kieKey, s.kieModel, s.kieResolution, host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
+  let done = 0;
+  let still = 0;
+  for (const item of open) {
+    try {
+      const out = await p.resume(item.pending!.jobId);
+      if (out === "running") still++;
+      else if (out) {
+        await addHistory({ ...item, after: out, pending: undefined, createdAt: Date.now() });
+        done++;
+      } else await removeHistory(item.id);
+    } catch {
+      still++;
+    }
+  }
+  state.history = await listHistory();
+  if (done) {
+    render();
+    toast(`Recovered ${done} render${done > 1 ? "s" : ""} that finished after the panel closed. See History`, "ok");
+  }
+  // Keep checking for up to ten minutes, then leave it for the next start.
+  if (still && round < 10) window.setTimeout(() => recoverPending(round + 1), 60_000);
 }
 
 /** History id of each image on the stage, so it can be rated. */
 const historyIds = new WeakMap<ImageData64, string>();
 
-async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64): Promise<void> {
+async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = state.preset): Promise<void> {
   const provider = makeProvider(state.settings, host);
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   historyIds.set(after, id);
@@ -2466,14 +2719,15 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
     id,
     createdAt: Date.now(),
     tool,
-    presetName: tool === "render" ? state.preset.name : undefined,
-    presetId: tool === "render" ? state.preset.id : undefined,
+    presetName: tool === "render" ? preset.name : undefined,
+    presetId: tool === "render" ? preset.id : undefined,
     prompt,
     before,
     after,
     provider: provider.label,
     model: provider.modelName ?? state.settings.comfyUrl,
     credits: state.settings.backend === "kie" ? creditsFor(findKieModel(state.settings.kieModel), state.settings.kieResolution) ?? undefined : undefined,
+    project: state.settings.project || undefined,
   });
   state.history = await listHistory();
 }
@@ -3338,6 +3592,52 @@ function toolLabel(t: ToolId): string {
   return t === "render" ? "Render" : t === "lighting" ? "Lighting" : "Spot edit";
 }
 
+/** History filtered by the project chip ("" = all). */
+function shownHistory(): HistoryItem[] {
+  const f = state.historyProject;
+  return f === "" ? state.history : state.history.filter((x) => (x.project ?? "No project") === f);
+}
+
+async function setProject(name: string): Promise<void> {
+  const s = state.settings;
+  const clean = name.trim().slice(0, 60);
+  s.project = clean;
+  if (clean && !s.projects.includes(clean)) s.projects = [clean, ...s.projects].slice(0, 30);
+  await persist();
+  render();
+  toast(clean ? `New renders go into "${clean}"` : "New renders go into No project", "ok");
+}
+
+/** Pick the project new renders are filed under, and filter History by project. */
+function projectBar(): HTMLElement {
+  const s = state.settings;
+  const names = [...new Set([...s.projects, ...state.history.map((x) => x.project).filter((x): x is string => Boolean(x))])];
+  const hasLoose = state.history.some((x) => !x.project);
+  const input = h("input", { type: "text", placeholder: "New project, e.g. Borey Phase 2", maxlength: 60, "aria-label": "New project name" }) as HTMLInputElement;
+  const add = () => input.value.trim() && setProject(input.value);
+  input.addEventListener("keydown", (e) => e.key === "Enter" && add());
+  const select = h(
+    "select",
+    { "aria-label": "Project for new renders" },
+    h("option", { value: "", selected: !s.project }, "No project"),
+    names.map((n) => h("option", { value: n, selected: n === s.project }, n)),
+  ) as HTMLSelectElement;
+  select.addEventListener("change", () => setProject(select.value));
+  return section(
+    "Projects",
+    h("div", { class: "project-row" }, h("label", { class: "field grow" }, h("span", {}, "New renders go into"), select), h("div", { class: "project-new" }, input, button("Add", "plus", add, "ghost small"))),
+    names.length
+      ? h(
+          "div",
+          { class: "lib-chips", role: "group", "aria-label": "Show project" },
+          chip("All", state.historyProject === "", () => ((state.historyProject = ""), render())),
+          names.map((n) => chip(`${n} (${state.history.filter((x) => x.project === n).length})`, state.historyProject === n, () => ((state.historyProject = n), render()))),
+          hasLoose ? chip("No project", state.historyProject === "No project", () => ((state.historyProject = "No project"), render())) : null,
+        )
+      : null,
+  );
+}
+
 function historyTab(body: HTMLElement): void {
   if (!state.history.length) {
     body.append(
@@ -3356,7 +3656,7 @@ function historyTab(body: HTMLElement): void {
     return;
   }
   const detail = h("div", {});
-  body.append(spendingSection());
+  body.append(projectBar(), spendingSection());
   const rated = ratingSummary(state.history).slice(0, 5);
   if (rated.length) {
     body.append(
@@ -3376,7 +3676,7 @@ function historyTab(body: HTMLElement): void {
     h(
       "div",
       { class: "history-grid" },
-      state.history.map((item) =>
+      shownHistory().map((item) =>
         h(
           "button",
           {
@@ -3390,7 +3690,7 @@ function historyTab(body: HTMLElement): void {
             },
           },
           h("img", { src: toDataUrl(item.after), alt: item.presetName ?? item.tool, loading: "lazy" }),
-          h("span", {}, `${item.rating === 1 ? "👍 " : item.rating === -1 ? "👎 " : ""}${item.presetName ?? toolLabel(item.tool)}`),
+          h("span", {}, `${item.pending ? "Finishing… " : ""}${item.rating === 1 ? "👍 " : item.rating === -1 ? "👎 " : ""}${item.presetName ?? toolLabel(item.tool)}`),
         ),
       ),
     ),
@@ -3425,11 +3725,31 @@ function spendingSection(): HTMLElement {
   );
 }
 
+function moveToProject(item: HistoryItem): HTMLElement | null {
+  const names = [...new Set([...state.settings.projects, ...state.history.map((x) => x.project).filter((x): x is string => Boolean(x))])];
+  if (!names.length) return null;
+  const sel = h(
+    "select",
+    { "aria-label": "Project" },
+    h("option", { value: "", selected: !item.project }, "No project"),
+    names.map((n) => h("option", { value: n, selected: n === item.project }, n)),
+  ) as HTMLSelectElement;
+  sel.addEventListener("change", async () => {
+    await addHistory({ ...item, project: sel.value || undefined });
+    state.history = await listHistory();
+    toast(sel.value ? `Moved to "${sel.value}"` : "Moved to No project", "ok");
+    render();
+  });
+  return h("label", { class: "field" }, h("span", {}, "Project"), sel);
+}
+
 function historyDetail(item: HistoryItem): HTMLElement {
   historyIds.set(item.after, item.id);
   return section(
     `${toolLabel(item.tool)}${item.presetName ? ` · ${item.presetName}` : ""}`,
-    h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}${item.credits !== undefined ? ` · ${item.credits} credits` : ""}`),
+    h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}${item.credits !== undefined ? ` · ${item.credits} credits` : ""}${item.project ? ` · ${item.project}` : ""}`),
+    item.pending ? h("p", { class: "notice" }, icon("info", 16), h("span", {}, "Still finishing on Kie.ai. It appears here when done, even after a restart.")) : null,
+    moveToProject(item),
     h("div", { class: "stage-frame" }, compareSlider(item.before, item.after)),
     resultActions(item.after, item.tool),
     h("details", {}, h("summary", {}, "Prompt used"), h("pre", {}, item.prompt)),
@@ -4133,7 +4453,7 @@ function settingsSheet(): HTMLElement {
       ),
     );
   }
-  sheet.append(helpSection());
+  sheet.append(backupSection(), helpSection());
   sheet.append(primaryButton(t("Done"), "check", close, false, "wide"));
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() }, sheet);
 }
@@ -4363,6 +4683,7 @@ function lookSheet(): HTMLElement {
         },
       ),
       h("p", { class: "hint" }, "Changes the panel labels. Prompts always go to the AI in English. Notes you type in Khmer are sent as written and the AI is told they are in Khmer."),
+      state.settings.lang === "km" ? h("p", { class: "hint warn" }, "Khmer labels are a first draft and still need a check by a native speaker. Report any wrong wording with Report a bug.") : null,
     ),
     primaryButton(t("Done"), "check", close, false, "wide"),
   );
