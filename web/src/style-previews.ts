@@ -66,7 +66,7 @@ export const INT_CUES: Record<string, string> = {
   tropical: "teak and rattan furniture, terrazzo floor, sand linen, big indoor palms, ceiling fan",
   indochine: "patterned blue and white cement tile floor, dark timber fretwork screens, rattan armchairs, lantern pendants",
   khmer: "laterite red accent wall, carved teak, sandstone details, indigo and gold silk cushions, woven mats",
-  retro: "1960s mid-century: walnut sideboard, sofa on thin tapered legs, mustard and teal cushions, globe lamp, plain white walls",
+  retro: "1960s walnut sideboard, sofa on thin tapered legs, mustard and teal cushions, globe lamp, plain white walls",
   "wabi-sabi": "grey-beige lime plaster walls (no green), raw rough timber, stone, handmade ceramics, earthy muted tones",
   "art-deco": "emerald green walls, black and gold geometric details, curved velvet sofa, fluted glass, brass",
   boho: "layered patterned rugs, macrame wall hanging, floor cushions, many hanging plants, terracotta and ochre",
@@ -126,7 +126,9 @@ export function sheetPrompt(s: SheetDef): string {
   return [
     `A single image divided into a clean ${s.cols} x ${s.rows} grid of ${n} equal panels (${s.cols} columns, ${s.rows} rows), separated by thin pure white gutters. No text, labels, numbers, logos or watermarks.`,
     "",
-    `Every panel shows ${s.subject}. Keep the layout, massing, openings and camera identical in all ${n} panels. Only the design style, materials and colours change${s.id === "air" ? ", and the light" : ""}.`,
+    s.id === "air"
+      ? `Every panel shows ${s.subject}. Keep the layout, massing and camera identical in all ${n} panels. Only the light and sky change.`
+      : `Every panel shows ${s.subject}. Keep the layout, massing, openings and camera identical in all ${n} panels. Only the design style, materials and colours change.`,
     "",
     "Realistic photographic rendering, professional architecture photography, accurate materials and soft shadows.",
     "",
