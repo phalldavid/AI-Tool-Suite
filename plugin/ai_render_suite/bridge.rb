@@ -39,6 +39,7 @@ module AIRenderSuite
       when 'browserRender' then Browser.render(payload, id)
       when 'browserGrab' then Browser.grab
       when 'browserCancel' then Browser.cancel
+      when 'modelMaterials' then Materials.in_view(payload || {})
       when 'kieHttp' then Kie.http(payload, id)
       when 'kieDownload' then Kie.download(payload)
       when 'openUrl' then open_url(payload['url'])

@@ -113,7 +113,7 @@ test("a locked earlier render is sent as a same-project reference", () => {
   assert.ok(!p.includes("style reference only"));
 });
 
-test("kie analyser moves to the next route, then the inline image, and reports Kie's words", async () => {
+test("kie analyser tries twice (link, then inline image on the next route) and reports Kie's words", async () => {
   const calls: { url: string; link?: string }[] = [];
   const t: KieTransport = {
     json: async (_m, url, _k, body) => {
@@ -126,9 +126,17 @@ test("kie analyser moves to the next route, then the inline image, and reports K
     image: async () => ({ mimeType: "image/png", data: "" }),
   };
   assert.equal(await kieAnalyser("k", t)("p", { mimeType: "image/jpeg", data: "AA" }), "Wall: render");
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 2);
   const failing: KieTransport = { ...t, json: async (_m, url) => (url.includes("upload") ? { status: 200, body: { code: 200, data: { downloadUrl: "x" } } } : { status: 200, body: { code: 500, msg: "Request failed after 2 retries" } }) };
   await assert.rejects(kieAnalyser("k", failing)("p", { mimeType: "image/jpeg", data: "AA" }), /Kie said: Request failed after 2 retries/);
   const broke: KieTransport = { ...t, json: async () => ({ status: 200, body: { code: 402, msg: "credits" } }) };
   await assert.rejects(kieAnalyser("k", broke)("p", { mimeType: "image/jpeg", data: "AA" }), /Not enough Kie credits/);
+});
+
+test("kie analyser gives up on a route that never answers", async () => {
+  const t: KieTransport = {
+    json: (_m, url) => (url.includes("upload") ? Promise.resolve({ status: 200, body: { code: 200, data: { downloadUrl: "x" } } }) : new Promise(() => undefined)),
+    image: async () => ({ mimeType: "image/png", data: "" }),
+  };
+  await assert.rejects(kieAnalyser("k", t, 20)("p", { mimeType: "image/jpeg", data: "AA" }), /no answer in 0 s/);
 });

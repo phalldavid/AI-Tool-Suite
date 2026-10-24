@@ -15,14 +15,14 @@ export interface DnaTag {
   on: boolean;
 }
 
-// Kie's Gemini Flash chat routes, newest first. Kie retires old versions
-// (3.5 is gone), so the next one is tried when a route fails. Checked on
-// docs.kie.ai 2026-10-24.
+// Kie's Gemini Flash chat routes. Kie retires old versions (3.5 is gone),
+// so a second route is the one retry. Checked on docs.kie.ai 2026-10-24.
 export const KIE_VISION_URLS = [
   "https://api.kie.ai/gemini-3-8-flash-openai/v1/chat/completions",
   "https://api.kie.ai/gemini-3-6-flash-openai/v1/chat/completions",
-  "https://api.kie.ai/gemini-3-7-flash-openai/v1/chat/completions",
 ];
+/** Each try waits this long at most, so a failing analysis ends within a minute. */
+export const KIE_VISION_TIMEOUT_MS = 30_000;
 export const KIE_VISION_URL = KIE_VISION_URLS[0];
 
 // Google's own Flash models for a Gemini API key, newest first.
@@ -40,7 +40,17 @@ function chatText(res: ChatReply): string {
 /** Key or credit problems: trying another route will not help. */
 const fatal = (code: number) => code === 401 || code === 402 || code === 403;
 
-export function kieAnalyser(key: string, transport: KieTransport = fetchTransport): Analyser {
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`no answer in ${Math.round(ms / 1000)} s`)), ms);
+    p.then(
+      (v) => (clearTimeout(t), resolve(v)),
+      (e) => (clearTimeout(t), reject(e)),
+    );
+  });
+}
+
+export function kieAnalyser(key: string, transport: KieTransport = fetchTransport, timeoutMs = KIE_VISION_TIMEOUT_MS): Analyser {
   return async (prompt, image) => {
     if (!key) throw new ProviderError("Analysis uses your Kie.ai key. Add it in Settings.");
     const uploader = new KieProvider(key, "nano-banana-2-1", "1K", transport);
@@ -48,37 +58,44 @@ export function kieAnalyser(key: string, transport: KieTransport = fetchTranspor
     // last try, in case Kie's model cannot fetch the link.
     const links: string[] = [];
     try {
-      links.push(await uploader.upload(image, 0));
+      links.push(await withTimeout(uploader.upload(image, 0), timeoutMs));
     } catch (e) {
       if (e instanceof ProviderError && typeof e.status === "number" && fatal(e.status)) throw e;
     }
     links.push(`data:${image.mimeType};base64,${image.data}`);
+    // Two tries in all: the hosted link on the newest route, then the image
+    // inline on the next route.
+    const tries = [
+      { url: KIE_VISION_URLS[0], link: links[0] },
+      { url: KIE_VISION_URLS[1], link: links[links.length - 1] },
+    ];
     let last = "";
-    for (const link of links) {
-      for (const url of KIE_VISION_URLS) {
-        let status = 0;
-        let res: ChatReply = {};
-        try {
-          const r = await transport.json("POST", url, key, {
+    for (const { url, link } of tries) {
+      let status = 0;
+      let res: ChatReply = {};
+      try {
+        const r = await withTimeout(
+          transport.json("POST", url, key, {
             messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: link } }] }],
             stream: false,
-          });
-          status = r.status;
-          res = (r.body ?? {}) as ChatReply;
-        } catch (e) {
-          last = (e as Error).message;
-          continue;
-        }
-        const code = typeof res.code === "number" ? res.code : status;
-        if (status < 400 && (code === 200 || res.code === undefined)) {
-          const text = chatText(res);
-          if (text.trim()) return text;
-          last = "the answer came back empty";
-          continue;
-        }
-        if (fatal(code)) throw new ProviderError(code === 401 ? "Kie.ai rejected the API key. Check it in Settings." : code === 402 ? "Not enough Kie credits for analysis. Top up at kie.ai." : `Kie.ai refused the analysis: ${res.msg ?? code}`, code);
-        last = `${res.msg ?? "error"} (${code}, ${url.split("/")[3]})`;
+          }),
+          timeoutMs,
+        );
+        status = r.status;
+        res = (r.body ?? {}) as ChatReply;
+      } catch (e) {
+        last = (e as Error).message;
+        continue;
       }
+      const code = typeof res.code === "number" ? res.code : status;
+      if (status < 400 && (code === 200 || res.code === undefined)) {
+        const text = chatText(res);
+        if (text.trim()) return text;
+        last = "the answer came back empty";
+        continue;
+      }
+      if (fatal(code)) throw new ProviderError(code === 401 ? "Kie.ai rejected the API key. Check it in Settings." : code === 402 ? "Not enough Kie credits for analysis. Top up at kie.ai." : `Kie.ai refused the analysis: ${res.msg ?? code}`, code);
+      last = `${res.msg ?? "error"} (${code}, ${url.split("/")[3]})`;
     }
     throw new ProviderError(`Kie.ai could not analyse the image. Kie said: ${last}. A free Gemini key in Settings is another way to run analysis.`);
   };

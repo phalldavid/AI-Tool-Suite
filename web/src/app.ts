@@ -45,6 +45,7 @@ import { findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFo
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
+import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
 import {
@@ -2768,7 +2769,7 @@ function dnaSheet(): HTMLElement {
           "div",
           { class: "dna-empty" },
           icon("palette", 28),
-          h("p", {}, "The AI looks at your view and writes one line per surface and object, like \"Floor: light grey porcelain tiles, matt\". You can then edit, switch off or add tags before they go into the prompt."),
+          h("p", {}, fromModel ? "Read from model lists the materials SketchUp can see in your view: instant and free. Analyse with AI reads the image instead, for photos and sketches. Edit, switch off or add tags before they go into the prompt." : "The AI looks at your image and writes one line per surface and object, like \"Floor: light grey porcelain tiles, matt\". Edit, switch off or add tags before they go into the prompt."),
         ),
       );
       return;
@@ -2812,6 +2813,22 @@ function dnaSheet(): HTMLElement {
       },
     );
   const segHolder = h("div", { class: "dna-view" }, viewSeg());
+  // Model views read their materials straight from SketchUp: instant and
+  // free. Photos and sketches need the AI.
+  const fromModel = host.kind === "sketchup" && state.capture?.source === "sketchup";
+  const readModel = async () => {
+    try {
+      toast("Reading model...");
+      const list = await host.call<ModelMaterial[]>("modelMaterials", { ratio: findFrame(state.capturedFrameId || state.frameId).ratio });
+      const lines = modelDnaTags(list ?? [], state.preset.projectType);
+      if (!lines.length) return toast("No painted materials in view.", "error", "Every face in the view uses SketchUp's default material. Paint them, or use Analyse with AI.");
+      work = lines.map((l) => newTag(l));
+      toast(`${lines.length} tags found`, "ok");
+      draw();
+    } catch (e) {
+      toast("Couldn't read the model.", "error", (e as Error).message);
+    }
+  };
   const runAnalysis = async () => {
     const text = await analyse(dnaPrompt(state.preset.projectType));
     if (text === null) return;
@@ -2830,7 +2847,8 @@ function dnaSheet(): HTMLElement {
     h(
       "div",
       { class: "dna-tools" },
-      button(work.length ? "Analyse again" : "Analyse image", "wand", runAnalysis, work.length ? "ghost" : "primary"),
+      fromModel ? button("Read from model", "capture", readModel, "primary") : null,
+      button(fromModel ? "Analyse with AI" : "Analyse image", "wand", runAnalysis, fromModel ? "ghost" : "primary"),
       segHolder,
     ),
     h(
