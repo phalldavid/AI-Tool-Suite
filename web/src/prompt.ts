@@ -351,9 +351,9 @@ export interface RenderPromptInput {
   materialLock?: boolean;
   /** Improve realism only inside each material's own area. */
   boundaryLock?: boolean;
-  /** Material list from Material DNA, one "Object: material" per line. */
+  /** Material list from Material Scan, one "Object: material" per line. */
   dna?: string[];
-  /** People line written by Analyse people. */
+  /** People line written by Place People. */
   people?: string;
   /** A style reference image is sent after the view (and line pass). */
   referenceIndex?: number;

@@ -3,7 +3,7 @@
 import type { Host } from "./host";
 import type { DynValues } from "./dynamic";
 import { DEFAULT_AVOID, type FixtureSettings, type RenderLook } from "./prompt";
-import type { ImageData64, Preset } from "./types";
+import type { ImageData64, Preset, ProjectType } from "./types";
 import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "./providers/gemini";
 import { ComfyProvider } from "./providers/comfyui";
 import { BrowserProvider } from "./providers/browser";
@@ -57,6 +57,22 @@ export interface Settings {
   simple: boolean;
   /** Project look reused for every view until unlocked. */
   styleLock: StyleLock | null;
+  /** Last style, model and frame used for each scene type, restored when switching back. */
+  lastSetup: Partial<Record<ProjectType, SceneSetup>>;
+  /** Preset ids starred by the user; shown first in Quick mode. */
+  favorites: string[];
+  /** The three-step first-run tour has been shown. */
+  tourDone: boolean;
+  /** Current project (job) name; new renders are filed under it. Empty = none. */
+  project: string;
+  /** Project names the user has made, newest first. */
+  projects: string[];
+}
+
+export interface SceneSetup {
+  preset: Preset;
+  kieModel: string;
+  frameId: string;
 }
 
 /**
@@ -111,6 +127,11 @@ export const DEFAULT_SETTINGS: Settings = {
   imageCount: 1,
   simple: true,
   styleLock: null,
+  lastSetup: {},
+  favorites: [],
+  tourDone: false,
+  project: "",
+  projects: [],
   browserSite: "gemini",
 };
 

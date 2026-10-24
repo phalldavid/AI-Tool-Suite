@@ -64,6 +64,8 @@ export interface RenderRequest {
   /** Images in the order the prompt refers to them. */
   images: ImageData64[];
   aspectRatio?: string;
+  /** Called once the backend has accepted the job, with its job id (Kie). */
+  onJob?: (jobId: string) => void;
 }
 
 export interface RenderResult {
@@ -85,4 +87,10 @@ export interface HistoryItem {
   presetId?: string;
   /** The user's verdict: 1 usable, -1 not usable. */
   rating?: 1 | -1;
+  /** Kie credits this image cost, when known. */
+  credits?: number;
+  /** Project (job) name the render belongs to. */
+  project?: string;
+  /** Set while a Kie job is still running; lets a render finish after a crash. */
+  pending?: { jobId: string; model: string };
 }

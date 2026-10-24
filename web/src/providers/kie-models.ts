@@ -32,12 +32,14 @@ export interface KieFamily {
   label: string;
   maker: string;
   badge: string;
+  /** one short line on what the family is good at */
+  bestFor: string;
 }
 
 export const KIE_FAMILIES: KieFamily[] = [
-  { id: "nano", label: "Nano Banana", maker: "Google", badge: "Fast" },
-  { id: "gpt", label: "GPT Image", maker: "OpenAI", badge: "Text" },
-  { id: "seedream", label: "Seedream", maker: "ByteDance", badge: "2K" },
+  { id: "nano", label: "Nano Banana", maker: "Google", badge: "Fast", bestFor: "Fast all-rounder, keeps your geometry" },
+  { id: "gpt", label: "GPT Image", maker: "OpenAI", badge: "Text", bestFor: "Best at signs and lettering" },
+  { id: "seedream", label: "Seedream", maker: "ByteDance", badge: "2K", bestFor: "Rich materials, up to 2K" },
 ];
 
 // Google's list for Nano Banana Pro.
@@ -169,3 +171,9 @@ export function ratioFor(m: KieModel, wanted?: string): string {
 
 /** Kie credits are bought at 200 per US dollar (list rate). */
 export const USD_PER_CREDIT = 0.005;
+
+/** Credits per image at the resolution used, or null when Kie does not publish the price. */
+export function creditsFor(m: KieModel, wanted: KieResolution): number | null {
+  const p = priceFor(m, wanted);
+  return p === null ? null : Math.round(p / USD_PER_CREDIT);
+}

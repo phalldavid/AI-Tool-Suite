@@ -1,4 +1,4 @@
-// Material DNA read straight from the SketchUp model: SketchUp reports the
+// Material Scan read straight from the SketchUp model: SketchUp reports the
 // materials it can see in the view (plugin/ai_render_suite/materials.rb) and
 // this turns them into "Surface: material" tags. No AI call, no cost.
 

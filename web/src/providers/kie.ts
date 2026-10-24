@@ -174,6 +174,7 @@ export class KieProvider implements Provider {
     })) as { taskId?: string } | undefined;
     const taskId = started?.taskId;
     if (!taskId) throw new ProviderError("Kie.ai did not start the job. Try again.");
+    req.onJob?.(taskId);
 
     const t0 = Date.now();
     for (;;) {
@@ -195,6 +196,21 @@ export class KieProvider implements Provider {
     }
   }
 
+  /**
+   * Checks a job started earlier (e.g. before SketchUp closed): the image when
+   * it finished, "running" while it is still going, null when it failed.
+   */
+  async resume(taskId: string): Promise<ImageData64 | "running" | null> {
+    const info = (await this.call("GET", `${API}/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`)) as TaskInfo | undefined;
+    const state = info?.state ?? "";
+    if (state === "success") {
+      const url = resultUrl(info?.resultJson);
+      return url ? this.transport.image(url) : null;
+    }
+    if (state === "fail") return null;
+    return "running";
+  }
+
   /** Credits left on the key, or null if Kie does not say. */
   async balance(): Promise<number | null> {
     if (!this.apiKey) return null;
@@ -206,7 +222,7 @@ export class KieProvider implements Provider {
     if (!this.apiKey) throw new ProviderError("Paste your Kie.ai API key first.");
     const credits = Number(await this.call("GET", `${API}/chat/credit`));
     if (!Number.isFinite(credits)) return "Key works.";
-    return `Key works · $${(credits * USD_PER_CREDIT).toFixed(2)} left (${Math.round(credits)} credits)`;
+    return `Key works · ${Math.floor(credits).toLocaleString("en-US")} credits left (about $${(credits * USD_PER_CREDIT).toFixed(2)})`;
   }
 }
 
