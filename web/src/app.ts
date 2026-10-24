@@ -48,7 +48,7 @@ import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearanc
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
-import { AERIAL_TYPES, EXT_TYPES, filterLibrary, findLibraryItem, libraryItems, ROOMS, type LibItem } from "./library";
+import { AERIAL_TYPES, EXT_TYPES, filterLibrary, findLibraryItem, libraryItems, matchesWords, ROOMS, searchWords, type LibItem } from "./library";
 import { PREVIEW_PACK } from "./preview-pack";
 import { previewFile } from "./preview-files";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
@@ -1768,10 +1768,10 @@ function iconArt(name: string): HTMLElement {
 
 /** "Mine": starred styles first, then presets you saved yourself. */
 function customItems(q = ""): LibItem[] {
-  const query = q.trim().toLowerCase();
+  const words = searchWords(q);
   const starred = state.settings.favorites.map((id) => findLibraryItem(id) ?? allPresets().find((x) => x.id === id)).filter((x): x is Preset => Boolean(x));
   return [...starred, ...state.settings.userPresets.filter((x) => !starred.some((y) => y.id === x.id))]
-    .filter((x) => !query || `${x.name} ${x.style}`.toLowerCase().includes(query))
+    .filter((x) => !words.length || matchesWords(`${x.name} ${x.style}`, words))
     .map((x) => ({ ...x, styleId: "mine", subjectId: "mine", colors: (x as Partial<LibItem>).colors ?? [] }));
 }
 
@@ -1826,7 +1826,7 @@ function librarySheet(): HTMLElement {
       body.replaceChildren(
         h(
           "div",
-          { class: "lib-grid big" },
+          { class: "lib-grid big home" },
           libFolder("None", iconArt("close"), p.id === "none", () => {
             state.preset = nonePreset(p.projectType);
             state.lib.open = false;

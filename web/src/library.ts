@@ -231,11 +231,22 @@ export function findLibraryItem(id: string): LibItem | undefined {
   return libraryItems().find((x) => x.id === id);
 }
 
+/** Search words, lower case, commas and extra spaces dropped. */
+export function searchWords(query: string): string[] {
+  return query.toLowerCase().split(/[\s,;/]+/).filter(Boolean);
+}
+
+/** True when every word appears somewhere in the text, in any order. */
+export function matchesWords(text: string, words: string[]): boolean {
+  const t = text.toLowerCase();
+  return words.every((w) => t.includes(w));
+}
+
 /** Library items for one tab and filter; "all" means no filter. */
 export function filterLibrary(type: ProjectType, styleId: string, subjectId: string, query = ""): LibItem[] {
-  const q = query.trim().toLowerCase();
+  const words = searchWords(query);
   return libraryItems().filter((x) => {
-    if (q) return `${x.name} ${x.style}`.toLowerCase().includes(q);
+    if (words.length) return matchesWords(`${x.name} ${x.style}`, words);
     if (x.projectType !== type) return false;
     if (styleId !== "all" && x.styleId !== styleId) return false;
     if (subjectId !== "all" && x.subjectId !== subjectId) return false;

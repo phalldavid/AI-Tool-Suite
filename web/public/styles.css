@@ -708,6 +708,7 @@ table.rated th { color: var(--muted); font-weight: 600; }
 .lib-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 2px 2px 8px; }
 .lib-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .lib-foot .hint { margin: 0; }
+.lib-grid.big.home { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 900px; width: 100%; margin: 0 auto; }
 .lib-grid.big { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
 .lib-folder strong { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px 12px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
 .lib-folder strong small { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
@@ -739,7 +740,7 @@ table.rated th { color: var(--muted); font-weight: 600; }
 .lib-current { display: flex; gap: 10px; align-items: center; }
 .lib-current .lib-card { width: 150px; flex: 0 0 auto; }
 .lib-current .btn { flex: 1; }
-@media (max-width: 599px) { .lib-grid, .lib-grid.big { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .lib-foot .hint { display: none; } .lib-foot { justify-content: flex-end; } }
+@media (max-width: 599px) { .lib-grid, .lib-grid.big, .lib-grid.big.home { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .lib-foot .hint { display: none; } .lib-foot { justify-content: flex-end; } }
 
 /* Kie balance next to Render */
 .credit { flex: 0 0 auto; height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: 600 13px/1 var(--font, inherit); font-variant-numeric: tabular-nums; cursor: pointer; }
