@@ -48,7 +48,7 @@ import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearanc
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
-import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, findLibraryItem, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
+import { AERIAL_TYPES, EXT_TYPES, filterLibrary, findLibraryItem, libraryItems, ROOMS, type LibItem } from "./library";
 import { PREVIEW_PACK } from "./preview-pack";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
 import { countSet, DEFAULT_PLATE, dynamicLines, findGenerator, GENERATORS, platePhrase, type DynGenerator, type DynValues } from "./dynamic";
@@ -78,6 +78,8 @@ import { hostTransport } from "./providers/kie";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, ToolId } from "./types";
 
 type Tab = "render" | "edit" | "lights" | "mirror" | "history";
+/** Where the template library is: the category picker, a category, or your own. */
+type LibLevel = ProjectType | "mine" | "home";
 
 interface SpotSettings {
   beam: string;
@@ -139,7 +141,7 @@ interface State {
   anglesOpen: boolean;
   /** Kie credits left, null until checked. */
   kieCredits: number | null;
-  lib: { open: boolean; type: ProjectType | "mine"; style: string; subject: string; query: string };
+  lib: { open: boolean; type: LibLevel; style: string; subject: string; query: string };
   /** Style preview sheets made on this computer, by sheet id. */
   sheets: Record<string, SheetRecord>;
   /** Card pictures from style previews, by key ("int:japandi"). */
@@ -214,7 +216,7 @@ export async function start(el: HTMLElement): Promise<void> {
     results: [],
     anglesOpen: false,
     kieCredits: null,
-    lib: { open: false, type: "exterior", style: "all", subject: "all", query: "" },
+    lib: { open: false, type: "home", style: "all", subject: "all", query: "" },
     sheets: {},
     previews: new Map(),
     previewsOpen: false,
@@ -1659,15 +1661,7 @@ function modelSummaryText(): string {
 // ---------- Template library ----------
 
 function openLibrary(): void {
-  const type = state.preset.projectType;
-  const item = libraryItems().find((x) => x.id === state.preset.id);
-  state.lib = {
-    open: true,
-    type,
-    style: "all",
-    subject: item && item.subjectId !== "featured" ? item.subjectId : type === "interior" ? "living" : "all",
-    query: "",
-  };
+  state.lib = { open: true, type: "home", style: "all", subject: "all", query: "" };
   render();
 }
 
@@ -1689,7 +1683,8 @@ function ownThumb(id: string): ImageData64 | null {
 /** The card base subject each preview sheet was drawn on. */
 const SAMPLE_SUBJECT: Partial<Record<ProjectType, string>> = { exterior: "villa", interior: "living", aerial: "borey" };
 
-function libCard(x: LibItem, current = false): HTMLElement {
+/** The picture on a library card: your own render, then a style sample, then a colour board. */
+function libArt(x: LibItem): { art: HTMLElement; badge: string | null } {
   const thumb = ownThumb(x.id);
   const key = thumb ? null : previewKey(x.projectType, x.styleId);
   const sample = key ? state.previews.get(key) : undefined;
@@ -1705,6 +1700,11 @@ function libCard(x: LibItem, current = false): HTMLElement {
         { class: "lib-board", style: `background:linear-gradient(180deg, ${sky}, ${glow})` },
         h("span", { class: "lib-blocks" }, blocks.slice(0, 3).map((c) => h("i", { style: `background:${c}` }))),
       );
+  return { art, badge };
+}
+
+function libCard(x: LibItem, current = false): HTMLElement {
+  const { art, badge } = libArt(x);
   const active = x.id === state.preset.id;
   const card = h(
     "button",
@@ -1727,12 +1727,46 @@ function libCard(x: LibItem, current = false): HTMLElement {
   return current ? card : h("div", { class: "lib-cell" }, card, starButton(x.id, x.name));
 }
 
-function chipRow(items: { id: string; label: string }[], value: string, pick: (id: string) => void, label: string): HTMLElement {
+/** A big picture card that opens the next level of the library. */
+function libFolder(label: string, art: HTMLElement, active: boolean, onclick: () => void, sub = ""): HTMLElement {
   return h(
-    "div",
-    { class: "lib-chips", role: "group", "aria-label": label },
-    items.map((c) => chip(c.label, c.id === value, () => pick(c.id))),
+    "button",
+    { class: `lib-card lib-folder${active ? " active" : ""}`, type: "button", "aria-pressed": String(active), title: label, onclick },
+    h("span", { class: "lib-art" }, art, active ? h("span", { class: "lib-check" }, icon("check", 14)) : null),
+    h("strong", {}, label, sub ? h("small", {}, sub) : null),
   );
+}
+
+/** Picture for a category, room or building card: one of its styles, rotated so cards differ. */
+function folderArt(type: ProjectType, subject: string | null, n = 0): HTMLElement {
+  const items = libraryItems().filter((x) => x.projectType === type && (subject ? x.subjectId === subject : x.styleId !== "featured"));
+  const own = items.find((x) => ownThumb(x.id));
+  const pick = own ?? items[n % Math.max(items.length, 1)];
+  return pick ? libArt(pick).art : h("span", { class: "lib-board" });
+}
+
+function iconArt(name: string): HTMLElement {
+  return h("span", { class: "lib-icon-art" }, icon(name, 34));
+}
+
+/** "Mine": starred styles first, then presets you saved yourself. */
+function customItems(q = ""): LibItem[] {
+  const query = q.trim().toLowerCase();
+  const starred = state.settings.favorites.map((id) => findLibraryItem(id) ?? allPresets().find((x) => x.id === id)).filter((x): x is Preset => Boolean(x));
+  return [...starred, ...state.settings.userPresets.filter((x) => !starred.some((y) => y.id === x.id))]
+    .filter((x) => !query || `${x.name} ${x.style}`.toLowerCase().includes(query))
+    .map((x) => ({ ...x, styleId: "mine", subjectId: "mine", colors: (x as Partial<LibItem>).colors ?? [] }));
+}
+
+const LIB_CATEGORIES: { id: ProjectType; label: string }[] = [
+  { id: "exterior", label: "Exterior" },
+  { id: "interior", label: "Interior" },
+  { id: "aerial", label: "Aerial" },
+  { id: "sketch", label: "Sketch" },
+];
+
+function subjectsOf(type: ProjectType): { id: string; label: string; group?: string }[] {
+  return type === "exterior" ? EXT_TYPES : type === "interior" ? ROOMS : type === "aerial" ? AERIAL_TYPES : [];
 }
 
 function librarySheet(): HTMLElement {
@@ -1741,107 +1775,115 @@ function librarySheet(): HTMLElement {
     state.lib.open = false;
     render();
   };
-  const grid = h("div", { class: "lib-grid" });
+  const go = (type: LibLevel, subject = "all") => {
+    state.lib = { ...L, type, subject, query: "" };
+    render();
+  };
+  const body = h("div", { class: "lib-body" });
   const count = h("span", { class: "lib-count" });
-  const items = (): LibItem[] => {
-    if (L.type === "mine") {
-      const q = L.query.trim().toLowerCase();
-      const starred = state.settings.favorites.map((id) => findLibraryItem(id) ?? allPresets().find((x) => x.id === id)).filter((x): x is Preset => Boolean(x));
-      return [...starred, ...state.settings.userPresets.filter((x) => !starred.some((y) => y.id === x.id))]
-        .filter((x) => !q || `${x.name} ${x.style}`.toLowerCase().includes(q))
-        .map((x) => ({ ...x, styleId: "mine", subjectId: "mine", colors: (x as Partial<LibItem>).colors ?? [] }));
+  const p = state.preset;
+  const pItem = findLibraryItem(p.id);
+  const isCustom = state.settings.userPresets.some((x) => x.id === p.id);
+
+  const divided = (groups: { label: string; cards: HTMLElement[] }[]): HTMLElement[] =>
+    groups.flatMap((g) => (g.cards.length ? [h("div", { class: "lib-divider", role: "heading", "aria-level": "3" }, h("span", {}, g.label)), h("div", { class: "lib-grid big" }, g.cards)] : []));
+
+  const grid = (cards: HTMLElement[], empty: string, cls = "lib-grid big"): HTMLElement[] =>
+    cards.length ? [h("div", { class: cls }, cards)] : [h("p", { class: "hint lib-empty" }, empty)];
+
+  let title = "Template library";
+  let back: (() => void) | null = null;
+
+  const draw = () => {
+    const q = L.query.trim();
+    if (q) {
+      // Search runs across every category, flat.
+      const list = [...filterLibrary("exterior", "all", "all", q), ...customItems(q).filter((x) => !findLibraryItem(x.id))];
+      count.textContent = `${list.length} ${list.length === 1 ? "match" : "matches"}`;
+      body.replaceChildren(...grid(list.slice(0, 240).map((x) => libCard(x)), "Nothing matches. Try a room, a building or a style, e.g. kitchen, villa, Khmer."));
+      return;
     }
-    return filterLibrary(L.type, L.type === "sketch" ? "all" : L.style, L.type === "sketch" ? "all" : L.subject, L.query);
-  };
-  const drawGrid = () => {
-    const list = items();
-    count.textContent = `${list.length} ${list.length === 1 ? "style" : "styles"}`;
-    grid.replaceChildren(
-      ...(list.length
-        ? list.slice(0, 240).map((x) => libCard(x))
-        : [h("p", { class: "hint" }, L.type === "mine" ? "Nothing here yet. Tap the star on any style, or save your own preset with + under Style preset, and it shows here." : "Nothing matches.")]),
-    );
-  };
-  const filters = h("div", { class: "lib-filters" });
-  // "Featured" holds the hand-written presets, which have no room or type.
-  const pickFeaturedOrAll = (v: string) => {
-    if (v === "featured") {
-      L.style = "featured";
-      L.subject = "featured";
-    } else {
-      L.subject = "all";
-      if (L.style === "featured") L.style = "all";
-    }
-    redraw();
-  };
-  const drawFilters = () => {
-    const rows: HTMLElement[] = [];
-    const all = { id: "all", label: "All" };
-    const featured = { id: "featured", label: "Featured" };
-    if (L.type === "exterior") {
-      rows.push(chipRow([all, featured, ...EXT_STYLES], L.style, (v) => ((L.style = v), redraw()), "Style"));
-      if (L.style !== "featured") rows.push(chipRow([{ id: "all", label: "All buildings" }, ...EXT_TYPES], L.subject, (v) => ((L.subject = v), redraw()), "Building type"));
-    } else if (L.type === "interior") {
-      const groups = [...new Set(ROOMS.map((r) => r.group ?? ""))];
-      rows.push(
+    if (L.type === "home") {
+      const total = libraryItems().length;
+      count.textContent = `${total} professional styles`;
+      body.replaceChildren(
         h(
           "div",
-          { class: "lib-rooms" },
-          groups.map((g) =>
-            h(
-              "div",
-              { class: "lib-room-group" },
-              h("small", {}, g),
-              chipRow(ROOMS.filter((r) => r.group === g), L.subject, (v) => {
-                L.subject = v;
-                if (L.style === "featured") L.style = "all";
-                redraw();
-              }, g),
-            ),
+          { class: "lib-grid big" },
+          libFolder("None", iconArt("close"), p.id === "none", () => {
+            state.preset = nonePreset(p.projectType);
+            state.lib.open = false;
+            void persist();
+            render();
+            toast("No preset", "ok");
+          }, "Your own words"),
+          LIB_CATEGORIES.map((c, i) =>
+            libFolder(c.label, c.id === "sketch" ? folderArt("sketch", "sketch") : folderArt(c.id, null, i * 5), p.id !== "none" && !isCustom && p.projectType === c.id, () => go(c.id), `${libraryItems().filter((x) => x.projectType === c.id).length} styles`),
           ),
-          chipRow([{ id: "all", label: "All rooms" }, featured], L.style === "featured" ? "featured" : L.subject, pickFeaturedOrAll, "Rooms"),
+          libFolder("Custom", iconArt("star"), isCustom, () => go("mine"), `${customItems().length} saved`),
         ),
       );
-      if (L.style !== "featured") rows.push(chipRow([{ id: "all", label: "All styles" }, ...INT_STYLES], L.style, (v) => ((L.style = v), redraw()), "Style"));
-    } else if (L.type === "aerial") {
-      rows.push(chipRow([all, featured, ...AERIAL_TYPES], L.style === "featured" ? "featured" : L.subject, (v) => (v === "featured" ? pickFeaturedOrAll(v) : ((L.subject = v), (L.style = "all"), redraw())), "Development"));
-      if (L.style !== "featured") rows.push(chipRow([{ id: "all", label: "Any light" }, ...AERIAL_LOOKS], L.style, (v) => ((L.style = v), redraw()), "Light"));
+      return;
     }
-    filters.replaceChildren(...rows);
+    back = () => go("home");
+    if (L.type === "mine") {
+      title = "Custom";
+      const list = customItems();
+      count.textContent = `${list.length} saved`;
+      body.replaceChildren(...grid(list.map((x) => libCard(x)), "Nothing here yet. Tap the star on any style, or save your own preset with + under Style preset, and it shows here."));
+      return;
+    }
+    const type = L.type;
+    const cat = LIB_CATEGORIES.find((c) => c.id === type)?.label ?? "";
+    if (type === "sketch" || L.subject !== "all") {
+      const subjects = subjectsOf(type);
+      const name = subjects.find((s) => s.id === L.subject)?.label ?? "";
+      title = type === "sketch" ? cat : `${cat} · ${name}`;
+      if (type !== "sketch") back = () => go(type);
+      const list = type === "sketch" ? filterLibrary("sketch", "all", "all") : filterLibrary(type, "all", L.subject);
+      count.textContent = `${list.length} ${list.length === 1 ? "style" : "styles"}`;
+      body.replaceChildren(...grid(list.map((x) => libCard(x)), "Nothing here yet."));
+      return;
+    }
+    // A category: its rooms, buildings or developments as big pictures.
+    title = cat;
+    const subjects = subjectsOf(type);
+    const activeSubject = pItem && pItem.projectType === type ? pItem.subjectId : null;
+    const card = (s: { id: string; label: string }, i: number) =>
+      libFolder(s.label, folderArt(type, s.id, i), activeSubject === s.id, () => go(type, s.id));
+    const featured = { label: "Featured", cards: filterLibrary(type, "featured", "featured").map((x) => libCard(x)) };
+    count.textContent = `${subjects.length} ${type === "interior" ? "rooms" : type === "aerial" ? "developments" : "building types"}`;
+    const groups = ["Residential", "Hospitality", "Work and Public"].filter((g) => subjects.some((s) => s.group === g));
+    body.replaceChildren(
+      ...(groups.length
+        ? divided([...groups.map((g) => ({ label: g, cards: subjects.filter((s) => s.group === g).map((s) => card(s, subjects.indexOf(s))) })), featured])
+        : [...grid(subjects.map(card), "", "lib-grid big"), ...divided([featured])]),
+    );
   };
-  const redraw = () => {
-    drawFilters();
-    drawGrid();
-    return true;
-  };
-  const search = h("input", { type: "search", class: "lib-search", placeholder: "Search styles, e.g. kitchen, neoclassical, shophouse", value: L.query, "aria-label": "Search styles" }) as HTMLInputElement;
+
+  const search = h("input", { type: "search", class: "lib-search", placeholder: "Search, e.g. kitchen, shophouse, Khmer", value: L.query, "aria-label": "Search templates" }) as HTMLInputElement;
   search.addEventListener("input", () => {
     L.query = search.value;
-    drawGrid();
+    draw();
   });
-  const tabs: { id: ProjectType | "mine"; label: string; icon: string }[] = [
-    { id: "exterior", label: "Exterior", icon: "exterior" },
-    { id: "interior", label: "Interior", icon: "interior" },
-    { id: "aerial", label: "Aerial", icon: "aerial" },
-    { id: "sketch", label: "Sketch", icon: "sketch" },
-    { id: "mine", label: "Mine", icon: "plus" },
-  ];
-  redraw();
+  draw();
+  const head = h(
+    "div",
+    { class: "sheet-head lib-head" },
+    back ? iconButton("chevron", "Back", back, "lib-back") : null,
+    h("div", { class: "grow" }, h("h2", {}, title), count),
+    iconButton("close", "Close", close),
+  );
   return h(
     "div",
     { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
     h(
       "div",
       { class: "sheet lib-sheet", role: "dialog", "aria-modal": "true", "aria-label": "Template library" },
-      h("div", { class: "sheet-head" }, h("div", {}, h("h2", {}, "Template library"), count), iconButton("close", "Close", close)),
-      search,
-      segmented(tabs, L.type, (v) => {
-        state.lib = { ...L, type: v, style: "all", subject: v === "interior" ? "living" : "all" };
-        render();
-      }),
-      filters,
-      L.type === "exterior" || L.type === "interior" || L.type === "aerial" ? previewsRow() : null,
-      grid,
+      head,
+      h("label", { class: "lib-search-wrap" }, icon("search", 16), search),
+      body,
+      h("div", { class: "lib-foot" }, h("span", { class: "hint" }, L.type === "home" ? "Pick a category, then a room or building, then a style." : "Tap a style to use it. The star keeps it in Custom."), button("Close", null, close, "ghost")),
     ),
   );
 }
