@@ -1,7 +1,7 @@
 // The render suite interface. Same code in the SketchUp panel and the browser.
 
 import { clear, h } from "./dom";
-import { cropImage, cropToRatio, FRAMES, findFrame, isListed, ratioFromPixels, swapFrameId } from "./frame";
+import { cropImage, cropToRatio, FRAME_ROW, FRAMES, findFrame, isListed, ratioFromPixels, swapFrameId } from "./frame";
 import { detectHost, type Host } from "./host";
 import { addHistory, listHistory, rateHistory, ratingSummary, removeHistory } from "./history";
 import { icon, iconSvg, logo } from "./icons";
@@ -48,7 +48,7 @@ import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearanc
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
-import { AERIAL_TYPES, EXT_TYPES, filterLibrary, findLibraryItem, libraryItems, matchesWords, ROOMS, searchWords, type LibItem } from "./library";
+import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, INT_STYLES, findLibraryItem, libraryItems, matchesWords, ROOMS, searchWords, type LibItem } from "./library";
 import { PREVIEW_PACK } from "./preview-pack";
 import { previewFile } from "./preview-files";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
@@ -113,6 +113,8 @@ interface State {
   peopleOpts: PeopleOptions;
   ctxGroup: string;
   frameEditor: boolean;
+  /** Row orientation picked with swap; null follows the frame in use. */
+  framePortrait: boolean | null;
   /** the docked chat browser is open */
   browserOpen: boolean;
   browserMenu: boolean;
@@ -197,6 +199,7 @@ export async function start(el: HTMLElement): Promise<void> {
     peopleOpts: { scene: "domestic", count: "few", who: "everyday" },
     ctxGroup: CONTEXT_GROUPS[0].id,
     frameEditor: false,
+    framePortrait: null,
     browserOpen: false,
     browserMenu: false,
     onboardStep: 0,
@@ -922,8 +925,28 @@ document.addEventListener("keydown", (e) => {
   render();
 });
 
+/** Page scroll saved while a window is open, so the page behind it cannot move. */
+let lockedY: number | null = null;
+
+/** Freezes the page behind an open window. iPhone Safari ignores overflow:hidden, so the body is pinned instead. */
+function lockScroll(on: boolean): void {
+  const b = document.body.style;
+  if (on && lockedY === null) {
+    lockedY = window.scrollY;
+    Object.assign(b, { position: "fixed", top: `-${lockedY}px`, left: "0", right: "0", width: "100%" });
+  } else if (!on && lockedY !== null) {
+    const y = lockedY;
+    lockedY = null;
+    Object.assign(b, { position: "", top: "", left: "", right: "", width: "" });
+    window.scrollTo(0, y);
+  }
+}
+
 function render(): void {
   const focused = focusPath();
+  // Keep the page height while redrawing, so a tap does not make the page jump.
+  const y = lockedY ?? window.scrollY;
+  root.style.minHeight = `${root.offsetHeight}px`;
   // A message on screen survives the redraw (an error used to vanish at once).
   const oldBar = document.getElementById("status") as (HTMLElement & { _t?: number }) | null;
   clear(root);
@@ -998,6 +1021,9 @@ function render(): void {
     const g = findGenerator(state.dynOpen);
     if (g) root.append(dynamicSheet(g));
   }
+  root.style.minHeight = "";
+  lockScroll(Boolean(document.querySelector(".sheet-backdrop, .onboard-backdrop")));
+  if (lockedY === null && Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
   restoreFocus(focused);
 }
 
@@ -1293,6 +1319,8 @@ function stage(): HTMLElement {
 async function chooseFrame(id: string): Promise<void> {
   state.frameId = id;
   state.settings.frameId = id;
+  const picked = findFrame(id).ratio;
+  if (picked && picked !== 1) state.framePortrait = picked < 1;
   persist();
   syncFrame();
   const f = findFrame(id);
@@ -1311,71 +1339,73 @@ function ratioShape(ratio: number): HTMLElement {
   return h("span", { class: ratio ? "ratio-shape" : "ratio-shape free", style: `width:${w}px;height:${Math.max(6, hh)}px` });
 }
 
-function frameSection(): HTMLElement {
+/** True when the frame row shows portrait ratios (9:16, 4:5, 3:4). */
+function framePortrait(): boolean {
+  return state.framePortrait ?? findFrame(state.frameId).ratio < 1;
+}
+
+/** One row of frames above the picture. Swap flips the row between landscape and portrait. */
+function frameBar(): HTMLElement {
   const current = findFrame(state.frameId);
-  const custom = !isListed(state.frameId);
-  const picker = h(
+  const portrait = framePortrait();
+  const ids = FRAME_ROW.map((id) => (portrait ? swapFrameId(id) : id));
+  const custom = !ids.includes(state.frameId) && !FRAME_ROW.includes(swapFrameId(state.frameId));
+  const cell = (id: string, label: string, shape: HTMLElement, active: boolean, title: string, onclick: () => void) =>
+    h(
+      "button",
+      { class: active ? "frame active" : "frame", type: "button", title, "aria-pressed": String(active), onclick },
+      h("span", { class: "frame-box" }, shape),
+      h("span", {}, label),
+    );
+  const row = h(
     "div",
-    { class: "frames" },
-    FRAMES.map((f) =>
-      h(
-        "button",
-        { class: f.id === state.frameId ? "frame active" : "frame", title: f.hint, type: "button", onclick: () => chooseFrame(f.id) },
-        h("span", { class: "frame-box" }, ratioShape(f.ratio)),
-        h("span", {}, f.label),
-      ),
-    ),
+    { class: "frame-bar", role: "group", "aria-label": t("Frame") },
+    ids.map((id) => {
+      const f = findFrame(id);
+      return cell(id, f.label, ratioShape(f.ratio), id === state.frameId, f.hint, () => chooseFrame(id));
+    }),
+    cell("custom", custom ? current.label : "Custom", custom ? ratioShape(current.ratio) : icon("plus", 14), custom || state.frameEditor, "Your own ratio or pixel size", () => {
+      state.frameEditor = !state.frameEditor;
+      render();
+    }),
     h(
       "button",
       {
-        class: custom || state.frameEditor ? "frame active custom" : "frame custom",
-        title: "Your own ratio or pixel size",
+        class: portrait ? "icon-btn small ghost frame-swap on" : "icon-btn small ghost frame-swap",
         type: "button",
+        title: portrait ? "Show landscape frames" : "Show portrait frames",
+        "aria-label": "Swap portrait and landscape",
+        "aria-pressed": String(portrait),
         onclick: () => {
-          state.frameEditor = !state.frameEditor;
-          render();
+          const next = !portrait;
+          state.framePortrait = next;
+          // A ratio already picked flips with the row; View, square and custom stay.
+          const flipped = swapFrameId(state.frameId);
+          if (!custom && flipped !== state.frameId) chooseFrame(flipped);
+          else render();
         },
       },
-      h("span", { class: "frame-box" }, custom ? ratioShape(current.ratio) : icon("plus", 16)),
-      h("span", {}, custom ? current.label : "Custom"),
+      icon("swap", 16),
     ),
-  );
-  const canSwap = Boolean(current.ratio) && swapFrameId(state.frameId) !== state.frameId;
-  const swap = h(
-    "button",
-    {
-      class: "icon-btn small ghost",
-      type: "button",
-      title: canSwap ? `Swap to ${swapFrameId(state.frameId)}` : "Pick a ratio to swap",
-      "aria-label": "Swap portrait and landscape",
-      disabled: !canSwap,
-      onclick: () => chooseFrame(swapFrameId(state.frameId)),
-    },
-    icon("swap", 16),
-  );
-  const toggle =
     host.kind === "sketchup"
       ? h(
-          "label",
-          { class: "switch" },
-          h("input", {
-            type: "checkbox",
-            checked: state.showFrame,
-            onchange: (e: Event) => {
-              state.showFrame = (e.target as HTMLInputElement).checked;
+          "button",
+          {
+            class: state.showFrame ? "icon-btn small ghost on" : "icon-btn small ghost",
+            type: "button",
+            title: state.showFrame ? "Hide the frame in SketchUp" : "Show the frame in SketchUp",
+            "aria-pressed": String(state.showFrame),
+            onclick: () => {
+              state.showFrame = !state.showFrame;
               syncFrame();
+              render();
             },
-          }),
-          h("span", { class: "track" }),
-          t("Show in SketchUp"),
+          },
+          icon("eye", 16),
         )
-      : null;
-  return sectionWith(
-    t("Frame"),
-    h("div", { class: "head-actions center" }, toggle, swap),
-    picker,
-    state.frameEditor || custom ? frameEditor() : null,
+      : null,
   );
+  return h("div", { class: "frame-wrap" }, row, state.frameEditor || custom ? frameEditor() : null);
 }
 
 function frameEditor(): HTMLElement {
@@ -1616,8 +1646,6 @@ function presetCard(x: Preset): HTMLElement {
 function quickTab(body: HTMLElement): void {
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  modelPanel(body);
-  body.append(fold(frameSection(), "frame", frameLabel(), false));
   body.append(lockBanner());
   if (!lock) {
     body.append(
@@ -1720,7 +1748,7 @@ function libArt(x: LibItem): { art: HTMLElement; badge: string | null } {
   return { art, badge };
 }
 
-function libCard(x: LibItem, current = false): HTMLElement {
+function libCard(x: LibItem, current = false, label?: string): HTMLElement {
   const { art, badge } = libArt(x);
   const active = x.id === state.preset.id;
   const card = h(
@@ -1739,7 +1767,7 @@ function libCard(x: LibItem, current = false): HTMLElement {
       },
     },
     h("span", { class: "lib-art" }, art, badge ? h("em", { class: "lib-badge" }, badge) : null, active ? h("span", { class: "lib-check" }, icon("check", 14)) : null),
-    h("strong", {}, x.name),
+    h("strong", {}, label ?? x.name),
   );
   return current ? card : h("div", { class: "lib-cell" }, card, starButton(x.id, x.name));
 }
@@ -1781,6 +1809,11 @@ const LIB_CATEGORIES: { id: ProjectType; label: string }[] = [
   { id: "aerial", label: "Aerial" },
   { id: "sketch", label: "Sketch" },
 ];
+
+function styleName(x: LibItem): string {
+  const styles: { id: string; label: string }[] = x.projectType === "exterior" ? EXT_STYLES : x.projectType === "interior" ? INT_STYLES : x.projectType === "aerial" ? AERIAL_LOOKS : [];
+  return styles.find((s) => s.id === x.styleId)?.label ?? x.name;
+}
 
 function subjectsOf(type: ProjectType): { id: string; label: string; group?: string }[] {
   return type === "exterior" ? EXT_TYPES : type === "interior" ? ROOMS : type === "aerial" ? AERIAL_TYPES : [];
@@ -1859,7 +1892,8 @@ function librarySheet(): HTMLElement {
       if (type !== "sketch") back = () => go(type);
       const list = type === "sketch" ? filterLibrary("sketch", "all", "all") : filterLibrary(type, "all", L.subject);
       count.textContent = `${list.length} ${list.length === 1 ? "style" : "styles"}`;
-      body.replaceChildren(...grid(list.map((x) => libCard(x)), "Nothing here yet."));
+      // Inside a room or building the room is already named, so cards say only the style.
+      body.replaceChildren(...grid(list.map((x) => libCard(x, false, type === "sketch" ? undefined : styleName(x))), "Nothing here yet."));
       return;
     }
     // A category: its rooms, buildings or developments as big pictures.
@@ -2239,17 +2273,12 @@ function drawQueue(): void {
 const WIDE = window.matchMedia("(min-width: 1000px) and (orientation: landscape)");
 WIDE.addEventListener?.("change", () => render());
 
-/** The AI model fold, unless the left panel already shows the model list. */
-function modelPanel(body: HTMLElement): void {
-  if (!WIDE.matches) body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
-}
-
 function renderTab(main: HTMLElement): void {
   const p = state.preset;
   // Picture column and controls column. Stacked on phones and in the
   // SketchUp panel, side by side on a wide screen (see styles.css).
   main.classList.add("render-layout");
-  const pictureCol = h("div", { class: "picture-col" }, stage(), queue.length ? queueSection() : null);
+  const pictureCol = h("div", { class: "picture-col" }, frameBar(), stage(), queue.length ? queueSection() : null);
   const body = h("div", { class: "controls-col" });
   main.append(pictureCol, body);
   if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection()));
@@ -2259,8 +2288,6 @@ function renderTab(main: HTMLElement): void {
   }
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  modelPanel(body);
-  body.append(fold(frameSection(), "frame", frameLabel(), true));
   body.append(lockBanner());
   if (!lock) {
     body.append(
