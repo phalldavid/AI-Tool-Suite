@@ -20,3 +20,11 @@ test("featured keeps the hand-written presets; search crosses tabs", () => {
   assert.match(p.style, /walk-in shower/);
   assert.match(p.style, /Japandi/);
 });
+
+test("library search matches every word in any order", () => {
+  const a = filterLibrary("exterior", "all", "all", "kitchen japandi");
+  assert.ok(a.length > 0);
+  assert.deepEqual(a.map((x) => x.id).sort(), filterLibrary("exterior", "all", "all", "japandi, kitchen").map((x) => x.id).sort());
+  assert.ok(filterLibrary("exterior", "all", "all", "bathroom scandi").length > 0);
+  assert.equal(filterLibrary("exterior", "all", "all", "kitchen zzzz").length, 0);
+});
