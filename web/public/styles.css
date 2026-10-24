@@ -693,3 +693,6 @@ table.rated th { color: var(--muted); font-weight: 600; }
 .log-list .log-error strong { color: var(--error); }
 .log-list .log-ok strong { color: var(--ok); }
 .log-backdrop { z-index: 70; }
+/* On filled buttons the sweep is light, so it shows on the accent colour. */
+.btn.primary.working::after { background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.45) 50%, transparent 75%); background-size: 250% 100%; animation: scan 1.2s linear infinite; }
+.btn.working::after { animation-duration: 1.2s; }
