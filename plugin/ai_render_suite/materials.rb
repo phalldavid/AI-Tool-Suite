@@ -4,7 +4,7 @@ module AIRenderSuite
   # a grid of points inside the render frame; each hit face reports its
   # material (or the one it inherits from its group or component), which way
   # it faces and what object it belongs to. The panel turns this into
-  # Material DNA tags.
+  # Material Scan tags.
   module Materials
     COLS = 32
     ROWS = 20

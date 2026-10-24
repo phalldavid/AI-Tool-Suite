@@ -1,5 +1,5 @@
-// Image analysis with a text-only vision model: Material DNA (one material
-// tag per surface or object) and Analyse people (where people can go and
+// Image analysis with a text-only vision model: Material Scan (one material
+// tag per surface or object) and Place People (where people can go and
 // what they do). The answer is plain text the user edits before it goes into
 // the render prompt. Uses the same Kie.ai key as rendering (a Gemini flash
 // chat model), or the Gemini API key when that is the backend.
@@ -132,7 +132,7 @@ export function geminiAnalyser(key: string, models = GEMINI_TEXT_MODELS): Analys
   };
 }
 
-// ---------- Material DNA ----------
+// ---------- Material Scan ----------
 
 export function dnaPrompt(type: ProjectType): string {
   const what = type === "interior" ? "interior" : type === "aerial" ? "site seen from above" : "building and its surroundings";
@@ -207,7 +207,7 @@ export function dnaConflicts(notes: string, tags: string[]): string[] {
   );
 }
 
-// ---------- Analyse people ----------
+// ---------- Place People ----------
 
 export interface PeopleOptions {
   scene: string;

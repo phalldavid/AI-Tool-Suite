@@ -41,7 +41,7 @@ import {
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
-import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieResolution } from "./providers/kie-models";
+import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
@@ -120,11 +120,11 @@ interface State {
   notes: string;
   /** The user's own edit of the render prompt, or null to build it. */
   promptEdit: string | null;
-  /** People line from Analyse people (editable). */
+  /** People line from Place People (editable). */
   people: string;
   /** Style reference image sent after the view. */
   reference: ImageData64 | null;
-  /** Material DNA tags for the current view. */
+  /** Material Scan tags for the current view. */
   dna: DnaTag[];
   result: ImageData64 | null;
   /** All images from the last render (1 to 4); result is the one shown. */
@@ -133,6 +133,7 @@ interface State {
   /** Kie credits left, null until checked. */
   kieCredits: number | null;
   lib: { open: boolean; type: ProjectType | "mine"; style: string; subject: string; query: string };
+  modelSheet: boolean;
   editSource: ImageData64 | null;
   editMode: "spot" | "relight";
   editInstruction: string;
@@ -193,6 +194,7 @@ export async function start(el: HTMLElement): Promise<void> {
     anglesOpen: false,
     kieCredits: null,
     lib: { open: false, type: "exterior", style: "all", subject: "all", query: "" },
+    modelSheet: false,
     editSource: null,
     editMode: "spot",
     editInstruction: "",
@@ -671,6 +673,7 @@ document.addEventListener("keydown", (e) => {
   else if (state.dynOpen) state.dynOpen = null;
   else if (state.lookOpen) state.lookOpen = false;
   else if (state.settingsOpen) state.settingsOpen = false;
+  else if (state.modelSheet) state.modelSheet = false;
   else return;
   e.preventDefault();
   render();
@@ -739,6 +742,7 @@ function render(): void {
   if (state.ctxOpen) root.append(contextSheet());
   if (state.anglesOpen) root.append(anglesSheet());
   if (state.lib.open) root.append(librarySheet());
+  if (state.modelSheet) root.append(modelSheet());
   if (state.analyseOpen === "dna") root.append(dnaSheet());
   if (state.analyseOpen === "people") root.append(peopleSheet());
   if (state.dynOpen) {
@@ -950,7 +954,7 @@ async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
   state.capturedFrameId = state.frameId;
   state.result = null;
   // A different picture: its material tags and people no longer apply.
-  if (state.dna.length || state.people) toast("New image: Material DNA and people were cleared.");
+  if (state.dna.length || state.people) toast("New image: Material Scan and people were cleared.");
   state.dna = [];
   state.people = "";
   render();
@@ -1751,6 +1755,7 @@ function renderBar(): HTMLElement {
   return h(
     "div",
     { class: "render-bar" },
+    modelChip(),
     btn,
     creditReadout(),
     state.busy && state.settings.backend === "browser"
@@ -2959,6 +2964,100 @@ function historyDetail(item: HistoryItem): HTMLElement {
 
 const FAMILY_MARK: Record<KieFamilyId, string> = { nano: "NB", gpt: "GPT", seedream: "SD" };
 
+function creditLabel(m: KieModel, res: KieResolution): string {
+  const c = creditsFor(m, res);
+  return c === null ? "price on kie.ai" : `${c} credits`;
+}
+
+/** One row per model family; the chosen family shows its versions as chips. */
+function modelList(pick: (id: string) => void): HTMLElement {
+  const s = state.settings;
+  const hasKey = Boolean(s.kieKey.trim());
+  const usingKie = s.backend === "kie" && hasKey;
+  const current = findKieModel(s.kieModel);
+  return h(
+    "div",
+    { class: "model-list", role: "radiogroup", "aria-label": "AI model" },
+    KIE_FAMILIES.map((f) => {
+      const list = modelsIn(f.id);
+      const chosen = current.family === f.id ? current : list[0];
+      const active = usingKie && current.family === f.id;
+      const usd = priceFor(chosen, s.kieResolution);
+      const row = h(
+        "button",
+        {
+          class: `model-row${active ? " active" : ""}${hasKey ? "" : " locked"}`,
+          type: "button",
+          role: "radio",
+          "aria-checked": active ? "true" : "false",
+          title: hasKey ? (usd === null ? chosen.note : `${chosen.note}. About $${usd.toFixed(3).replace(/0$/, "")} per image.`) : "Add your Kie.ai key in Settings to use this model",
+          onclick: () => pick(chosen.id),
+        },
+        h("span", { class: `model-mark ${f.id}`, "aria-hidden": "true" }, FAMILY_MARK[f.id]),
+        h("span", { class: "model-text" }, h("strong", {}, active ? chosen.label : f.label), h("small", {}, `${f.bestFor} · ${f.maker}`)),
+        h("span", { class: "model-cost" }, creditLabel(chosen, s.kieResolution), creditsFor(chosen, s.kieResolution) === null ? null : h("small", {}, "per image")),
+      );
+      const versions =
+        active && list.length > 1
+          ? h(
+              "div",
+              { class: "model-versions" },
+              list.map((m) => chip(`${m.label.replace(f.label, "").trim() || m.label} · ${creditLabel(m, s.kieResolution)}`, m.id === current.id, () => pick(m.id), undefined, m.note)),
+            )
+          : null;
+      return h("div", { class: "model-item" }, row, versions);
+    }),
+  );
+}
+
+/** Quick switch next to Render: the chosen model and size, opens the list in a sheet. */
+function modelChip(): HTMLElement | null {
+  const s = state.settings;
+  if (s.backend !== "kie" || !s.kieKey.trim()) return null;
+  const m = findKieModel(s.kieModel);
+  return h(
+    "button",
+    {
+      class: "model-chip",
+      type: "button",
+      title: `${m.label} · ${resolutionFor(m, s.kieResolution)}. Click to change.`,
+      "aria-label": `Model ${m.label}, ${resolutionFor(m, s.kieResolution)}. Change model`,
+      onclick: () => {
+        state.modelSheet = true;
+        render();
+      },
+    },
+    h("span", { class: `model-mark ${m.family}`, "aria-hidden": "true" }, FAMILY_MARK[m.family]),
+    h("small", {}, resolutionFor(m, s.kieResolution)),
+  );
+}
+
+/** The AI model section without its heading, for the sheet. */
+function modelSheetBody(): HTMLElement {
+  const sec = modelSection();
+  sec.querySelector(".section-head")?.remove();
+  sec.classList.add("plain");
+  return sec;
+}
+
+function modelSheet(): HTMLElement {
+  const close = () => {
+    state.modelSheet = false;
+    render();
+  };
+  return h(
+    "div",
+    { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Choose AI model" },
+      h("div", { class: "sheet-head" }, h("h2", {}, "AI model"), iconButton("close", "Close", close)),
+      modelSheetBody(),
+      primaryButton(t("Done"), "check", close, false, "wide"),
+    ),
+  );
+}
+
 function modelSection(): HTMLElement {
   const s = state.settings;
   const hasKey = Boolean(s.kieKey.trim());
@@ -2974,44 +3073,6 @@ function modelSection(): HTMLElement {
     await persist();
     render();
   };
-  const cards = KIE_FAMILIES.map((f) => {
-    const list = modelsIn(f.id);
-    const chosen = current.family === f.id ? current : list[0];
-    const active = usingKie && current.family === f.id;
-    const sel = h(
-      "select",
-      { class: "model-sub", "aria-label": `${f.label} version`, disabled: !hasKey, onclick: (e: Event) => e.stopPropagation() },
-      list.map((m) => h("option", { value: m.id, selected: m.id === chosen.id }, m.label.replace(f.label.replace(/ Image$/, ""), "").replace(/^ Image/, "").trim())),
-    ) as HTMLSelectElement;
-    sel.addEventListener("change", () => pick(sel.value));
-    return h(
-      "div",
-      {
-        class: `model-card${active ? " active" : ""}${hasKey ? "" : " locked"}`,
-        role: "button",
-        tabindex: 0,
-        "aria-pressed": active,
-        title: hasKey ? `${chosen.label}: ${chosen.note}` : "Add your Kie.ai key in Settings to use this model",
-        onclick: () => pick(chosen.id),
-        onkeydown: (e: Event) => {
-          const k = (e as KeyboardEvent).key;
-          if (k !== "Enter" && k !== " ") return;
-          e.preventDefault();
-          pick(chosen.id);
-        },
-      },
-      h(
-        "div",
-        { class: "model-top" },
-        h("span", { class: `model-mark ${f.id}` }, FAMILY_MARK[f.id]),
-        h("span", { class: "model-badge" }, f.badge),
-      ),
-      h("strong", {}, f.label),
-      h("small", {}, f.maker),
-      h("span", { class: "model-price" }, priceFor(chosen, s.kieResolution) === null ? "Price on kie.ai" : `${priceText(chosen, s.kieResolution)} / image`),
-      sel,
-    );
-  });
   const resolution = usingKie
     ? h(
         "div",
@@ -3053,12 +3114,12 @@ function modelSection(): HTMLElement {
             render();
           },
         ),
-        per !== null && s.imageCount > 1 ? h("small", { class: "muted" }, `~$${(per * s.imageCount).toFixed(2)} per render`) : null,
+        per !== null && s.imageCount > 1 ? h("small", { class: "muted" }, `${renderCost()} credits per render`) : null,
       );
   return sectionWith(
     t("AI model"),
     aside,
-    h("div", { class: "model-grid" }, cards),
+    modelList(pick),
     resolution,
     count,
     !hasKey ? h("p", { class: "hint" }, "One Kie.ai key unlocks all of these. You pay Kie directly, per image.") : null,
@@ -3066,7 +3127,7 @@ function modelSection(): HTMLElement {
 }
 
 
-// ---------- Scene analysis: Material DNA and people ----------
+// ---------- Scene analysis: Material Scan and people ----------
 
 /**
  * One key unlocks everything; a second key only makes it cheaper. A Gemini
@@ -3101,7 +3162,7 @@ function analysisKeySection(): HTMLElement {
     h(
       "p",
       { class: "hint" },
-      "Material DNA and Analyse people work with your Kie key alone. Add a free key from ",
+      "Material Scan and Place People work with your Kie key alone. Add a free key from ",
       extLink("https://aistudio.google.com/apikey", "aistudio.google.com/apikey"),
       " and analysis runs on Google's free daily allowance instead. Renders still use Kie. Skip this and nothing is lost.",
     ),
@@ -3169,8 +3230,8 @@ function analysisFold(): HTMLElement {
     h(
       "div",
       { class: "dyn-grid" },
-      card("dna", "palette", "Material DNA", "Lists every surface and its material, so the render keeps them.", state.settings.styleLock ? `Locked · ${tags.length} tags` : tags.length ? `${tags.length} material tags on` : ""),
-      card("people", "eye", "Analyse people", "Looks at the space and writes where people go.", state.people.trim() ? "People line ready" : ""),
+      card("dna", "palette", "Material Scan", "Lists every surface and its material, so the render keeps them.", state.settings.styleLock ? `Locked · ${tags.length} tags` : tags.length ? `${tags.length} material tags on` : ""),
+      card("people", "eye", "Place People", "Looks at the space and writes where people go.", state.people.trim() ? "People line ready" : ""),
     ),
     conflicts.length
       ? h(
@@ -3306,7 +3367,7 @@ function dnaSheet(): HTMLElement {
   const sheet = h(
     "div",
     { class: "sheet wide", role: "dialog", "aria-modal": "true" },
-    h("div", { class: "sheet-head" }, h("h2", {}, "Material DNA"), count, iconButton("close", "Close", () => close(false))),
+    h("div", { class: "sheet-head" }, h("h2", {}, "Material Scan"), count, iconButton("close", "Close", () => close(false))),
     analysePreview(),
     h(
       "div",
@@ -3379,7 +3440,7 @@ function peopleSheet(): HTMLElement {
   const sheet = h(
     "div",
     { class: "sheet", role: "dialog", "aria-modal": "true" },
-    h("div", { class: "sheet-head" }, h("h2", {}, "Analyse people"), iconButton("close", "Close", () => close(false))),
+    h("div", { class: "sheet-head" }, h("h2", {}, "Place People"), iconButton("close", "Close", () => close(false))),
     analysePreview(),
     h("p", { class: "hint" }, "The AI looks at the actual space, then places people only where they could really stand or sit."),
     h("div", { class: "field" }, h("span", {}, "Type of space"), chips(PEOPLE_SCENES, "scene")),

@@ -758,3 +758,26 @@ table.rated th { color: var(--muted); font-weight: 600; }
 .crop-sheet .sheet-actions small { margin-right: auto; font-variant-numeric: tabular-nums; }
 .ob-later { display: flex; justify-content: center; }
 .onboard .row { flex-wrap: wrap; gap: 8px; }
+
+/* Model picker: one row per family, versions as chips under the chosen one */
+.model-list { display: flex; flex-direction: column; gap: 6px; }
+.model-item { display: flex; flex-direction: column; gap: 6px; }
+.model-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); color: var(--text); text-align: left; cursor: pointer; font: inherit; transition: border-color var(--dur, 0.15s), background-color var(--dur, 0.15s); }
+.model-row:hover { border-color: var(--line-2); }
+.model-row:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.model-row.active { border-color: var(--accent); background: var(--accent-soft, var(--field)); }
+.model-row.locked { opacity: 0.55; }
+.model-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.model-text strong { font-size: 14px; font-weight: 650; }
+.model-text small { font-size: 12px; color: var(--muted); line-height: 1.35; }
+.model-cost { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.model-cost small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.model-row.active .model-cost { color: var(--accent-text, var(--accent)); }
+.model-versions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 52px; }
+.model-chip { flex: 0 0 auto; height: 48px; min-width: 48px; padding: 0 8px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; }
+.model-chip:hover { border-color: var(--accent); color: var(--text); }
+.model-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.model-chip .model-mark { width: 26px; height: 18px; font-size: 9px; }
+.model-chip small { font-size: 10px; font-weight: 700; line-height: 1; }
+.section.plain { border: 0; padding: 0; background: none; }
+@media (max-width: 380px) { .model-versions { padding-left: 0; } }
