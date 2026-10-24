@@ -735,3 +735,5 @@ table.rated th { color: var(--muted); font-weight: 600; }
 .credit.low { color: var(--warn, #e0a030); border-color: var(--warn, #e0a030); }
 /* Narrow panels: library tabs show icons only, so no label gets cut off */
 @media (max-width: 520px) { .lib-sheet .seg button { font-size: 0; gap: 0; } .lib-sheet .seg button svg { width: 18px; height: 18px; } }
+.help-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.help-row .btn { flex: 1 1 160px; }

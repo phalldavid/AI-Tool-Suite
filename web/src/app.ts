@@ -48,6 +48,7 @@ import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
 import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
+import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
 import {
   cleanPeople,
@@ -323,8 +324,53 @@ function logSheet(): HTMLElement {
           await navigator.clipboard.writeText(text());
           toast("Log copied", "ok");
         }, "ghost"),
+        button("Report a bug", "bug", reportBug, "ghost"),
       ),
     ),
+  );
+}
+
+function openExternal(url: string): void {
+  if (host.kind === "sketchup") host.call("openUrl", { url }).catch(() => undefined);
+  else window.open(url, "_blank", "noopener");
+}
+
+/** Copies a short report (no keys) and opens the maker's Telegram to paste it into. */
+async function reportBug(): Promise<void> {
+  const s = state.settings;
+  const model = s.backend === "kie" ? s.kieModel : s.backend === "gemini" ? s.geminiModel : s.backend === "browser" ? s.browserSite : "";
+  const text = bugReport({
+    host: host.kind,
+    backend: s.backend,
+    model,
+    userAgent: navigator.userAgent,
+    log: activityLog,
+    secrets: [s.kieKey, s.geminiKey],
+  });
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Older embedded browsers block the clipboard API; the old copy command still works.
+    const ta = h("textarea", {}, text) as HTMLTextAreaElement;
+    document.body.append(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  openExternal(CONTACT_URL);
+  toast("Report copied, paste it in Telegram", "ok");
+}
+
+function helpSection(): HTMLElement {
+  return section(
+    "Help",
+    h(
+      "div",
+      { class: "help-row" },
+      button("Contact on Telegram", "send", async () => openExternal(CONTACT_URL), "ghost"),
+      button("Report a bug", "bug", reportBug, "ghost"),
+    ),
+    h("p", { class: "hint" }, `Contact: ${CONTACT_LABEL}. Report a bug copies your version, AI service and recent log (never your keys), then opens Telegram so you can paste it. Version ${APP_VERSION}.`),
   );
 }
 
@@ -3354,6 +3400,7 @@ function settingsSheet(): HTMLElement {
       ),
     );
   }
+  sheet.append(helpSection());
   sheet.append(primaryButton(t("Done"), "check", close, false, "wide"));
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() }, sheet);
 }

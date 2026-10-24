@@ -54,6 +54,8 @@ const P: Record<string, string> = {
   unlock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 7.7-1.5"/>',
   thumbUp: '<path d="M7 10.5v9.5H4.5v-9.5zM7 10.5l4-7.5a2 2 0 0 1 2.5 2.4L12.8 9H18a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 16.8 20H7"/>',
   thumbDown: '<path d="M7 13.5V4H4.5v9.5zM7 13.5l4 7.5a2 2 0 0 0 2.5-2.4L12.8 15H18a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 16.8 4H7"/>',
+  send: '<path d="M21 3L10 14"/><path d="M21 3l-6.5 18-4.5-7-7-4.5z"/>',
+  bug: '<rect x="7.5" y="7" width="9" height="13" rx="4.5"/><path d="M12 11v9M9 4.5l1.5 2.5M15 4.5L13.5 7M3.5 10h4M16.5 10h4M3.5 15h4M16.5 15h4"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16 7l2.5 2.5M14 9l2 2"/>',
 };
 
