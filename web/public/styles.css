@@ -847,3 +847,48 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 7px; border-radius: 6
 .pv-tools .icon-btn { width: 28px; height: 28px; padding: 0; border-radius: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; border: 0; }
 .pv-tools .icon-btn:hover { background: rgba(0, 0, 0, 0.8); }
 .pv-tools .icon-btn svg { width: 15px; height: 15px; }
+
+/* ---------- Responsive layout ----------
+   Phone (under 600 px): one column, two-row result toolbar, bigger taps.
+   SketchUp panel / tablet (600 to 1,000 px): one column fitted to the window.
+   Desktop (over 1,000 px): picture on the left, controls on the right. */
+
+/* Nothing may make the page wider than the screen (iPhone Safari zooms the whole page out when it does). */
+html, body { overflow-x: hidden; }
+#app { width: 100%; overflow-x: clip; }
+.body > *, .controls-col > *, .picture-col > * { min-width: 0; }
+.picture-col, .controls-col { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+.render-layout { gap: 12px; }
+.btn { white-space: nowrap; }
+#render-label { white-space: nowrap; }
+
+/* Result toolbar: main actions, then small tools. */
+.result-actions { flex-wrap: wrap; align-items: center; }
+.ra-main, .ra-tools { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.ra-main { flex: 1 1 auto; }
+.ra-main .btn.primary { flex: 1; }
+.ra-tools { flex-wrap: wrap; }
+
+@media (max-width: 599px) {
+  .ra-main, .ra-tools { flex: 1 1 100%; }
+  .ra-tools { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; }
+  .ra-tools > span { display: contents; }
+  .ra-tools .icon-btn { width: 100%; height: 40px; min-width: 0; }
+  .ra-main .btn { min-height: 44px; }
+  .busy-word { display: none; }
+  .icon-btn { min-width: 36px; min-height: 36px; }
+}
+
+@media (min-width: 600px) and (max-width: 1000px) {
+  #app, .render-bar { max-width: 1000px; }
+}
+
+@media (min-width: 1001px) {
+  #app { max-width: 1440px; }
+  .body:not(.tab-render):not(.tab-history) { width: 100%; max-width: 900px; margin: 0 auto; }
+  .render-layout { display: grid; grid-template-columns: minmax(0, 1fr) 440px; align-items: start; gap: 16px; }
+  .picture-col { position: sticky; top: 64px; max-height: calc(100vh - 76px); overflow-y: auto; }
+  .picture-col .stage-img { max-height: calc(100vh - 200px); object-fit: contain; }
+  .render-bar { max-width: none; margin: 0; left: auto; width: 464px; right: max(0px, calc((100vw - 1440px) / 2)); }
+  .history-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}

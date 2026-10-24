@@ -914,7 +914,7 @@ function render(): void {
       ),
     ),
   );
-  const body = h("main", { class: "body" });
+  const body = h("main", { class: `body tab-${state.tab}` });
   if (state.tab === "render") renderTab(body);
   if (state.tab === "edit") editTab(body);
   if (state.tab === "lights") lightsTab(body);
@@ -2107,10 +2107,14 @@ function drawQueue(): void {
   else if (state.tab === "render") render();
 }
 
-function renderTab(body: HTMLElement): void {
+function renderTab(main: HTMLElement): void {
   const p = state.preset;
-  body.append(stage());
-  if (queue.length) body.append(queueSection());
+  // Picture column and controls column. Stacked on phones and in the
+  // SketchUp panel, side by side on a wide screen (see styles.css).
+  main.classList.add("render-layout");
+  const pictureCol = h("div", { class: "picture-col" }, stage(), queue.length ? queueSection() : null);
+  const body = h("div", { class: "controls-col" });
+  main.append(pictureCol, body);
   if (state.settings.simple) {
     quickTab(body);
     return;
@@ -2350,7 +2354,11 @@ function renderBar(): HTMLElement {
     "button",
     { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button" },
     icon("render", 20),
-    h("span", { id: "render-label" }, t(state.busy ? "Rendering..." : state.result ? "Render again" : "Render")),
+    h(
+      "span",
+      { id: "render-label" },
+      state.busy ? [h("span", { class: "busy-word" }, `${t("Rendering...")} `), `${Math.round((Date.now() - state.busySince) / 1000)} s`] : t(state.result ? "Render again" : "Render"),
+    ),
     !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${renderCost()} credits`) : null,
   );
   return h(
@@ -2503,7 +2511,9 @@ async function shareImage(img: ImageData64): Promise<void> {
 function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
   return h(
     "div",
-    { class: "stage-actions" },
+    { class: "stage-actions result-actions" },
+    // Main actions, then small tools. On a phone they sit on two rows.
+    h("div", { class: "ra-main" },
     primaryButton(host.kind === "sketchup" ? "Save" : isIOS() ? "Save" : "Download", "save", () => saveImage(after, tool)),
     button("Edit", "edit", () => {
       if (tool !== "render" && state.editSource && state.editSource !== after) pushEdit(state.editSource);
@@ -2513,11 +2523,13 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
       state.tab = "edit";
       render();
     }, "ghost"),
-    iconButton("share", "Share: send to Telegram, Line or email", () => shareImage(after), "ghost"),
-    iconButton("copy", "Copy image", () => copyImage(after), "ghost"),
     tool === "render" && state.capture && after === state.result
       ? button("Try again", "refresh", () => runRender(true), "ghost", state.busy)
       : null,
+    ),
+    h("div", { class: "ra-tools" },
+    iconButton("share", "Share: send to Telegram, Line or email", () => shareImage(after), "ghost"),
+    iconButton("copy", "Copy image", () => copyImage(after), "ghost"),
     tool === "render" ? rateButtons(after) : null,
     tool === "render"
       ? iconButton("lock", "Lock this look for every view of the project", () => lockLook(after), state.settings.styleLock?.referenceIsRender ? "ghost on" : "ghost")
@@ -2536,6 +2548,7 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
           render();
         }, "ghost")
       : null,
+    ),
   );
 }
 
@@ -2647,7 +2660,9 @@ function setBusy(on: boolean): void {
     busyTimer = window.setInterval(() => {
       const label = document.getElementById("render-label");
       const waitText = state.settings.backend === "browser" ? "Press Send in the browser" : "Rendering...";
-      if (label) label.textContent = `${waitText} ${Math.round((Date.now() - state.busySince) / 1000)} s`;
+      if (label) {
+        label.replaceChildren(h("span", { class: "busy-word" }, `${waitText} `), `${Math.round((Date.now() - state.busySince) / 1000)} s`);
+      }
     }, 1000);
   }
 }
