@@ -43,7 +43,8 @@ import { GeminiProvider } from "./providers/gemini";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
 import { nonePreset, parseScene, sceneLabel, scenePreset, scenePrompt, sceneTemplate, type SceneScan } from "./scene-scan";
 import { progressAt, rememberDuration, runningLong, typicalMs } from "./progress";
-import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
+import { applyPriceList, creditNumber, creditsFor, USD_PER_CREDIT, findKieModel, type PriceList, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
+import { modelLogo } from "./model-logos";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
@@ -151,6 +152,8 @@ interface State {
   previews: Map<string, string>;
   previewsOpen: boolean;
   modelSheet: boolean;
+  /** Model family whose version list is open. */
+  modelMenu: KieFamilyId | null;
   keysOpen: boolean;
   tourStep: number;
   /** History filter: "" all, a project name, or "No project". */
@@ -225,6 +228,7 @@ export async function start(el: HTMLElement): Promise<void> {
     previews: new Map(),
     previewsOpen: false,
     modelSheet: false,
+    modelMenu: null,
     keysOpen: false,
     tourStep: 0,
     historyProject: "",
@@ -283,6 +287,7 @@ export async function start(el: HTMLElement): Promise<void> {
   }
   render();
   refreshCredits();
+  loadPrices();
   listHistory().then((items) => {
     state.history = items;
     // Tab count, own-render cards and History need it: one redraw.
@@ -1005,7 +1010,7 @@ function render(): void {
   if (state.tab === "mirror") mirrorTab(body);
   if (state.tab === "history") historyTab(body);
   root.append(body);
-  if (state.tab === "render") root.append(renderBar());
+  if (state.tab === "render" && !WIDE.matches) root.append(renderBar());
   root.append(oldBar ?? h("div", { id: "status", class: "toast", role: "status", "aria-live": "polite" }));
   if (state.settingsOpen) root.append(settingsSheet());
   if (!state.settings.onboarded) root.append(onboarding());
@@ -1025,6 +1030,9 @@ function render(): void {
     if (g) root.append(dynamicSheet(g));
   }
   root.style.minHeight = "";
+  // The header height, for the sticky header and side panel on wide screens.
+  const head = (root.querySelector(".topbar") as HTMLElement | null)?.offsetHeight ?? 0;
+  document.documentElement.style.setProperty("--topbar-h", `${head}px`);
   lockScroll(Boolean(document.querySelector(".sheet-backdrop, .onboard-backdrop")));
   if (lockedY === null && Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
   restoreFocus(focused);
@@ -2292,7 +2300,8 @@ function renderTab(main: HTMLElement): void {
   const pictureCol = h("div", { class: "picture-col" }, frameBar(), stage(), queue.length ? queueSection() : null);
   const body = h("div", { class: "controls-col" });
   main.append(pictureCol, body);
-  if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection()));
+  // Wide screens: the model list and the Render button share the left panel.
+  if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection(), renderBar()));
   if (state.settings.simple) {
     quickTab(body);
     return;
@@ -2536,12 +2545,12 @@ function renderBar(): HTMLElement {
     icon("render", 20),
     state.busy ? h("span", { class: "render-progress", "aria-hidden": "true" }, h("i", { id: "render-fill", style: `transform:scaleX(${busyProgress().toFixed(3)})` })) : null,
     h("span", { id: "render-label" }, state.busy ? busyLabel() : t(state.result ? "Render again" : "Render")),
-    !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${renderCost()} credits`) : null,
+    !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${creditNumber(renderCost() ?? 0)} credits`) : null,
   );
   return h(
     "div",
     { class: "render-bar" },
-    modelChip(),
+    WIDE.matches ? null : modelChip(),
     btn,
     creditReadout(),
     state.busy && state.settings.backend === "browser"
@@ -4028,52 +4037,136 @@ function historyDetail(item: HistoryItem): HTMLElement {
 
 // ---------- AI model picker (Kie.ai) ----------
 
-const FAMILY_MARK: Record<KieFamilyId, string> = { nano: "NB", gpt: "GPT", seedream: "SD" };
+/** Kie prices change often; the website keeps the current list, checked twice a day. */
+const PRICES_URL = "https://phalldavid.github.io/AI-Tool-Suite/prices.json";
+const PRICES_KEY = "airs.prices";
+
+async function loadPrices(): Promise<void> {
+  let cached: { at: number; list: PriceList } | null = null;
+  try {
+    cached = JSON.parse(localStorage.getItem(PRICES_KEY) ?? "null");
+    if (cached?.list) applyPriceList(cached.list);
+  } catch {
+    cached = null;
+  }
+  if (cached && Date.now() - cached.at < 12 * 3600 * 1000) return;
+  try {
+    const res = await fetch(PRICES_URL, { cache: "no-store", signal: AbortSignal.timeout?.(8000) });
+    if (!res.ok) return;
+    const list = (await res.json()) as PriceList;
+    const changed = applyPriceList(list);
+    try {
+      localStorage.setItem(PRICES_KEY, JSON.stringify({ at: Date.now(), list }));
+    } catch {
+      // Private mode: the built-in prices stay.
+    }
+    if (changed) render();
+  } catch {
+    // Offline: the built-in or last saved prices stay.
+  }
+}
+
 
 function creditLabel(m: KieModel, res: KieResolution): string {
   const c = creditsFor(m, res);
-  return c === null ? "price on kie.ai" : `${c} credits`;
+  return c === null ? "price on kie.ai" : `${creditNumber(c)} credits`;
 }
 
-/** One row per model family; the chosen family shows its versions as chips. */
+/** Sizes and credits in one line, e.g. "1K 6 · 2K 10 · 4K 16 credits". */
+function sizeCredits(m: KieModel): string {
+  const parts = m.resolutions.slice().sort().map((r) => {
+    const c = m.credits?.[r];
+    return c === undefined ? r : `${r} ${creditNumber(c)}`;
+  });
+  return m.credits ? `${parts.join(" · ")} credits` : `${m.resolutions.join(" / ")} · price on kie.ai`;
+}
+
+function logoMark(family: KieFamilyId, size = 18): HTMLElement {
+  const el = h("span", { class: `model-logo ${family}`, "aria-hidden": "true" });
+  el.innerHTML = modelLogo(family, size);
+  return el;
+}
+
+/**
+ * One card per model family, with a dropdown of its versions. The card
+ * picks the family; the arrow opens the list underneath.
+ */
 function modelList(pick: (id: string) => void): HTMLElement {
   const s = state.settings;
   const hasKey = Boolean(s.kieKey.trim());
   const usingKie = s.backend === "kie" && hasKey;
   const current = findKieModel(s.kieModel);
-  return h(
-    "div",
-    { class: "model-list", role: "radiogroup", "aria-label": "AI model" },
-    KIE_FAMILIES.map((f) => {
-      const list = modelsIn(f.id);
-      const chosen = current.family === f.id ? current : list[0];
-      const active = usingKie && current.family === f.id;
-      const usd = priceFor(chosen, s.kieResolution);
-      const row = h(
+  const open = state.modelMenu;
+  const toggle = (f: KieFamilyId) => {
+    state.modelMenu = state.modelMenu === f ? null : f;
+    render();
+  };
+  const cards = KIE_FAMILIES.map((f) => {
+    const list = modelsIn(f.id);
+    const chosen = current.family === f.id ? current : list[0];
+    const active = usingKie && current.family === f.id;
+    return h(
+      "div",
+      { class: `model-fam${active ? " active" : ""}${open === f.id ? " open" : ""}${hasKey ? "" : " locked"}` },
+      h("span", { class: "model-badge" }, f.badge),
+      h(
         "button",
         {
-          class: `model-row${active ? " active" : ""}${hasKey ? "" : " locked"}`,
+          class: "model-fam-main",
           type: "button",
           role: "radio",
-          "aria-checked": active ? "true" : "false",
-          title: hasKey ? (usd === null ? chosen.note : `${chosen.note}. About $${usd.toFixed(3).replace(/0$/, "")} per image.`) : "Add your Kie.ai key in Settings to use this model",
+          "aria-checked": String(active),
+          title: hasKey ? `${chosen.label}: ${chosen.note}. ${sizeCredits(chosen)}` : "Add your Kie.ai key in Settings to use this model",
           onclick: () => pick(chosen.id),
         },
-        h("span", { class: `model-mark ${f.id}`, "aria-hidden": "true" }, FAMILY_MARK[f.id]),
-        h("span", { class: "model-text" }, h("strong", {}, active ? chosen.label : f.label), h("small", {}, `${f.bestFor} · ${f.maker}`)),
-        h("span", { class: "model-cost" }, creditLabel(chosen, s.kieResolution), creditsFor(chosen, s.kieResolution) === null ? null : h("small", {}, "per image")),
-      );
-      const versions =
-        active && list.length > 1
-          ? h(
-              "div",
-              { class: "model-versions" },
-              list.map((m) => chip(`${m.label.replace(f.label, "").trim() || m.label} · ${creditLabel(m, s.kieResolution)}`, m.id === current.id, () => pick(m.id), undefined, m.note)),
-            )
-          : null;
-      return h("div", { class: "model-item" }, row, versions);
-    }),
-  );
+        logoMark(f.id, 22),
+        h("strong", {}, f.label),
+        h("small", {}, `${chosen.short} · ${creditLabel(chosen, s.kieResolution)}`),
+      ),
+      list.length > 1
+        ? h(
+            "button",
+            {
+              class: "model-fam-more",
+              type: "button",
+              title: `${f.label} versions`,
+              "aria-label": `${f.label} versions`,
+              "aria-expanded": String(open === f.id),
+              onclick: () => toggle(f.id),
+            },
+            icon("chevron", 14),
+          )
+        : null,
+    );
+  });
+  const fam = open ? KIE_FAMILIES.find((f) => f.id === open) : undefined;
+  const menu = fam
+    ? h(
+        "div",
+        { class: "model-menu", role: "radiogroup", "aria-label": `${fam.label} models` },
+        h("div", { class: "model-menu-head" }, logoMark(fam.id, 14), `${fam.label} models`),
+        modelsIn(fam.id).map((m) => {
+          const on = usingKie && m.id === current.id;
+          return h(
+            "button",
+            {
+              class: on ? "model-opt active" : "model-opt",
+              type: "button",
+              role: "radio",
+              "aria-checked": String(on),
+              onclick: () => {
+                state.modelMenu = null;
+                pick(m.id);
+              },
+            },
+            logoMark(m.family, 16),
+            h("span", { class: "model-opt-text" }, h("strong", {}, m.label), h("small", {}, `${sizeCredits(m)} · ${m.note}`)),
+            h("i", { class: "model-dot", "aria-hidden": "true" }),
+          );
+        }),
+      )
+    : null;
+  return h("div", { class: "model-list" }, h("div", { class: "model-grid", role: "radiogroup", "aria-label": "AI model" }, cards), menu);
 }
 
 /** Quick switch next to Render: the chosen model and size, opens the list in a sheet. */
@@ -4093,7 +4186,7 @@ function modelChip(): HTMLElement | null {
         render();
       },
     },
-    h("span", { class: `model-mark ${m.family}`, "aria-hidden": "true" }, FAMILY_MARK[m.family]),
+    logoMark(m.family, 18),
     h("small", {}, resolutionFor(m, s.kieResolution)),
   );
 }
@@ -4145,7 +4238,7 @@ function modelSection(): HTMLElement {
         { class: "model-res" },
         h("span", { class: "muted" }, "Output size"),
         segmented(
-          (["1K", "2K", "4K"] as KieResolution[]).map((r) => ({ id: r, label: r })),
+          current.resolutions.slice().sort().map((r) => ({ id: r, label: r })),
           current.resolutions.includes(s.kieResolution) ? s.kieResolution : current.resolutions[0],
           async (v) => {
             s.kieResolution = v;
@@ -4180,7 +4273,7 @@ function modelSection(): HTMLElement {
             render();
           },
         ),
-        per !== null && s.imageCount > 1 ? h("small", { class: "muted" }, `${renderCost()} credits per render`) : null,
+        per !== null && s.imageCount > 1 ? h("small", { class: "muted" }, `${creditNumber(renderCost() ?? 0)} credits per render`) : null,
       );
   return sectionWith(
     t("AI model"),
