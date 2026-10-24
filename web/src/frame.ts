@@ -15,15 +15,19 @@ export interface FrameOption {
 // Only ratios Gemini image models can output, so nothing is stretched.
 export const FRAMES: FrameOption[] = [
   { id: "free", label: "View", ratio: 0, hint: "Whole viewport" },
-  { id: "16:9", label: "16:9", ratio: 16 / 9, hint: "Screens, video" },
-  { id: "3:2", label: "3:2", ratio: 3 / 2, hint: "Camera photo" },
-  { id: "4:3", label: "4:3", ratio: 4 / 3, hint: "Boards" },
-  { id: "21:9", label: "21:9", ratio: 21 / 9, hint: "Panorama street" },
   { id: "1:1", label: "1:1", ratio: 1, hint: "Social square" },
-  { id: "4:5", label: "4:5", ratio: 4 / 5, hint: "Social portrait" },
-  { id: "3:4", label: "3:4", ratio: 3 / 4, hint: "Portrait board" },
+  { id: "16:9", label: "16:9", ratio: 16 / 9, hint: "Screens, video" },
   { id: "9:16", label: "9:16", ratio: 9 / 16, hint: "Stories, phone" },
+  { id: "5:4", label: "5:4", ratio: 5 / 4, hint: "Print, boards" },
+  { id: "4:5", label: "4:5", ratio: 4 / 5, hint: "Social portrait" },
+  { id: "4:3", label: "4:3", ratio: 4 / 3, hint: "Boards" },
+  { id: "3:4", label: "3:4", ratio: 3 / 4, hint: "Portrait board" },
+  { id: "3:2", label: "3:2", ratio: 3 / 2, hint: "Camera photo" },
+  { id: "21:9", label: "21:9", ratio: 21 / 9, hint: "Panorama street" },
 ];
+
+/** The one row of frames on the stage, in landscape; swap flips them to portrait. */
+export const FRAME_ROW = ["free", "1:1", "16:9", "5:4", "4:3"];
 
 /** A listed frame, or any "W:H" ratio typed by the user. */
 export function findFrame(id: string): FrameOption {

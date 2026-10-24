@@ -1,9 +1,10 @@
 // Image models on Kie.ai that the model picker offers: two per family, so the
 // choice stays simple. This list is the one place to edit (for example to
 // add or swap a model when Kie releases a new one). Ids, inputs and
-// prices come from docs.kie.ai and kie.ai model pages (checked 2026-10-23).
-// Prices are Kie's list price per image in USD and change often, so they are
-// shown as "about".
+// prices come from docs.kie.ai and kie.ai/pricing (GPT and Seedream Flash
+// prices from David, 2026-10-24). Prices are Kie credits per image; they
+// change often, so the app also loads prices.json from the website (see
+// applyPriceList) and that file wins over the numbers here.
 
 export type KieResolution = "1K" | "2K" | "4K";
 
@@ -15,8 +16,10 @@ export interface KieModel {
   note: string;
   /** model id to use when there is no input image, if the model has one */
   textId?: string;
-  /** USD per image by resolution; absent = not published */
-  price?: Partial<Record<KieResolution, number>>;
+  /** Kie credits per image by resolution; absent = not published */
+  credits?: Partial<Record<KieResolution, number>>;
+  /** short name on the model card, e.g. "2.5 Flare" */
+  short: string;
   /** resolutions the model takes; the first is used when the chosen one is not listed */
   resolutions: KieResolution[];
   /** aspect ratios the model takes */
@@ -61,7 +64,8 @@ export const KIE_MODELS: KieModel[] = [
     family: "nano",
     label: "Nano Banana 2.1",
     note: "Newest, cheapest, good all-rounder",
-    price: { "1K": 0.02, "2K": 0.03, "4K": 0.045 },
+    short: "2.1",
+    credits: { "1K": 4, "2K": 6, "4K": 9 },
     resolutions: ["1K", "2K", "4K"],
     ratios: ["1:1", "2:3", "3:2", "1:4", "4:1", "3:4", "4:3", "4:5", "5:4", "1:8", "8:1", "9:16", "16:9", "21:9"],
     input: nanoInput,
@@ -71,16 +75,30 @@ export const KIE_MODELS: KieModel[] = [
     family: "nano",
     label: "Nano Banana Pro",
     note: "Best detail and text, slower",
-    price: { "1K": 0.09, "2K": 0.09, "4K": 0.12 },
+    short: "Pro",
+    credits: { "1K": 18, "2K": 18, "4K": 24 },
     resolutions: ["1K", "2K", "4K"],
     ratios: GOOGLE_RATIOS,
     input: nanoInput,
   },
   {
+    id: "gpt-image-2-5-flare-image-to-image",
+    family: "gpt",
+    label: "GPT Image 2.5 Flare",
+    short: "2.5 Flare",
+    note: "Newest GPT, quicker",
+    credits: { "1K": 6, "2K": 10, "4K": 16 },
+    resolutions: ["1K", "2K", "4K"],
+    ratios: GPT_RATIOS,
+    input: (prompt, urls, ratio, res) => ({ prompt, input_urls: urls, aspect_ratio: ratio, resolution: res, background: "opaque" }),
+  },
+  {
     id: "gpt-image-2-5-sunburst-image-to-image",
     family: "gpt",
-    label: "GPT Image 2.5",
-    note: "Newest GPT image model",
+    label: "GPT Image 2.5 Sunburst",
+    short: "2.5 Sunburst",
+    note: "Newest GPT, best detail",
+    credits: { "1K": 6, "2K": 10, "4K": 16 },
     resolutions: ["1K", "2K", "4K"],
     ratios: GPT_RATIOS,
     input: (prompt, urls, ratio, res) => ({ prompt, input_urls: urls, aspect_ratio: ratio, resolution: res, background: "opaque" }),
@@ -89,19 +107,21 @@ export const KIE_MODELS: KieModel[] = [
     id: "gpt-image-2-image-to-image",
     family: "gpt",
     label: "GPT Image 2",
+    short: "2",
     note: "Strong at signs and lettering",
     textId: "gpt-image-2-text-to-image",
-    price: { "1K": 0.03 },
-    resolutions: ["1K"],
+    credits: { "1K": 6, "2K": 10, "4K": 16 },
+    resolutions: ["1K", "2K", "4K"],
     ratios: GPT_RATIOS,
-    input: (prompt, urls, ratio) => (urls.length ? { prompt, input_urls: urls, aspect_ratio: ratio } : { prompt, aspect_ratio: ratio }),
+    input: (prompt, urls, ratio, res) => (urls.length ? { prompt, input_urls: urls, aspect_ratio: ratio, resolution: res } : { prompt, aspect_ratio: ratio, resolution: res }),
   },
   {
     id: "seedream/5-pro-image-to-image",
     family: "seedream",
     label: "Seedream 5.0 Pro",
     note: "1K or 2K, rich materials",
-    price: { "1K": 0.035, "2K": 0.07 },
+    short: "5.0 Pro",
+    credits: { "1K": 7, "2K": 14 },
     resolutions: ["2K", "1K"],
     ratios: ["1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "21:9"],
     input: (prompt, urls, ratio, res) => ({
@@ -117,8 +137,11 @@ export const KIE_MODELS: KieModel[] = [
     id: "seedream/5-flash-image-to-image",
     family: "seedream",
     label: "Seedream 5 Flash",
-    note: "Fastest Seedream",
-    resolutions: ["1K"],
+    short: "5 Flash",
+    note: "Fastest Seedream, 2K only",
+    // Same price at every size on Kie, so it is locked to 2K.
+    credits: { "2K": 3.24 },
+    resolutions: ["2K"],
     ratios: ["1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "21:9"],
     input: (prompt, urls, ratio, res) => ({
       prompt,
@@ -146,15 +169,49 @@ export function resolutionFor(m: KieModel, wanted: KieResolution): KieResolution
   return m.resolutions.includes(wanted) ? wanted : m.resolutions[0];
 }
 
+/** Kie credits are bought at 200 per US dollar (list rate). */
+export const USD_PER_CREDIT = 0.005;
+
+/** Credits per image at the resolution used, or null when Kie does not publish the price. */
+export function creditsFor(m: KieModel, wanted: KieResolution): number | null {
+  return m.credits?.[resolutionFor(m, wanted)] ?? null;
+}
+
 /** Price per image in USD at the resolution used, or null when Kie does not publish it. */
 export function priceFor(m: KieModel, wanted: KieResolution): number | null {
-  return m.price?.[resolutionFor(m, wanted)] ?? null;
+  const c = creditsFor(m, wanted);
+  return c === null ? null : c * USD_PER_CREDIT;
 }
 
 export function priceText(m: KieModel, wanted: KieResolution): string {
   const p = priceFor(m, wanted);
   if (p === null) return "price on kie.ai";
   return `~$${p < 0.1 ? p.toFixed(3).replace(/0$/, "") : p.toFixed(2)}`;
+}
+
+/** 6 stays 6, 3.24 stays 3.24, 6.480001 becomes 6.48. */
+export function creditNumber(n: number): string {
+  return String(Math.round(n * 100) / 100);
+}
+
+/** A price list from the website: { "credits": { "<model id>": { "2K": 6 } } }. */
+export interface PriceList {
+  updated?: string;
+  credits: Record<string, Partial<Record<KieResolution, number>>>;
+}
+
+/** Applies a price list over the built-in prices; returns how many models changed. */
+export function applyPriceList(list: PriceList): number {
+  let n = 0;
+  for (const m of KIE_MODELS) {
+    const next = list.credits?.[m.id];
+    if (!next) continue;
+    const clean = Object.fromEntries(Object.entries(next).filter(([r, v]) => (m.resolutions as string[]).includes(r) && typeof v === "number" && v > 0 && v < 1000));
+    if (!Object.keys(clean).length) continue;
+    if (JSON.stringify(clean) !== JSON.stringify(m.credits)) n++;
+    m.credits = { ...m.credits, ...clean };
+  }
+  return n;
 }
 
 /** The model's own ratio closest to the wanted one. */
@@ -169,11 +226,3 @@ export function ratioFor(m: KieModel, wanted?: string): string {
   return m.ratios.reduce((best, r) => (Math.abs(value(r) - target) < Math.abs(value(best) - target) ? r : best));
 }
 
-/** Kie credits are bought at 200 per US dollar (list rate). */
-export const USD_PER_CREDIT = 0.005;
-
-/** Credits per image at the resolution used, or null when Kie does not publish the price. */
-export function creditsFor(m: KieModel, wanted: KieResolution): number | null {
-  const p = priceFor(m, wanted);
-  return p === null ? null : Math.round(p / USD_PER_CREDIT);
-}

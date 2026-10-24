@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { KieProvider, resultUrl, type KieTransport } from "../src/providers/kie";
-import { findKieModel, priceText, ratioFor, resolutionFor } from "../src/providers/kie-models";
+import { applyPriceList, creditNumber, creditsFor, findKieModel, priceText, ratioFor, resolutionFor } from "../src/providers/kie-models";
 
 function fakeTransport(states: string[]) {
   const calls: { method: string; url: string; body?: unknown }[] = [];
@@ -74,11 +74,26 @@ test("kie model helpers: prices, resolutions, ratios, results", () => {
   assert.equal(priceText(nb, "1K"), "~$0.02");
   assert.equal(priceText(nb, "4K"), "~$0.045");
   assert.equal(priceText(findKieModel("nano-banana-pro"), "4K"), "~$0.12");
-  assert.equal(priceText(findKieModel("seedream/5-flash-image-to-image"), "2K"), "price on kie.ai");
+  const flash = findKieModel("seedream/5-flash-image-to-image");
+  assert.equal(resolutionFor(flash, "1K"), "2K");
+  assert.equal(creditsFor(flash, "1K"), 3.24);
+  assert.equal(creditsFor(findKieModel("gpt-image-2-5-flare-image-to-image"), "4K"), 16);
+  assert.equal(creditsFor(findKieModel("gpt-image-2-image-to-image"), "2K"), 10);
+  assert.equal(creditNumber(3.24 * 2), "6.48");
   assert.equal(resolutionFor(findKieModel("seedream/5-pro-image-to-image"), "4K"), "2K");
   assert.equal(ratioFor(nb, "21:9"), "21:9");
   assert.equal(ratioFor(findKieModel("seedream/5-pro-image-to-image"), "4:5"), "3:4");
   assert.equal(findKieModel("unknown").id, "nano-banana-2-1");
   assert.equal(resultUrl('{"resultUrls":["u"]}'), "u");
   assert.equal(resultUrl("oops"), null);
+});
+
+test("a price list from the website overrides built-in prices, but only sizes the model takes", () => {
+  const m = findKieModel("nano-banana-2-1");
+  const before = { ...m.credits };
+  assert.equal(applyPriceList({ credits: { "nano-banana-2-1": { "2K": 7 }, "seedream/5-flash-image-to-image": { "1K": 1 } } }), 1);
+  assert.equal(creditsFor(m, "2K"), 7);
+  assert.equal(creditsFor(m, "1K"), before["1K"]);
+  assert.equal(creditsFor(findKieModel("seedream/5-flash-image-to-image"), "2K"), 3.24);
+  m.credits = before;
 });

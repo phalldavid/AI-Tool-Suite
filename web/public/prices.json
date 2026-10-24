@@ -1,0 +1,13 @@
+{
+  "updated": "2026-10-24",
+  "source": "kie.ai/pricing, credits per image (1 credit = $0.005)",
+  "credits": {
+    "nano-banana-2-1": { "1K": 4, "2K": 6, "4K": 9 },
+    "nano-banana-pro": { "1K": 18, "2K": 18, "4K": 24 },
+    "gpt-image-2-5-flare-image-to-image": { "1K": 6, "2K": 10, "4K": 16 },
+    "gpt-image-2-5-sunburst-image-to-image": { "1K": 6, "2K": 10, "4K": 16 },
+    "gpt-image-2-image-to-image": { "1K": 6, "2K": 10, "4K": 16 },
+    "seedream/5-pro-image-to-image": { "1K": 7, "2K": 14 },
+    "seedream/5-flash-image-to-image": { "2K": 3.24 }
+  }
+}

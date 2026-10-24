@@ -1,7 +1,7 @@
 // The render suite interface. Same code in the SketchUp panel and the browser.
 
 import { clear, h } from "./dom";
-import { cropImage, cropToRatio, FRAMES, findFrame, isListed, ratioFromPixels, swapFrameId } from "./frame";
+import { cropImage, cropToRatio, FRAME_ROW, FRAMES, findFrame, isListed, ratioFromPixels, swapFrameId } from "./frame";
 import { detectHost, type Host } from "./host";
 import { addHistory, listHistory, rateHistory, ratingSummary, removeHistory } from "./history";
 import { icon, iconSvg, logo } from "./icons";
@@ -43,12 +43,13 @@ import { GeminiProvider } from "./providers/gemini";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
 import { nonePreset, parseScene, sceneLabel, scenePreset, scenePrompt, sceneTemplate, type SceneScan } from "./scene-scan";
 import { progressAt, rememberDuration, runningLong, typicalMs } from "./progress";
-import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
+import { applyPriceList, creditNumber, creditsFor, USD_PER_CREDIT, findKieModel, type PriceList, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
+import { modelLogo } from "./model-logos";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
-import { AERIAL_TYPES, EXT_TYPES, filterLibrary, findLibraryItem, libraryItems, matchesWords, ROOMS, searchWords, type LibItem } from "./library";
+import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, INT_STYLES, findLibraryItem, libraryItems, matchesWords, ROOMS, searchWords, type LibItem } from "./library";
 import { PREVIEW_PACK } from "./preview-pack";
 import { previewFile } from "./preview-files";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
@@ -113,6 +114,8 @@ interface State {
   peopleOpts: PeopleOptions;
   ctxGroup: string;
   frameEditor: boolean;
+  /** Row orientation picked with swap; null follows the frame in use. */
+  framePortrait: boolean | null;
   /** the docked chat browser is open */
   browserOpen: boolean;
   browserMenu: boolean;
@@ -149,6 +152,8 @@ interface State {
   previews: Map<string, string>;
   previewsOpen: boolean;
   modelSheet: boolean;
+  /** Model family whose version list is open. */
+  modelMenu: KieFamilyId | null;
   keysOpen: boolean;
   tourStep: number;
   /** History filter: "" all, a project name, or "No project". */
@@ -197,6 +202,7 @@ export async function start(el: HTMLElement): Promise<void> {
     peopleOpts: { scene: "domestic", count: "few", who: "everyday" },
     ctxGroup: CONTEXT_GROUPS[0].id,
     frameEditor: false,
+    framePortrait: null,
     browserOpen: false,
     browserMenu: false,
     onboardStep: 0,
@@ -222,6 +228,7 @@ export async function start(el: HTMLElement): Promise<void> {
     previews: new Map(),
     previewsOpen: false,
     modelSheet: false,
+    modelMenu: null,
     keysOpen: false,
     tourStep: 0,
     historyProject: "",
@@ -280,6 +287,7 @@ export async function start(el: HTMLElement): Promise<void> {
   }
   render();
   refreshCredits();
+  loadPrices();
   listHistory().then((items) => {
     state.history = items;
     // Tab count, own-render cards and History need it: one redraw.
@@ -922,8 +930,31 @@ document.addEventListener("keydown", (e) => {
   render();
 });
 
+/** Page scroll saved while a window is open, so the page behind it cannot move. */
+let lockedY: number | null = null;
+
+/** Freezes the page behind an open window. iPhone Safari ignores overflow:hidden, so the body is pinned instead. */
+function lockScroll(on: boolean): void {
+  const b = document.body.style;
+  if (on && lockedY === null) {
+    lockedY = window.scrollY;
+    Object.assign(b, { position: "fixed", top: `-${lockedY}px`, left: "0", right: "0", width: "100%" });
+  } else if (!on && lockedY !== null) {
+    const y = lockedY;
+    lockedY = null;
+    Object.assign(b, { position: "", top: "", left: "", right: "", width: "" });
+    window.scrollTo(0, y);
+  }
+}
+
+// Windows added outside render() (crop, log) pin the page too.
+new MutationObserver(() => lockScroll(Boolean(document.querySelector(".sheet-backdrop, .onboard-backdrop")))).observe(document.body, { childList: true, subtree: true });
+
 function render(): void {
   const focused = focusPath();
+  // Keep the page height while redrawing, so a tap does not make the page jump.
+  const y = lockedY ?? window.scrollY;
+  root.style.minHeight = `${root.offsetHeight}px`;
   // A message on screen survives the redraw (an error used to vanish at once).
   const oldBar = document.getElementById("status") as (HTMLElement & { _t?: number }) | null;
   clear(root);
@@ -979,7 +1010,7 @@ function render(): void {
   if (state.tab === "mirror") mirrorTab(body);
   if (state.tab === "history") historyTab(body);
   root.append(body);
-  if (state.tab === "render") root.append(renderBar());
+  if (state.tab === "render" && !WIDE.matches) root.append(renderBar());
   root.append(oldBar ?? h("div", { id: "status", class: "toast", role: "status", "aria-live": "polite" }));
   if (state.settingsOpen) root.append(settingsSheet());
   if (!state.settings.onboarded) root.append(onboarding());
@@ -998,6 +1029,12 @@ function render(): void {
     const g = findGenerator(state.dynOpen);
     if (g) root.append(dynamicSheet(g));
   }
+  root.style.minHeight = "";
+  // The header height, for the sticky header and side panel on wide screens.
+  const head = (root.querySelector(".topbar") as HTMLElement | null)?.offsetHeight ?? 0;
+  document.documentElement.style.setProperty("--topbar-h", `${head}px`);
+  lockScroll(Boolean(document.querySelector(".sheet-backdrop, .onboard-backdrop")));
+  if (lockedY === null && Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
   restoreFocus(focused);
 }
 
@@ -1219,6 +1256,13 @@ function uploadInput(target: "render" | "edit"): HTMLInputElement {
   return input;
 }
 
+/** Width over height of what the stage shows. */
+function stageRatio(cap: State["capture"]): number {
+  const v = cap?.view;
+  if (v?.width && v.height) return v.width / v.height;
+  return findFrame(state.frameId).ratio || 16 / 9;
+}
+
 function stage(): HTMLElement {
   const cap = state.capture;
   const input = uploadInput("render");
@@ -1256,7 +1300,8 @@ function stage(): HTMLElement {
     { class: "stage" },
     h(
       "div",
-      { class: freshResult && state.result ? "stage-frame fresh" : "stage-frame" },
+      // Tall pictures get narrower instead of taller, so the buttons stay on screen.
+      { class: freshResult && state.result ? "stage-frame fresh" : "stage-frame", style: `max-width:calc(60vh * ${stageRatio(cap).toFixed(3)})` },
       content,
       cap ? h("span", { class: "badge" }, frameLabel()) : null,
       state.result ? h("span", { class: "badge right" }, "Drag to compare") : null,
@@ -1293,6 +1338,8 @@ function stage(): HTMLElement {
 async function chooseFrame(id: string): Promise<void> {
   state.frameId = id;
   state.settings.frameId = id;
+  const picked = findFrame(id).ratio;
+  if (picked && picked !== 1) state.framePortrait = picked < 1;
   persist();
   syncFrame();
   const f = findFrame(id);
@@ -1311,71 +1358,73 @@ function ratioShape(ratio: number): HTMLElement {
   return h("span", { class: ratio ? "ratio-shape" : "ratio-shape free", style: `width:${w}px;height:${Math.max(6, hh)}px` });
 }
 
-function frameSection(): HTMLElement {
+/** True when the frame row shows portrait ratios (9:16, 4:5, 3:4). */
+function framePortrait(): boolean {
+  return state.framePortrait ?? findFrame(state.frameId).ratio < 1;
+}
+
+/** One row of frames above the picture. Swap flips the row between landscape and portrait. */
+function frameBar(): HTMLElement {
   const current = findFrame(state.frameId);
-  const custom = !isListed(state.frameId);
-  const picker = h(
+  const portrait = framePortrait();
+  const ids = FRAME_ROW.map((id) => (portrait ? swapFrameId(id) : id));
+  const custom = !ids.includes(state.frameId) && !FRAME_ROW.includes(swapFrameId(state.frameId));
+  const cell = (id: string, label: string, shape: HTMLElement, active: boolean, title: string, onclick: () => void) =>
+    h(
+      "button",
+      { class: active ? "frame active" : "frame", type: "button", title, "aria-pressed": String(active), onclick },
+      h("span", { class: "frame-box" }, shape),
+      h("span", {}, label),
+    );
+  const row = h(
     "div",
-    { class: "frames" },
-    FRAMES.map((f) =>
-      h(
-        "button",
-        { class: f.id === state.frameId ? "frame active" : "frame", title: f.hint, type: "button", onclick: () => chooseFrame(f.id) },
-        h("span", { class: "frame-box" }, ratioShape(f.ratio)),
-        h("span", {}, f.label),
-      ),
-    ),
+    { class: "frame-bar", role: "group", "aria-label": t("Frame") },
+    ids.map((id) => {
+      const f = findFrame(id);
+      return cell(id, f.label, ratioShape(f.ratio), id === state.frameId, f.hint, () => chooseFrame(id));
+    }),
+    cell("custom", custom ? current.label : "Custom", custom ? ratioShape(current.ratio) : icon("plus", 14), custom || state.frameEditor, "Your own ratio or pixel size", () => {
+      state.frameEditor = !state.frameEditor;
+      render();
+    }),
     h(
       "button",
       {
-        class: custom || state.frameEditor ? "frame active custom" : "frame custom",
-        title: "Your own ratio or pixel size",
+        class: portrait ? "icon-btn small ghost frame-swap on" : "icon-btn small ghost frame-swap",
         type: "button",
+        title: portrait ? "Show landscape frames" : "Show portrait frames",
+        "aria-label": "Swap portrait and landscape",
+        "aria-pressed": String(portrait),
         onclick: () => {
-          state.frameEditor = !state.frameEditor;
-          render();
+          const next = !portrait;
+          state.framePortrait = next;
+          // A ratio already picked flips with the row; View, square and custom stay.
+          const flipped = swapFrameId(state.frameId);
+          if (!custom && flipped !== state.frameId) chooseFrame(flipped);
+          else render();
         },
       },
-      h("span", { class: "frame-box" }, custom ? ratioShape(current.ratio) : icon("plus", 16)),
-      h("span", {}, custom ? current.label : "Custom"),
+      icon("swap", 16),
     ),
-  );
-  const canSwap = Boolean(current.ratio) && swapFrameId(state.frameId) !== state.frameId;
-  const swap = h(
-    "button",
-    {
-      class: "icon-btn small ghost",
-      type: "button",
-      title: canSwap ? `Swap to ${swapFrameId(state.frameId)}` : "Pick a ratio to swap",
-      "aria-label": "Swap portrait and landscape",
-      disabled: !canSwap,
-      onclick: () => chooseFrame(swapFrameId(state.frameId)),
-    },
-    icon("swap", 16),
-  );
-  const toggle =
     host.kind === "sketchup"
       ? h(
-          "label",
-          { class: "switch" },
-          h("input", {
-            type: "checkbox",
-            checked: state.showFrame,
-            onchange: (e: Event) => {
-              state.showFrame = (e.target as HTMLInputElement).checked;
+          "button",
+          {
+            class: state.showFrame ? "icon-btn small ghost on" : "icon-btn small ghost",
+            type: "button",
+            title: state.showFrame ? "Hide the frame in SketchUp" : "Show the frame in SketchUp",
+            "aria-pressed": String(state.showFrame),
+            onclick: () => {
+              state.showFrame = !state.showFrame;
               syncFrame();
+              render();
             },
-          }),
-          h("span", { class: "track" }),
-          t("Show in SketchUp"),
+          },
+          icon("eye", 16),
         )
-      : null;
-  return sectionWith(
-    t("Frame"),
-    h("div", { class: "head-actions center" }, toggle, swap),
-    picker,
-    state.frameEditor || custom ? frameEditor() : null,
+      : null,
   );
+  return h("div", { class: "frame-wrap" }, row, state.frameEditor || custom ? frameEditor() : null);
 }
 
 function frameEditor(): HTMLElement {
@@ -1616,8 +1665,6 @@ function presetCard(x: Preset): HTMLElement {
 function quickTab(body: HTMLElement): void {
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  modelPanel(body);
-  body.append(fold(frameSection(), "frame", frameLabel(), false));
   body.append(lockBanner());
   if (!lock) {
     body.append(
@@ -1720,7 +1767,7 @@ function libArt(x: LibItem): { art: HTMLElement; badge: string | null } {
   return { art, badge };
 }
 
-function libCard(x: LibItem, current = false): HTMLElement {
+function libCard(x: LibItem, current = false, label?: string): HTMLElement {
   const { art, badge } = libArt(x);
   const active = x.id === state.preset.id;
   const card = h(
@@ -1739,7 +1786,7 @@ function libCard(x: LibItem, current = false): HTMLElement {
       },
     },
     h("span", { class: "lib-art" }, art, badge ? h("em", { class: "lib-badge" }, badge) : null, active ? h("span", { class: "lib-check" }, icon("check", 14)) : null),
-    h("strong", {}, x.name),
+    h("strong", {}, label ?? x.name),
   );
   return current ? card : h("div", { class: "lib-cell" }, card, starButton(x.id, x.name));
 }
@@ -1781,6 +1828,11 @@ const LIB_CATEGORIES: { id: ProjectType; label: string }[] = [
   { id: "aerial", label: "Aerial" },
   { id: "sketch", label: "Sketch" },
 ];
+
+function styleName(x: LibItem): string {
+  const styles: { id: string; label: string }[] = x.projectType === "exterior" ? EXT_STYLES : x.projectType === "interior" ? INT_STYLES : x.projectType === "aerial" ? AERIAL_LOOKS : [];
+  return styles.find((s) => s.id === x.styleId)?.label ?? x.name;
+}
 
 function subjectsOf(type: ProjectType): { id: string; label: string; group?: string }[] {
   return type === "exterior" ? EXT_TYPES : type === "interior" ? ROOMS : type === "aerial" ? AERIAL_TYPES : [];
@@ -1859,7 +1911,8 @@ function librarySheet(): HTMLElement {
       if (type !== "sketch") back = () => go(type);
       const list = type === "sketch" ? filterLibrary("sketch", "all", "all") : filterLibrary(type, "all", L.subject);
       count.textContent = `${list.length} ${list.length === 1 ? "style" : "styles"}`;
-      body.replaceChildren(...grid(list.map((x) => libCard(x)), "Nothing here yet."));
+      // Inside a room or building the room is already named, so cards say only the style.
+      body.replaceChildren(...grid(list.map((x) => libCard(x, false, type === "sketch" ? undefined : styleName(x))), "Nothing here yet."));
       return;
     }
     // A category: its rooms, buildings or developments as big pictures.
@@ -2239,28 +2292,22 @@ function drawQueue(): void {
 const WIDE = window.matchMedia("(min-width: 1000px) and (orientation: landscape)");
 WIDE.addEventListener?.("change", () => render());
 
-/** The AI model fold, unless the left panel already shows the model list. */
-function modelPanel(body: HTMLElement): void {
-  if (!WIDE.matches) body.append(fold(modelSection(), "model", modelSummaryText(), !state.settings.kieKey));
-}
-
 function renderTab(main: HTMLElement): void {
   const p = state.preset;
   // Picture column and controls column. Stacked on phones and in the
   // SketchUp panel, side by side on a wide screen (see styles.css).
   main.classList.add("render-layout");
-  const pictureCol = h("div", { class: "picture-col" }, stage(), queue.length ? queueSection() : null);
+  const pictureCol = h("div", { class: "picture-col" }, frameBar(), stage(), queue.length ? queueSection() : null);
   const body = h("div", { class: "controls-col" });
   main.append(pictureCol, body);
-  if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection()));
+  // Wide screens: the model list and the Render button share the left panel.
+  if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection(), renderBar()));
   if (state.settings.simple) {
     quickTab(body);
     return;
   }
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
-  modelPanel(body);
-  body.append(fold(frameSection(), "frame", frameLabel(), true));
   body.append(lockBanner());
   if (!lock) {
     body.append(
@@ -2498,12 +2545,12 @@ function renderBar(): HTMLElement {
     icon("render", 20),
     state.busy ? h("span", { class: "render-progress", "aria-hidden": "true" }, h("i", { id: "render-fill", style: `transform:scaleX(${busyProgress().toFixed(3)})` })) : null,
     h("span", { id: "render-label" }, state.busy ? busyLabel() : t(state.result ? "Render again" : "Render")),
-    !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${renderCost()} credits`) : null,
+    !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${creditNumber(renderCost() ?? 0)} credits`) : null,
   );
   return h(
     "div",
     { class: "render-bar" },
-    modelChip(),
+    WIDE.matches ? null : modelChip(),
     btn,
     creditReadout(),
     state.busy && state.settings.backend === "browser"
@@ -3990,58 +4037,142 @@ function historyDetail(item: HistoryItem): HTMLElement {
 
 // ---------- AI model picker (Kie.ai) ----------
 
-const FAMILY_MARK: Record<KieFamilyId, string> = { nano: "NB", gpt: "GPT", seedream: "SD" };
+/** Kie prices change often; the website keeps the current list, checked twice a day. */
+const PRICES_URL = "https://phalldavid.github.io/AI-Tool-Suite/prices.json";
+const PRICES_KEY = "airs.prices";
+
+async function loadPrices(): Promise<void> {
+  let cached: { at: number; list: PriceList } | null = null;
+  try {
+    cached = JSON.parse(localStorage.getItem(PRICES_KEY) ?? "null");
+    if (cached?.list) applyPriceList(cached.list);
+  } catch {
+    cached = null;
+  }
+  if (cached && Date.now() - cached.at < 12 * 3600 * 1000) return;
+  try {
+    const res = await fetch(PRICES_URL, { cache: "no-store", signal: AbortSignal.timeout?.(8000) });
+    if (!res.ok) return;
+    const list = (await res.json()) as PriceList;
+    const changed = applyPriceList(list);
+    try {
+      localStorage.setItem(PRICES_KEY, JSON.stringify({ at: Date.now(), list }));
+    } catch {
+      // Private mode: the built-in prices stay.
+    }
+    if (changed) render();
+  } catch {
+    // Offline: the built-in or last saved prices stay.
+  }
+}
+
 
 function creditLabel(m: KieModel, res: KieResolution): string {
   const c = creditsFor(m, res);
-  return c === null ? "price on kie.ai" : `${c} credits`;
+  return c === null ? "price on kie.ai" : `${creditNumber(c)} credits`;
 }
 
-/** One row per model family; the chosen family shows its versions as chips. */
+/** Sizes and credits in one line, e.g. "1K 6 · 2K 10 · 4K 16 credits". */
+function sizeCredits(m: KieModel): string {
+  const parts = m.resolutions.slice().sort().map((r) => {
+    const c = m.credits?.[r];
+    return c === undefined ? r : `${r} ${creditNumber(c)}`;
+  });
+  return m.credits ? `${parts.join(" · ")} credits` : `${m.resolutions.join(" / ")} · price on kie.ai`;
+}
+
+function logoMark(family: KieFamilyId, size = 18): HTMLElement {
+  const el = h("span", { class: `model-logo ${family}`, "aria-hidden": "true" });
+  el.innerHTML = modelLogo(family, size);
+  return el;
+}
+
+/**
+ * One card per model family, with a dropdown of its versions. The card
+ * picks the family; the arrow opens the list underneath.
+ */
 function modelList(pick: (id: string) => void): HTMLElement {
   const s = state.settings;
   const hasKey = Boolean(s.kieKey.trim());
   const usingKie = s.backend === "kie" && hasKey;
   const current = findKieModel(s.kieModel);
-  return h(
-    "div",
-    { class: "model-list", role: "radiogroup", "aria-label": "AI model" },
-    KIE_FAMILIES.map((f) => {
-      const list = modelsIn(f.id);
-      const chosen = current.family === f.id ? current : list[0];
-      const active = usingKie && current.family === f.id;
-      const usd = priceFor(chosen, s.kieResolution);
-      const row = h(
+  const open = state.modelMenu;
+  const toggle = (f: KieFamilyId) => {
+    state.modelMenu = state.modelMenu === f ? null : f;
+    render();
+  };
+  const cards = KIE_FAMILIES.map((f) => {
+    const list = modelsIn(f.id);
+    const chosen = current.family === f.id ? current : list[0];
+    const active = usingKie && current.family === f.id;
+    return h(
+      "div",
+      { class: `model-fam${active ? " active" : ""}${open === f.id ? " open" : ""}${hasKey ? "" : " locked"}` },
+      h("span", { class: "model-badge" }, f.badge),
+      h(
         "button",
         {
-          class: `model-row${active ? " active" : ""}${hasKey ? "" : " locked"}`,
+          class: "model-fam-main",
           type: "button",
           role: "radio",
-          "aria-checked": active ? "true" : "false",
-          title: hasKey ? (usd === null ? chosen.note : `${chosen.note}. About $${usd.toFixed(3).replace(/0$/, "")} per image.`) : "Add your Kie.ai key in Settings to use this model",
+          "aria-checked": String(active),
+          title: hasKey ? `${chosen.label}: ${chosen.note}. ${sizeCredits(chosen)}` : "Add your Kie.ai key in Settings to use this model",
           onclick: () => pick(chosen.id),
         },
-        h("span", { class: `model-mark ${f.id}`, "aria-hidden": "true" }, FAMILY_MARK[f.id]),
-        h("span", { class: "model-text" }, h("strong", {}, active ? chosen.label : f.label), h("small", {}, `${f.bestFor} · ${f.maker}`)),
-        h("span", { class: "model-cost" }, creditLabel(chosen, s.kieResolution), creditsFor(chosen, s.kieResolution) === null ? null : h("small", {}, "per image")),
-      );
-      const versions =
-        active && list.length > 1
-          ? h(
-              "div",
-              { class: "model-versions" },
-              list.map((m) => chip(`${m.label.replace(f.label, "").trim() || m.label} · ${creditLabel(m, s.kieResolution)}`, m.id === current.id, () => pick(m.id), undefined, m.note)),
-            )
-          : null;
-      return h("div", { class: "model-item" }, row, versions);
-    }),
-  );
+        logoMark(f.id, 22),
+        h("strong", {}, f.label),
+        h("small", {}, `${chosen.short} · ${creditLabel(chosen, s.kieResolution)}`),
+      ),
+      list.length > 1
+        ? h(
+            "button",
+            {
+              class: "model-fam-more",
+              type: "button",
+              title: `${f.label} versions`,
+              "aria-label": `${f.label} versions`,
+              "aria-expanded": String(open === f.id),
+              onclick: () => toggle(f.id),
+            },
+            icon("chevron", 14),
+          )
+        : null,
+    );
+  });
+  const fam = open ? KIE_FAMILIES.find((f) => f.id === open) : undefined;
+  const menu = fam
+    ? h(
+        "div",
+        { class: "model-menu", role: "radiogroup", "aria-label": `${fam.label} models` },
+        h("div", { class: "model-menu-head" }, logoMark(fam.id, 14), `${fam.label} models`),
+        modelsIn(fam.id).map((m) => {
+          const on = usingKie && m.id === current.id;
+          return h(
+            "button",
+            {
+              class: on ? "model-opt active" : "model-opt",
+              type: "button",
+              role: "radio",
+              "aria-checked": String(on),
+              onclick: () => {
+                state.modelMenu = null;
+                pick(m.id);
+              },
+            },
+            logoMark(m.family, 16),
+            h("span", { class: "model-opt-text" }, h("strong", {}, m.label), h("small", {}, `${sizeCredits(m)} · ${m.note}`)),
+            h("i", { class: "model-dot", "aria-hidden": "true" }),
+          );
+        }),
+      )
+    : null;
+  return h("div", { class: "model-list" }, h("div", { class: "model-grid", role: "radiogroup", "aria-label": "AI model" }, cards), menu);
 }
 
 /** Quick switch next to Render: the chosen model and size, opens the list in a sheet. */
 function modelChip(): HTMLElement | null {
   const s = state.settings;
-  if (s.backend !== "kie" || !s.kieKey.trim()) return null;
+  if (s.backend !== "kie") return null;
   const m = findKieModel(s.kieModel);
   return h(
     "button",
@@ -4055,7 +4186,7 @@ function modelChip(): HTMLElement | null {
         render();
       },
     },
-    h("span", { class: `model-mark ${m.family}`, "aria-hidden": "true" }, FAMILY_MARK[m.family]),
+    logoMark(m.family, 18),
     h("small", {}, resolutionFor(m, s.kieResolution)),
   );
 }
@@ -4107,7 +4238,7 @@ function modelSection(): HTMLElement {
         { class: "model-res" },
         h("span", { class: "muted" }, "Output size"),
         segmented(
-          (["1K", "2K", "4K"] as KieResolution[]).map((r) => ({ id: r, label: r })),
+          current.resolutions.slice().sort().map((r) => ({ id: r, label: r })),
           current.resolutions.includes(s.kieResolution) ? s.kieResolution : current.resolutions[0],
           async (v) => {
             s.kieResolution = v;
@@ -4142,7 +4273,7 @@ function modelSection(): HTMLElement {
             render();
           },
         ),
-        per !== null && s.imageCount > 1 ? h("small", { class: "muted" }, `${renderCost()} credits per render`) : null,
+        per !== null && s.imageCount > 1 ? h("small", { class: "muted" }, `${creditNumber(renderCost() ?? 0)} credits per render`) : null,
       );
   return sectionWith(
     t("AI model"),
