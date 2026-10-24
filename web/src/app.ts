@@ -41,6 +41,7 @@ import {
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
+import { progressAt, rememberDuration, runningLong, typicalMs } from "./progress";
 import { creditsFor, USD_PER_CREDIT, findKieModel, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
@@ -173,6 +174,8 @@ let state: State;
 let root: HTMLElement;
 let painter: ZonePainter | null = null;
 let busyTimer: number | undefined;
+/** Set when a new result arrives, so the stage fades it in once. */
+let freshResult = false;
 
 export async function start(el: HTMLElement): Promise<void> {
   root = el;
@@ -642,13 +645,7 @@ function withFeedback(onclick: () => unknown): (e: Event) => void {
     btn.setAttribute("aria-busy", "true");
     const label = btn.querySelector(":scope > span");
     const text = label?.textContent ?? "";
-    const t0 = Date.now();
-    const tick = window.setInterval(() => {
-      const secs = Math.round((Date.now() - t0) / 1000);
-      if (label && secs >= 2) label.textContent = `${text} ${secs} s`;
-    }, 1000);
     const end = (failed: boolean) => {
-      window.clearInterval(tick);
       if (working === job) working = null;
       if (label) label.textContent = text;
       btn.classList.remove("working");
@@ -1197,7 +1194,7 @@ function stage(): HTMLElement {
     { class: "stage" },
     h(
       "div",
-      { class: "stage-frame" },
+      { class: freshResult && state.result ? "stage-frame fresh" : "stage-frame" },
       content,
       cap ? h("span", { class: "badge" }, frameLabel()) : null,
       state.result ? h("span", { class: "badge right" }, "Drag to compare") : null,
@@ -2354,11 +2351,8 @@ function renderBar(): HTMLElement {
     "button",
     { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button", title: !state.capture && !state.busy ? (host.kind === "sketchup" ? "Capture a view first" : "Upload an image first") : undefined },
     icon("render", 20),
-    h(
-      "span",
-      { id: "render-label" },
-      state.busy ? [h("span", { class: "busy-word" }, `${t("Rendering...")} `), `${Math.round((Date.now() - state.busySince) / 1000)} s`] : t(state.result ? "Render again" : "Render"),
-    ),
+    state.busy ? h("span", { class: "render-progress", "aria-hidden": "true" }, h("i", { id: "render-fill", style: `transform:scaleX(${busyProgress().toFixed(3)})` })) : null,
+    h("span", { id: "render-label" }, state.busy ? busyLabel() : t(state.result ? "Render again" : "Render")),
     !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${renderCost()} credits`) : null,
   );
   return h(
@@ -2652,19 +2646,44 @@ async function saveImage(img: ImageData64, tool: ToolId): Promise<void> {
   }
 }
 
+/** Model name used to remember how long renders take. */
+function timingKey(): string {
+  const st = state.settings;
+  return st.backend === "kie" ? `${st.kieModel}@${st.kieResolution}` : st.backend;
+}
+
+function busyProgress(): number {
+  return progressAt(Date.now() - state.busySince, typicalMs(timingKey()));
+}
+
+function busyLabel(): string {
+  if (state.settings.backend === "browser") return "Press Send in the browser";
+  return runningLong(Date.now() - state.busySince, typicalMs(timingKey())) ? "Taking longer than usual" : t("Rendering...");
+}
+
 function setBusy(on: boolean): void {
   state.busy = on;
   window.clearInterval(busyTimer);
   if (on) {
     state.busySince = Date.now();
+    // Moves the bar inside the Render button; no counter, just the fill.
     busyTimer = window.setInterval(() => {
+      const fill = document.getElementById("render-fill");
+      if (fill) fill.style.transform = `scaleX(${busyProgress().toFixed(3)})`;
       const label = document.getElementById("render-label");
-      const waitText = state.settings.backend === "browser" ? "Press Send in the browser" : "Rendering...";
-      if (label) {
-        label.replaceChildren(h("span", { class: "busy-word" }, `${waitText} `), `${Math.round((Date.now() - state.busySince) / 1000)} s`);
-      }
-    }, 1000);
+      if (label && label.textContent !== busyLabel()) label.textContent = busyLabel();
+      fill?.closest(".render-btn")?.classList.toggle("long", runningLong(Date.now() - state.busySince, typicalMs(timingKey())));
+    }, 200);
   }
+}
+
+/** Fills the bar to the end before the result is shown. */
+async function finishProgress(): Promise<void> {
+  const fill = document.getElementById("render-fill");
+  if (!fill) return;
+  fill.style.transition = "transform 250ms ease-out";
+  fill.style.transform = "scaleX(1)";
+  await new Promise((r) => setTimeout(r, 280));
 }
 
 async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: string): Promise<ImageData64 | null> {
@@ -2688,10 +2707,14 @@ async function runProviderMany(prompt: string, images: ImageData64[], aspectRati
     );
     const ok = runs.flatMap((r) => (r.status === "fulfilled" ? [r.value.image] : []));
     const failed = runs.find((r): r is PromiseRejectedResult => r.status === "rejected");
-    const secs = Math.round((Date.now() - state.busySince) / 1000);
     if (failed && !ok.length) throw failed.reason;
-    if (failed) toast(`${ok.length} of ${n} done in ${secs} s. One failed: ${(failed.reason as Error).message}`, "error");
-    else toast(`Done in ${secs} s.`, "ok");
+    rememberDuration(timingKey(), Date.now() - state.busySince);
+    window.clearInterval(busyTimer);
+    await finishProgress();
+    freshResult = true;
+    window.setTimeout(() => (freshResult = false), 700);
+    if (failed) toast(`${ok.length} of ${n} done. One failed: ${(failed.reason as Error).message}`, "error");
+    else toast("Done", "ok");
     return ok;
   } catch (e) {
     const err = e as Error;

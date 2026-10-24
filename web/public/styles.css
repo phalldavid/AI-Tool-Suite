@@ -876,7 +876,6 @@ html { overflow-x: hidden; }
   .ra-tools > span { display: contents; }
   .ra-tools .icon-btn { width: 100%; height: 40px; min-width: 0; }
   .ra-main .btn { min-height: 44px; }
-  .busy-word { display: none; }
   .icon-btn { min-width: 36px; min-height: 36px; }
 }
 
@@ -908,3 +907,14 @@ html { overflow-x: hidden; }
 @media (hover: none) {
   [data-tip]:hover::after { content: none; }
 }
+
+/* Progress inside the Render button: no counter, just the fill. */
+.render-btn { position: relative; overflow: hidden; }
+.render-btn > :not(.render-progress) { position: relative; z-index: 1; }
+.render-progress { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.render-progress i { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 38%, transparent)); transition: transform 200ms linear; }
+.render-btn.long .render-progress i { background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent) 0%, color-mix(in srgb, var(--accent) 50%, transparent) 50%, color-mix(in srgb, var(--accent) 22%, transparent) 100%); background-size: 200% 100%; animation: render-shimmer 1.6s linear infinite; }
+@keyframes render-shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+.stage-frame.fresh { animation: result-in 420ms var(--ease-out) both; }
+@keyframes result-in { from { opacity: 0.25; filter: blur(4px); } to { opacity: 1; filter: none; } }
+@media (prefers-reduced-motion: reduce) { .render-btn.long .render-progress i, .stage-frame.fresh { animation: none; } }
