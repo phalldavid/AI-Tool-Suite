@@ -97,7 +97,7 @@ export function kieAnalyser(key: string, transport: KieTransport = fetchTranspor
       if (fatal(code)) throw new ProviderError(code === 401 ? "Kie.ai rejected the API key. Check it in Settings." : code === 402 ? "Not enough Kie credits for analysis. Top up at kie.ai." : `Kie.ai refused the analysis: ${res.msg ?? code}`, code);
       last = `${res.msg ?? "error"} (${code}, ${url.split("/")[3]})`;
     }
-    throw new ProviderError(`Kie.ai could not analyse the image. Kie said: ${last}. A free Gemini key in Settings is another way to run analysis.`);
+    throw new ProviderError(`Kie.ai could not read the image. Kie said: ${last}. A free Gemini key in Settings is another way to run analysis.`);
   };
 }
 
@@ -122,13 +122,13 @@ export function geminiAnalyser(key: string, models = GEMINI_TEXT_MODELS): Analys
         last = json.error?.message ?? `${model} not found`;
         continue;
       }
-      if (res.status === 429) throw new ProviderError("Your Gemini key hit Google's limit for now (free keys have a daily allowance). Try later, or analyse with Kie.ai.", 429);
-      if (!res.ok) throw new ProviderError(`Gemini could not analyse the image${json.error?.message ? `: ${json.error.message}` : "."}`, res.status);
+      if (res.status === 429) throw new ProviderError("Your Gemini key hit Google's limit for now (free keys have a daily allowance). Try later, or use Kie.ai.", 429);
+      if (!res.ok) throw new ProviderError(`Gemini could not read the image${json.error?.message ? `: ${json.error.message}` : "."}`, res.status);
       const text = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
       if (!text.trim()) throw new ProviderError("The analysis came back empty. Try again.");
       return text;
     }
-    throw new ProviderError(`Gemini could not analyse the image: ${last}`);
+    throw new ProviderError(`Gemini could not read the image: ${last}`);
   };
 }
 
