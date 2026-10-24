@@ -244,6 +244,7 @@ function allPresets(): Preset[] {
 }
 
 function toast(text: string, kind: "info" | "error" | "ok" = "info"): void {
+  if (kind === "error" && working) working.failed = true;
   const bar = document.getElementById("status");
   if (!bar) return;
   bar.textContent = text;
@@ -391,16 +392,61 @@ function textarea(value: string, placeholder: string, rows: number, onInput: (v:
   return t;
 }
 
+// Feedback for every button. When a click starts async work, the button
+// shows a spinner (and the seconds after a moment) until it finishes, then a
+// short tick or cross. A toast shown while it runs decides which: an error
+// toast means it failed.
+let working: { btn: HTMLElement; failed: boolean } | null = null;
+
+function withFeedback(onclick: () => unknown): (e: Event) => void {
+  return (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    if (btn.classList.contains("working")) return;
+    const out = onclick();
+    if (!(out instanceof Promise)) return;
+    const job = { btn, failed: false };
+    working = job;
+    btn.classList.add("working");
+    btn.setAttribute("aria-busy", "true");
+    const label = btn.querySelector(":scope > span");
+    const text = label?.textContent ?? "";
+    const t0 = Date.now();
+    const tick = window.setInterval(() => {
+      const secs = Math.round((Date.now() - t0) / 1000);
+      if (label && secs >= 2) label.textContent = `${text} ${secs} s`;
+    }, 1000);
+    const end = (failed: boolean) => {
+      window.clearInterval(tick);
+      if (working === job) working = null;
+      if (label) label.textContent = text;
+      btn.classList.remove("working");
+      btn.removeAttribute("aria-busy");
+      // The button may have been redrawn already; then nothing to flash.
+      if (!btn.isConnected) return;
+      const cls = failed ? "failed" : "done";
+      btn.classList.add(cls);
+      window.setTimeout(() => btn.classList.remove(cls), 1600);
+    };
+    out.then(
+      () => end(job.failed),
+      (err: unknown) => {
+        toast((err as Error)?.message || "Something went wrong.", "error");
+        end(true);
+      },
+    );
+  };
+}
+
 function primaryButton(label: string, iconName: string, onclick: () => void, disabled = false, cls = ""): HTMLElement {
-  return h("button", { class: `btn primary ${cls}`, onclick, disabled, type: "button" }, icon(iconName, 18), h("span", {}, label));
+  return h("button", { class: `btn primary ${cls}`, onclick: withFeedback(onclick), disabled, type: "button" }, icon(iconName, 18), h("span", {}, label));
 }
 
 function button(label: string, iconName: string | null, onclick: () => void, cls = "", disabled = false): HTMLElement {
-  return h("button", { class: `btn ${cls}`, onclick, disabled, type: "button" }, iconName ? icon(iconName, 16) : null, h("span", {}, label));
+  return h("button", { class: `btn ${cls}`, onclick: withFeedback(onclick), disabled, type: "button" }, iconName ? icon(iconName, 16) : null, h("span", {}, label));
 }
 
 function iconButton(iconName: string, title: string, onclick: () => void, cls = ""): HTMLElement {
-  return h("button", { class: `icon-btn ${cls}`, onclick, title, "aria-label": title, type: "button" }, icon(iconName, 18));
+  return h("button", { class: `icon-btn ${cls}`, onclick: withFeedback(onclick), title, "aria-label": title, type: "button" }, icon(iconName, 18));
 }
 
 // Material colour hints for preset cards, read from the style text.
@@ -583,7 +629,15 @@ function frameLabel(): string {
   return `${findFrame(state.capturedFrameId || state.frameId).label} · ${cap.view.width ?? "?"} × ${cap.view.height ?? "?"} px`;
 }
 
+/** The radiating scan on the stage, for short jobs that do not set busy. */
+function stageScan(on: boolean): void {
+  const frame = document.querySelector(".stage-frame");
+  frame?.querySelector(":scope > .scan.temp")?.remove();
+  if (on) frame?.append(h("div", { class: "scan temp" }));
+}
+
 async function doCapture(): Promise<void> {
+  stageScan(true);
   try {
     toast("Capturing the SketchUp view...");
     const frame = findFrame(state.frameId);
@@ -610,6 +664,7 @@ async function doCapture(): Promise<void> {
     if (l && (l.spots || l.leds || l.mirrors)) bits.push(`${l.spots + l.leds} lights, ${l.mirrors} mirrors`);
     toast(bits.join(" · "), "ok");
   } catch (e) {
+    stageScan(false);
     toast((e as Error).message, "error");
   }
 }
@@ -1833,7 +1888,7 @@ function spotEditor(src: ImageData64): HTMLElement[] {
       h("small", { class: "head-hint" }, "Pick a zone, paint, then describe it"),
       zoneRow,
       bar,
-      h("div", { class: "paint-box" }, surface),
+      h("div", { class: "paint-box" }, surface, state.busy ? h("div", { class: "scan" }) : null),
     ),
     section(
       "What should change",
@@ -2533,7 +2588,8 @@ async function analyse(prompt: string): Promise<string | null> {
   analysing = true;
   try {
     const run = pickAnalyser();
-    toast("Reading the image...");
+    toast(`Reading the image with ${analyserLabel()}...`);
+    for (const el of document.querySelectorAll(".analyse-preview")) el.append(h("div", { class: "scan" }));
     // 1024 px is plenty to read materials and keeps the upload small.
     const img = await shrinkJpeg(src, 1024, 0.85);
     return await run(prompt, img);
@@ -2542,7 +2598,14 @@ async function analyse(prompt: string): Promise<string | null> {
     return null;
   } finally {
     analysing = false;
+    for (const el of document.querySelectorAll(".analyse-preview .scan")) el.remove();
   }
+}
+
+/** The image the AI reads, shown in the analysis sheets so the scan is visible. */
+function analysePreview(): HTMLElement | null {
+  const src = state.capture?.view;
+  return src ? h("div", { class: "analyse-preview" }, h("img", { src: toDataUrl(src), alt: "Image to analyse" })) : null;
 }
 
 function analysisFold(): HTMLElement {
@@ -2695,6 +2758,7 @@ function dnaSheet(): HTMLElement {
     "div",
     { class: "sheet wide", role: "dialog", "aria-modal": "true" },
     h("div", { class: "sheet-head" }, h("h2", {}, "Material DNA"), count, iconButton("close", "Close", () => close(false))),
+    analysePreview(),
     h(
       "div",
       { class: "dna-tools" },
@@ -2766,6 +2830,7 @@ function peopleSheet(): HTMLElement {
     "div",
     { class: "sheet", role: "dialog", "aria-modal": "true" },
     h("div", { class: "sheet-head" }, h("h2", {}, "Analyse people"), iconButton("close", "Close", () => close(false))),
+    analysePreview(),
     h("p", { class: "hint" }, "The AI looks at the actual space, then places people only where they could really stand or sit."),
     h("div", { class: "field" }, h("span", {}, "Type of space"), chips(PEOPLE_SCENES, "scene")),
     h("div", { class: "field" }, h("span", {}, "How many"), chips(PEOPLE_COUNTS, "count")),

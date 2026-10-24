@@ -659,3 +659,25 @@ textarea.prompt-edit { width: 100%; font: 11.5px/1.5 ui-monospace, Consolas, mon
 table.rated { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.rated th, table.rated td { text-align: left; padding: 5px 4px; border-bottom: 1px solid var(--hairline, var(--line)); }
 table.rated th { color: var(--muted); font-weight: 600; }
+
+/* Feedback on every action: working spinner, then a short tick or cross.
+   Toasts sit above sheets so messages from inside a sheet are seen. */
+.toast { z-index: 80; }
+.btn.working, .icon-btn.working { position: relative; cursor: progress; }
+.btn.working > svg, .icon-btn.working > svg { visibility: hidden; }
+.btn.working::before, .icon-btn.working::before { content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite; }
+.btn.working::before { left: 12px; top: calc(50% - 7px); }
+.icon-btn.working::before { left: calc(50% - 7px); top: calc(50% - 7px); }
+.btn.working { overflow: hidden; }
+.btn.working::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--accent) 22%, transparent) 50%, transparent 70%); background-size: 250% 100%; animation: scan 1.6s linear infinite; pointer-events: none; }
+.btn.done, .icon-btn.done { box-shadow: 0 0 0 2px var(--ok, #5ec48d); transition: box-shadow 0.2s; }
+.btn.failed, .icon-btn.failed { box-shadow: 0 0 0 2px var(--error, #ff8a80); transition: box-shadow 0.2s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.analyse-preview { position: relative; border-radius: 10px; overflow: hidden; max-height: 180px; display: flex; justify-content: center; background: var(--field); }
+.analyse-preview img { display: block; max-width: 100%; max-height: 180px; object-fit: contain; }
+@media (prefers-reduced-motion: reduce) {
+  .btn.working::before, .icon-btn.working::before { animation-duration: 2.4s; }
+  .btn.working::after { animation: none; }
+}
+.paint-box { position: relative; }
+.paint-box > .scan { border-radius: 10px; pointer-events: none; }
