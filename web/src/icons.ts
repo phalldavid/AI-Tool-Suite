@@ -49,6 +49,7 @@ const P: Record<string, string> = {
   strip: '<path d="M3 7h18"/><path d="M5 7.5c0 3 3 5.5 7 6 4-.5 7-3 7-6" opacity=".55"/><circle cx="6" cy="7" r=".9"/><circle cx="10" cy="7" r=".9"/><circle cx="14" cy="7" r=".9"/><circle cx="18" cy="7" r=".9"/>',
   cabinet: '<rect x="3.5" y="3.5" width="17" height="8" rx="1"/><path d="M12 3.5v8M6 15.5h12" /><path d="M6.5 12l-1.5 6M17.5 12l1.5 6" opacity=".55"/>',
   wallLight: '<path d="M4 4v16"/><path d="M4 9h4l3 3-3 3H4"/><path d="M12.5 9.5l4-2M13 12h5M12.5 14.5l4 2" opacity=".55"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>',
   monitor: '<rect x="3" y="4" width="18" height="12.5" rx="1.8"/><path d="M8.5 20.5h7M12 16.5v4"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
   unlock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 7.7-1.5"/>',

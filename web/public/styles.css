@@ -940,3 +940,12 @@ html { overflow-x: hidden; }
 .dyn-card.big { grid-column: 1 / -1; border-color: var(--accent); background: var(--accent-soft); padding: 14px; }
 .dyn-card.big strong { font-size: 15px; color: var(--accent-text); }
 .swatches.none { color: var(--faint); border: 1px dashed var(--line-2); border-radius: 6px; padding: 2px 6px; display: inline-flex; align-items: center; }
+
+/* Globe browser menu (SketchUp only) */
+.browser-wrap { position: relative; }
+.browser-menu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px; padding: 6px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line-2); box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: 2px; }
+.browser-menu button { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 0; border-radius: 8px; background: none; text-align: left; }
+.browser-menu button:hover, .browser-menu button:focus-visible { background: var(--panel-2); }
+.browser-menu button.active { background: var(--accent-soft); color: var(--accent-text); }
+.browser-menu small { color: var(--faint); font-size: 11px; }
+.browser-menu .ext { justify-content: flex-start; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
