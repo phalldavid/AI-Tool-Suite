@@ -46,10 +46,11 @@ import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearanc
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
 import { setLang, t } from "./i18n";
 import { modelDnaTags, type ModelMaterial } from "./model-dna";
-import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
+import { AERIAL_LOOKS, AERIAL_TYPES, EXT_STYLES, EXT_TYPES, filterLibrary, findLibraryItem, INT_STYLES, libraryItems, ROOMS, type LibItem } from "./library";
 import { cutSheet, exportJson, tileFromImage, tileImage, tilePrompt, loadSheets, previewKey, previewMap, removeSheet, saveSheet, SHEET_MODEL, SHEET_RESOLUTION, SHEETS, sheetPrompt, type SheetDef, type SheetRecord } from "./style-previews";
 import { countSet, dynamicLines, findGenerator, GENERATORS, type DynGenerator, type DynValues } from "./dynamic";
 import { APP_VERSION, bugReport, CONTACT_LABEL, CONTACT_URL } from "./contact";
+import { friendlyError, KIE_TOPUP_URL, type FixAction } from "./errors";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
 import {
   cleanPeople,
@@ -140,7 +141,11 @@ interface State {
   previews: Map<string, string>;
   previewsOpen: boolean;
   modelSheet: boolean;
+  keysOpen: boolean;
+  tourStep: number;
   editSource: ImageData64 | null;
+  /** Earlier versions of the image being edited, newest last (Undo last edit). */
+  editStack: ImageData64[];
   editMode: "spot" | "relight";
   editInstruction: string;
   relight: string;
@@ -204,7 +209,10 @@ export async function start(el: HTMLElement): Promise<void> {
     previews: new Map(),
     previewsOpen: false,
     modelSheet: false,
+    keysOpen: false,
+    tourStep: 0,
     editSource: null,
+    editStack: [],
     editMode: "spot",
     editInstruction: "",
     relight: "blue-hour",
@@ -281,16 +289,45 @@ function shortText(text: string): string {
   return first.length > 90 ? `${first.slice(0, 87).trimEnd()}...` : first;
 }
 
+/** The last action a button ran, so an error toast can offer Retry. */
+let lastAction: (() => unknown) | null = null;
+
+function fixButton(action: FixAction): HTMLElement | null {
+  if (!action) return null;
+  const run =
+    action === "retry"
+      ? () => {
+          const again = lastAction;
+          if (again) Promise.resolve(again()).catch((e: Error) => toast(e.message, "error"));
+        }
+      : action === "topup"
+        ? () => openExternal(KIE_TOPUP_URL)
+        : () => {
+            state.settingsKie = state.settings.backend === "kie";
+            openSettings();
+          };
+  if (action === "retry" && !lastAction) return null;
+  const label = action === "retry" ? "Retry" : action === "topup" ? "Top up" : "Settings";
+  return h("button", { class: "toast-log toast-fix", type: "button", onclick: run }, label);
+}
+
 function toast(text: string, kind: "info" | "error" | "ok" = "info", detail?: string): void {
   if (kind === "error" && working) working.failed = true;
-  const short = shortText(text);
+  const nice = kind === "error" ? friendlyError(text) : null;
+  if (nice) detail = detail ?? text;
+  // Our own messages that already say the numbers keep their wording.
+  const short = nice && !/needs \d+/.test(text) ? nice.text : shortText(text);
   const more = detail ?? (short !== text ? text : undefined);
   activityLog.unshift({ at: Date.now(), kind, text: short, detail: more });
   activityLog.length = Math.min(activityLog.length, 100);
   if (kind === "error") console.warn("[David Render Studio]", text, detail ?? "");
   const bar = document.getElementById("status");
   if (!bar) return;
-  bar.replaceChildren(short.replace(/[.]$/, ""), kind === "error" ? h("button", { class: "toast-log", type: "button", onclick: openLog }, "See log") : "");
+  bar.replaceChildren(
+    h("span", {}, short.replace(/[.]$/, "")),
+    nice ? fixButton(nice.action) ?? "" : "",
+    kind === "error" ? h("button", { class: "toast-log", type: "button", onclick: openLog }, "See log") : "",
+  );
   bar.className = `toast show ${kind}`;
   window.clearTimeout((bar as HTMLElement & { _t?: number })._t);
   (bar as HTMLElement & { _t?: number })._t = window.setTimeout(() => (bar.className = `toast ${kind}`), kind === "error" ? 9000 : 4500);
@@ -382,6 +419,10 @@ function helpSection(): HTMLElement {
       { class: "help-row" },
       button("Contact", "send", async () => openExternal(CONTACT_URL), "ghost"),
       button("Report a bug", "bug", reportBug, "ghost"),
+      button("Shortcuts", "info", () => {
+        state.keysOpen = true;
+        render();
+      }, "ghost"),
     ),
     h("p", { class: "hint" }, `Contact: ${CONTACT_LABEL}. Report a bug copies your version, AI service and recent log (never your keys), then opens Telegram so you can paste it. Version ${APP_VERSION}.`),
   );
@@ -536,6 +577,7 @@ function withFeedback(onclick: () => unknown): (e: Event) => void {
   return (e: Event) => {
     const btn = e.currentTarget as HTMLButtonElement;
     if (btn.classList.contains("working")) return;
+    lastAction = onclick;
     const out = onclick();
     if (!(out instanceof Promise)) return;
     const job = { btn, failed: false };
@@ -676,6 +718,80 @@ function restoreFocus(path: number[] | null): void {
   if (el instanceof HTMLElement || el instanceof SVGElement) el.focus({ preventScroll: true });
 }
 
+const SHORTCUTS: [string, string][] = [
+  ["R", "Render"],
+  ["T", "Try again (keeps the renders on screen)"],
+  ["C", "Capture the SketchUp view (Upload in the web app)"],
+  ["L", "Open the style library"],
+  ["M", "Choose the AI model"],
+  ["1 to 5", "Render, Edit, Lights, Mirror, History tabs"],
+  ["Ctrl + Z", "Undo: last paint stroke, then the last edit"],
+  ["?", "This list"],
+  ["Esc", "Close the open panel"],
+];
+
+function shortcutsSheet(): HTMLElement {
+  const close = () => {
+    state.keysOpen = false;
+    render();
+  };
+  return h(
+    "div",
+    { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Keyboard shortcuts" },
+      h("div", { class: "sheet-head" }, h("h2", {}, "Keyboard shortcuts"), iconButton("close", "Close", close)),
+      h("table", { class: "keys" }, SHORTCUTS.map(([k, what]) => h("tr", {}, h("td", {}, h("kbd", {}, k)), h("td", {}, what)))),
+      h("p", { class: "hint" }, "Shortcuts are ignored while you type in a box."),
+    ),
+  );
+}
+
+function typingIn(el: EventTarget | null): boolean {
+  const t = el as HTMLElement | null;
+  return Boolean(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable));
+}
+
+function anySheetOpen(): boolean {
+  return Boolean(document.querySelector(".sheet-backdrop, .onboard-backdrop, .tour"));
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || typingIn(e.target) || e.altKey || !state) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "z" && state.tab === "edit") {
+    e.preventDefault();
+    if (painter?.canUndo()) painter.undo();
+    else undoEdit();
+    return;
+  }
+  if (mod) return;
+  if (e.key === "?") {
+    e.preventDefault();
+    state.keysOpen = true;
+    render();
+    return;
+  }
+  if (anySheetOpen()) return;
+  const k = e.key.toLowerCase();
+  const tabs: Tab[] = ["render", "edit", "lights", "mirror", "history"];
+  if (/^[1-5]$/.test(k)) {
+    state.tab = tabs[Number(k) - 1];
+    render();
+  } else if (k === "r" && state.tab === "render" && state.capture && !state.busy) runRender();
+  else if (k === "t" && state.tab === "render" && state.capture && state.result && !state.busy) runRender(true);
+  else if (k === "c" && state.tab === "render" && !state.busy) {
+    if (host.kind === "sketchup") doCapture();
+    else (document.querySelector(".stage-actions input[type=file]") as HTMLInputElement | null)?.click();
+  } else if (k === "l") openLibrary();
+  else if (k === "m" && state.settings.backend === "kie") {
+    state.modelSheet = true;
+    render();
+  } else return;
+  e.preventDefault();
+});
+
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (state.ctxOpen) state.ctxOpen = false;
@@ -685,6 +801,8 @@ document.addEventListener("keydown", (e) => {
   else if (state.lookOpen) state.lookOpen = false;
   else if (state.settingsOpen) state.settingsOpen = false;
   else if (state.modelSheet) state.modelSheet = false;
+  else if (state.keysOpen) state.keysOpen = false;
+  else if (state.lib.open) state.lib.open = false;
   else return;
   e.preventDefault();
   render();
@@ -692,6 +810,8 @@ document.addEventListener("keydown", (e) => {
 
 function render(): void {
   const focused = focusPath();
+  // A message on screen survives the redraw (an error used to vanish at once).
+  const oldBar = document.getElementById("status") as (HTMLElement & { _t?: number }) | null;
   clear(root);
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "render", label: t("Render"), icon: "render" },
@@ -746,15 +866,17 @@ function render(): void {
   if (state.tab === "history") historyTab(body);
   root.append(body);
   if (state.tab === "render") root.append(renderBar());
-  root.append(h("div", { id: "status", class: "toast", role: "status", "aria-live": "polite" }));
+  root.append(oldBar ?? h("div", { id: "status", class: "toast", role: "status", "aria-live": "polite" }));
   if (state.settingsOpen) root.append(settingsSheet());
   if (!state.settings.onboarded) root.append(onboarding());
+  else if (!state.settings.tourDone && state.tab === "render" && !anySheetOpen()) showTour();
   if (state.lookOpen) root.append(lookSheet());
   if (state.ctxOpen) root.append(contextSheet());
   if (state.anglesOpen) root.append(anglesSheet());
   if (state.lib.open) root.append(librarySheet());
   if (state.previewsOpen) root.append(previewsSheet());
   if (state.modelSheet) root.append(modelSheet());
+  if (state.keysOpen) root.append(shortcutsSheet());
   if (state.analyseOpen === "dna") root.append(dnaSheet());
   if (state.analyseOpen === "people") root.append(peopleSheet());
   if (state.dynOpen) {
@@ -955,6 +1077,7 @@ async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
     if (target === "render") state.frameId = choice.frameId;
   }
   if (target === "edit") {
+    state.editStack = [];
     state.editSource = img;
     painter = null;
     render();
@@ -1214,7 +1337,46 @@ const QUICK_LOOKS: Record<ProjectType, string[]> = {
 };
 
 function quickLooks(type: ProjectType): Preset[] {
-  return QUICK_LOOKS[type].map((id) => allPresets().find((x) => x.id === id)).filter((x): x is Preset => Boolean(x));
+  const find = (id: string): Preset | undefined => allPresets().find((x) => x.id === id) ?? findLibraryItem(id);
+  // Starred styles come first, then the four starters, six at most.
+  const ids = [...state.settings.favorites, ...QUICK_LOOKS[type]];
+  const out: Preset[] = [];
+  for (const id of ids) {
+    const p = find(id);
+    if (p && p.projectType === type && !out.some((x) => x.id === p.id)) out.push(p);
+  }
+  return out.slice(0, 6);
+}
+
+function isFavorite(id: string): boolean {
+  return state.settings.favorites.includes(id);
+}
+
+async function toggleFavorite(id: string, name: string): Promise<void> {
+  const fav = isFavorite(id);
+  state.settings.favorites = fav ? state.settings.favorites.filter((x) => x !== id) : [id, ...state.settings.favorites];
+  await persist();
+  render();
+  toast(fav ? `${name} removed from favourites` : `${name} starred. It shows first in Quick`, "ok");
+}
+
+function starButton(id: string, name: string): HTMLElement {
+  const on = isFavorite(id);
+  return h(
+    "button",
+    {
+      class: `star-btn${on ? " on" : ""}`,
+      type: "button",
+      "aria-pressed": on ? "true" : "false",
+      "aria-label": on ? `Remove ${name} from favourites` : `Star ${name}`,
+      title: on ? "Starred: shows first in Quick" : "Star: show first in Quick",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        toggleFavorite(id, name);
+      },
+    },
+    icon("star", 16),
+  );
 }
 
 /**
@@ -1295,12 +1457,26 @@ function sceneTypeControl(): HTMLElement {
   return segmented(
     (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
     state.preset.projectType,
-    (v) => {
-      if (state.settings.simple) state.preset = { ...(quickLooks(v)[0] ?? state.preset), projectType: v };
+    async (v) => {
+      if (v === state.preset.projectType) return;
+      rememberSetup();
+      const saved = state.settings.lastSetup[v];
+      if (saved && !state.settings.styleLock) {
+        state.preset = { ...saved.preset };
+        if (saved.kieModel) state.settings.kieModel = saved.kieModel;
+        if (saved.frameId) state.frameId = saved.frameId;
+      } else if (state.settings.simple) state.preset = { ...(quickLooks(v)[0] ?? state.preset), projectType: v };
       else state.preset.projectType = v;
+      await persist();
       render();
     },
   );
+}
+
+/** Keeps the current style, model and frame for this scene type. */
+function rememberSetup(): void {
+  const p = state.preset;
+  state.settings.lastSetup = { ...state.settings.lastSetup, [p.projectType]: { preset: { ...p }, kieModel: state.settings.kieModel, frameId: state.frameId } };
 }
 
 function presetCard(x: Preset): HTMLElement {
@@ -1332,7 +1508,7 @@ function quickTab(body: HTMLElement): void {
       section(
         t("Scene"),
         sceneTypeControl(),
-        h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map(presetCard)),
+        h("div", { class: "preset-grid" }, quickLooks(state.preset.projectType).map((x) => h("div", { class: "lib-cell" }, presetCard(x), starButton(x.id, x.name)))),
         quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-current" }, libCard({ ...state.preset, styleId: "", subjectId: "", colors: [] } as LibItem, true)),
         button("Browse all", "search", () => openLibrary(), "ghost wide"),
       ),
@@ -1408,7 +1584,7 @@ function libCard(x: LibItem, current = false): HTMLElement {
         h("span", { class: "lib-blocks" }, blocks.slice(0, 3).map((c) => h("i", { style: `background:${c}` }))),
       );
   const active = x.id === state.preset.id;
-  return h(
+  const card = h(
     "button",
     {
       class: `lib-card${active ? " active" : ""}${current ? " current" : ""}`,
@@ -1426,6 +1602,7 @@ function libCard(x: LibItem, current = false): HTMLElement {
     h("span", { class: "lib-art" }, art, badge ? h("em", { class: "lib-badge" }, badge) : null, active ? h("span", { class: "lib-check" }, icon("check", 14)) : null),
     h("strong", {}, x.name),
   );
+  return current ? card : h("div", { class: "lib-cell" }, card, starButton(x.id, x.name));
 }
 
 function chipRow(items: { id: string; label: string }[], value: string, pick: (id: string) => void, label: string): HTMLElement {
@@ -1447,9 +1624,10 @@ function librarySheet(): HTMLElement {
   const items = (): LibItem[] => {
     if (L.type === "mine") {
       const q = L.query.trim().toLowerCase();
-      return state.settings.userPresets
+      const starred = state.settings.favorites.map((id) => findLibraryItem(id) ?? allPresets().find((x) => x.id === id)).filter((x): x is Preset => Boolean(x));
+      return [...starred, ...state.settings.userPresets.filter((x) => !starred.some((y) => y.id === x.id))]
         .filter((x) => !q || `${x.name} ${x.style}`.toLowerCase().includes(q))
-        .map((x) => ({ ...x, styleId: "mine", subjectId: "mine", colors: [] }));
+        .map((x) => ({ ...x, styleId: "mine", subjectId: "mine", colors: (x as Partial<LibItem>).colors ?? [] }));
     }
     return filterLibrary(L.type, L.type === "sketch" ? "all" : L.style, L.type === "sketch" ? "all" : L.subject, L.query);
   };
@@ -1459,7 +1637,7 @@ function librarySheet(): HTMLElement {
     grid.replaceChildren(
       ...(list.length
         ? list.slice(0, 240).map((x) => libCard(x))
-        : [h("p", { class: "hint" }, L.type === "mine" ? "No presets of your own yet. Set up a render and press + under Style preset to save one." : "Nothing matches.")]),
+        : [h("p", { class: "hint" }, L.type === "mine" ? "Nothing here yet. Tap the star on any style, or save your own preset with + under Style preset, and it shows here." : "Nothing matches.")]),
     );
   };
   const filters = h("div", { class: "lib-filters" });
@@ -1953,7 +2131,7 @@ function renderBar(): HTMLElement {
   const disabled = state.busy || !state.capture;
   const btn = h(
     "button",
-    { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: runRender, type: "button" },
+    { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button" },
     icon("render", 20),
     h("span", { id: "render-label" }, t(state.busy ? "Rendering..." : state.result ? "Render again" : "Render")),
     !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${renderCost()} credits`) : null,
@@ -2065,17 +2243,64 @@ function rateButtons(after: ImageData64): HTMLElement | null {
   );
 }
 
+function imageBlob(img: ImageData64): Blob {
+  const bin = atob(img.data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: img.mimeType });
+}
+
+/** Clipboard images must be PNG in Chromium. */
+async function pngBlob(img: ImageData64): Promise<Blob> {
+  if (img.mimeType === "image/png") return imageBlob(img);
+  const el = new Image();
+  el.src = toDataUrl(img);
+  await el.decode();
+  const c = document.createElement("canvas");
+  c.width = el.naturalWidth;
+  c.height = el.naturalHeight;
+  c.getContext("2d")!.drawImage(el, 0, 0);
+  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("Could not copy the image."))), "image/png"));
+}
+
+async function copyImage(img: ImageData64): Promise<void> {
+  if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) throw new Error("This window can't copy images. Use Save instead.");
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": await pngBlob(img) })]);
+  toast("Image copied. Paste it in Telegram, Line or email", "ok");
+}
+
+/** Phone share sheet where there is one; otherwise copy, ready to paste into a chat. */
+async function shareImage(img: ImageData64): Promise<void> {
+  const file = new File([imageBlob(img)], `render-${Date.now()}.${img.mimeType === "image/png" ? "png" : "jpg"}`, { type: img.mimeType });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: "Render" });
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") throw e;
+    }
+    return;
+  }
+  await copyImage(img);
+}
+
 function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
   return h(
     "div",
     { class: "stage-actions" },
     primaryButton(host.kind === "sketchup" ? "Save" : "Download", "save", () => saveImage(after, tool)),
     button("Edit", "edit", () => {
+      if (tool !== "render" && state.editSource && state.editSource !== after) pushEdit(state.editSource);
+      else if (tool === "render") state.editStack = [];
       state.editSource = after;
       painter = null;
       state.tab = "edit";
       render();
     }, "ghost"),
+    iconButton("share", "Share: send to Telegram, Line or email", () => shareImage(after), "ghost"),
+    iconButton("copy", "Copy image", () => copyImage(after), "ghost"),
+    tool === "render" && state.capture && after === state.result
+      ? button("Try again", "refresh", () => runRender(true), "ghost", state.busy)
+      : null,
     tool === "render" ? rateButtons(after) : null,
     tool === "render"
       ? iconButton("lock", "Lock this look for every view of the project", () => lockLook(after), state.settings.styleLock?.referenceIsRender ? "ghost on" : "ghost")
@@ -2250,9 +2475,16 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
   state.history = await listHistory();
 }
 
-async function runRender(): Promise<void> {
+/** keep: add the new renders beside the ones on screen ("Try again"). */
+async function runRender(keep = false): Promise<void> {
   const cap = state.capture;
   if (!cap) return;
+  lastAction = () => runRender(keep);
+  const cost = renderCost();
+  if (cost !== null && state.kieCredits !== null && cost > state.kieCredits) {
+    toast(`Not enough Kie credits: this render needs ${cost}, you have ${Math.floor(state.kieCredits)}`, "error");
+    return;
+  }
   if (!isConnected()) {
     state.settingsKie = state.settings.backend === "kie";
     openSettings();
@@ -2264,7 +2496,11 @@ async function runRender(): Promise<void> {
   const images = [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])];
   const size = await imageSize(cap.view);
   const raws = await runProviderMany(prompt, images, nearestAspectRatio(size.width, size.height), state.settings.imageCount);
-  await showRenders(raws, prompt, cap.view);
+  if (raws.length) {
+    rememberSetup();
+    await persist();
+  }
+  await showRenders(raws, prompt, cap.view, keep);
 }
 
 /** Asks Kie how many credits are left and shows it next to Render. Quiet on failure. */
@@ -2298,7 +2534,7 @@ function creditReadout(): HTMLElement {
   const s = state.settings;
   if (s.backend !== "kie" || !s.kieKey || c === null) return h("span", { id: "credit-readout", hidden: true });
   const cost = renderCost();
-  const low = cost ? c < cost * 3 : c * USD_PER_CREDIT < 1;
+  const low = c < 20 || (cost !== null && c < cost * 3);
   return h(
     "button",
     {
@@ -2461,7 +2697,31 @@ function editTab(body: HTMLElement): void {
   );
   if (state.editMode === "spot") body.append(...spotEditor(src));
   else body.append(...relightEditor(src));
-  body.append(h("div", { class: "row" }, button("Use another image", "upload", () => input.click(), "ghost small"), input));
+  body.append(
+    h(
+      "div",
+      { class: "row" },
+      button("Use another image", "upload", () => input.click(), "ghost small"),
+      state.editStack.length ? button(`Undo last edit (${state.editStack.length})`, "undo", undoEdit, "ghost small") : null,
+      input,
+    ),
+  );
+}
+
+const MAX_EDIT_STEPS = 10;
+
+function pushEdit(img: ImageData64): void {
+  state.editStack = [...state.editStack, img].slice(-MAX_EDIT_STEPS);
+}
+
+/** Steps the edited image back one spot edit or relight. */
+function undoEdit(): void {
+  const prev = state.editStack.pop();
+  if (!prev) return;
+  state.editSource = prev;
+  painter = null;
+  render();
+  toast(state.editStack.length ? `Back one step (${state.editStack.length} more)` : "Back to the first version", "ok");
 }
 
 function getPainter(): ZonePainter {
@@ -2749,6 +3009,7 @@ async function runSpotEdit(): Promise<void> {
     const merged = lighting || !zones.length ? fitted : await compositeMasked(src, fitted, union);
     const tool: ToolId = lighting && !zones.length ? "lighting" : "spot-edit";
     await record(tool, prompt, src, merged);
+    pushEdit(src);
     state.editSource = merged;
     painter = null;
     state.zonePrompts = {};
@@ -3076,7 +3337,19 @@ function toolLabel(t: ToolId): string {
 
 function historyTab(body: HTMLElement): void {
   if (!state.history.length) {
-    body.append(h("div", { class: "empty" }, icon("history", 34), h("h2", {}, "No renders yet"), h("p", {}, "Renders appear here with the prompt that made them. They stay on this computer.")));
+    body.append(
+      h(
+        "div",
+        { class: "empty" },
+        icon("history", 34),
+        h("h2", {}, "Your renders will appear here"),
+        h("p", {}, "Each one is saved with its before image, the prompt and what it cost, on this computer only. Make your first one in three steps: capture a view, pick a style, press Render."),
+        h("div", { class: "row center" }, primaryButton("Start a render", "render", () => {
+          state.tab = "render";
+          render();
+        })),
+      ),
+    );
     return;
   }
   const detail = h("div", {});
@@ -4579,6 +4852,59 @@ function fixturesSection(): HTMLElement {
 }
 
 // ---------- First run ----------
+
+// ---------- First-run tour: three steps, shown once ----------
+
+const TOUR: { target: string; title: string; text: string }[] = [
+  { target: ".stage-actions", title: "1. Capture a view", text: "Capture the SketchUp view, or upload a picture. You can crop it before it goes in." },
+  { target: ".preset-grid, .lib-current, .style-section", title: "2. Pick a style", text: "Choose a starter look, or Browse all for every room and building type. Star the ones you like." },
+  { target: ".render-btn", title: "3. Render", text: "The button shows what the render costs. Results land on the stage and in History." },
+];
+
+function endTour(): void {
+  state.settings.tourDone = true;
+  state.tourStep = 0;
+  document.querySelector(".tour")?.remove();
+  document.querySelectorAll(".tour-target").forEach((el) => el.classList.remove("tour-target"));
+  persist();
+}
+
+let tourScrolled = -1;
+
+function showTour(): void {
+  const step = TOUR[state.tourStep];
+  if (!step) return endTour();
+  const target = document.querySelector(step.target);
+  document.querySelectorAll(".tour-target").forEach((el) => el.classList.remove("tour-target"));
+  target?.classList.add("tour-target");
+  // Scroll only when the step changes, not on every redraw of the panel.
+  if (tourScrolled !== state.tourStep) {
+    tourScrolled = state.tourStep;
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  const last = state.tourStep === TOUR.length - 1;
+  const card = h(
+    "div",
+    { class: "tour", role: "dialog", "aria-live": "polite", "aria-label": "Quick tour" },
+    h("div", { class: "tour-dots", "aria-hidden": "true" }, TOUR.map((_, i) => h("i", { class: i === state.tourStep ? "on" : "" }))),
+    h("strong", {}, step.title),
+    h("p", {}, step.text),
+    h(
+      "div",
+      { class: "row" },
+      button("Skip", null, endTour, "ghost small"),
+      h("span", { class: "grow" }),
+      button(last ? "Got it" : "Next", last ? "check" : "arrowRight", () => {
+        if (last) return endTour();
+        state.tourStep += 1;
+        document.querySelector(".tour")?.remove();
+        showTour();
+      }, "primary small"),
+    ),
+  );
+  document.querySelector(".tour")?.remove();
+  root.append(card);
+}
 
 function onboarding(): HTMLElement {
   const s = state.settings;
