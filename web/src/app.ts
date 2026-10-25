@@ -437,15 +437,17 @@ async function reportBug(): Promise<void> {
     log: activityLog,
     secrets: [s.kieKey, s.geminiKey],
   });
-  if (!(await copyText(text))) {
+  // Browsers block a new tab that is not opened right on the click, so the
+  // copy starts first and Telegram opens before waiting for it.
+  const copied = copyText(text);
+  if (host.kind !== "sketchup") openExternal(CONTACT_URL);
+  if (!(await copied)) {
     showReportText(text);
-    return toast("Could not copy by itself. Select the report, copy it, then press Open Telegram", "error");
+    return toast("Could not copy by itself. Select the report, copy it, then paste it in Telegram", "error");
   }
   toast("Report and log copied. Paste them in Telegram", "ok");
-  // In SketchUp, a short pause so the message is seen before Telegram takes
-  // focus. Browsers block a new tab that is not opened right on the click.
+  // In SketchUp, a short pause so the message is seen before Telegram takes focus.
   if (host.kind === "sketchup") setTimeout(() => openExternal(CONTACT_URL), 900);
-  else openExternal(CONTACT_URL);
 }
 
 /** Puts text on the clipboard. True only when it really got there. */
@@ -934,7 +936,7 @@ const SHORTCUTS: [string, string][] = [
   ["M", "Open or close the AI model list"],
   ["1 to 5", "Render, Edit, Lights, Mirror, History tabs"],
   ["Ctrl + Z", "Undo: last paint stroke, then the last edit"],
-  ["H", "Open or close this list"],
+  ["H or ?", "Open or close this list"],
   ["Esc", "Close the open panel"],
 ];
 
@@ -989,11 +991,13 @@ document.addEventListener("keydown", (e) => {
     render();
     return true;
   };
-  if (toggle(state.keysOpen && k === "h", () => (state.keysOpen = false))) return;
+  // "?" still works for people used to it.
+  const help = k === "h" || e.key === "?";
+  if (toggle(state.keysOpen && help, () => (state.keysOpen = false))) return;
   if (toggle(state.lib.open && k === "l", () => (state.lib.open = false))) return;
   if (toggle(state.modelSheet && k === "m", () => (state.modelSheet = false))) return;
   if (anySheetOpen()) return;
-  if (k === "h") {
+  if (help) {
     e.preventDefault();
     state.keysOpen = true;
     render();
