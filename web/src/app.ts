@@ -136,6 +136,10 @@ interface State {
   promptEdit: string | null;
   /** People line from Place People (editable). */
   people: string;
+  /** Last results in the analysis windows, kept after closing until cleared or a new scan. */
+  peopleDraft: string | null;
+  dnaDraft: DnaTag[] | null;
+  sceneLast: SceneScan | null;
   /** Style reference image sent after the view. */
   reference: ImageData64 | null;
   /** Material Scan tags for the current view. */
@@ -220,6 +224,9 @@ export async function start(el: HTMLElement): Promise<void> {
     notes: "",
     promptEdit: null,
     people: "",
+    peopleDraft: null,
+    dnaDraft: null,
+    sceneLast: null,
     reference: null,
     dna: [],
     result: null,
@@ -1013,7 +1020,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (state.browserMenu) state.browserMenu = false;
   else if (state.ctxOpen) state.ctxOpen = false;
-  else if (state.analyseOpen) state.analyseOpen = null;
+  else if (state.analyseOpen) {
+    keepAnalysisDraft?.();
+    state.analyseOpen = null;
+  }
   else if (state.anglesOpen) state.anglesOpen = false;
   else if (state.dynOpen) state.dynOpen = null;
   else if (state.lookOpen) state.lookOpen = false;
@@ -1340,6 +1350,9 @@ async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
   if (state.dna.length || state.people) toast("New image: Material Scan and people were cleared.");
   state.dna = [];
   state.people = "";
+  state.dnaDraft = null;
+  state.peopleDraft = null;
+  state.sceneLast = null;
   render();
 }
 
@@ -4536,14 +4549,18 @@ function analysisFold(): HTMLElement {
 }
 
 function dnaSheet(): HTMLElement {
-  let work: DnaTag[] = state.dna.map((x) => ({ ...x }));
+  let work: DnaTag[] = (state.dnaDraft ?? state.dna).map((x) => ({ ...x }));
   let grouped = true;
   let raw = false;
   const close = (save: boolean) => {
     if (save) state.dna = work.filter((x) => x.text.trim());
+    // What is in the box stays there for next time, applied or not.
+    state.dnaDraft = save ? null : work.map((x) => ({ ...x }));
     state.analyseOpen = null;
+    keepAnalysisDraft = null;
     render();
   };
+  keepAnalysisDraft = () => (state.dnaDraft = work.map((x) => ({ ...x })));
   const list = h("div", { class: "dna-list" });
   const count = h("span", { class: "badge" });
   const find = h("input", { type: "text", placeholder: "Find", "aria-label": "Find in tags" }) as HTMLInputElement;
@@ -4711,8 +4728,11 @@ function openSceneScan(): void {
 }
 
 /** Smart Detect: the AI names the scene and style; you check it, then Apply sets the template. */
+/** Set by the open analysis window: keeps what is in its box when it closes by Esc. */
+let keepAnalysisDraft: (() => void) | null = null;
+
 function sceneSheet(): HTMLElement {
-  let result: SceneScan | null = null;
+  let result: SceneScan | null = state.sceneLast;
   const close = () => {
     state.analyseOpen = null;
     render();
@@ -4722,6 +4742,7 @@ function sceneSheet(): HTMLElement {
   const apply = primaryButton("Apply", "check", async () => {
     if (!result) return;
     result.details = details.value.trim();
+    state.sceneLast = result;
     rememberSetup();
     state.preset = scenePreset(result, state.preset);
     await persist();
@@ -4739,6 +4760,7 @@ function sceneSheet(): HTMLElement {
       h("label", { class: "field" }, h("span", {}, "Seen in the image (added to the style)"), details),
     );
     details.value = result.details;
+    details.oninput = () => result && (result.details = details.value);
     (apply as HTMLButtonElement).disabled = false;
   };
   const sheet = h(
@@ -4751,6 +4773,7 @@ function sceneSheet(): HTMLElement {
       const text = await analyse(scenePrompt());
       if (text === null) return;
       result = parseScene(text);
+      state.sceneLast = result;
       if (!result) {
         return toast("Couldn't read the scene, try again", "error", `Smart Detect reply could not be read: ${text.slice(0, 300)}`);
       }
@@ -4758,22 +4781,38 @@ function sceneSheet(): HTMLElement {
       toast(sceneLabel(result), "ok");
     }, "primary"),
     out,
-    h("div", { class: "sheet-actions" }, button("Cancel", null, async () => close(), "ghost"), apply),
+    h(
+      "div",
+      { class: "sheet-actions" },
+      button("Clear", "trash", async () => {
+        result = null;
+        state.sceneLast = null;
+        clear(out);
+        out.append(h("p", { class: "hint" }, "Nothing yet. Press Detect scene."));
+        (apply as HTMLButtonElement).disabled = true;
+      }, "ghost"),
+      button("Close", null, async () => close(), "ghost"),
+      apply,
+    ),
   );
+  if (result) draw();
   return h("div", { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() }, sheet);
 }
 
 function peopleSheet(): HTMLElement {
   const o = { ...state.peopleOpts };
-  let text = state.people;
+  let text = state.peopleDraft ?? state.people;
   const close = (save: boolean) => {
     if (save) {
       state.people = text.trim();
       state.peopleOpts = o;
     }
+    state.peopleDraft = save ? null : text;
     state.analyseOpen = null;
+    keepAnalysisDraft = null;
     render();
   };
+  keepAnalysisDraft = () => (state.peopleDraft = text);
   const ta = h("textarea", { rows: 6, placeholder: "Press Place people, or write the people yourself: who, where and doing what." }, text) as HTMLTextAreaElement;
   ta.addEventListener("input", () => (text = ta.value));
   const chips = (list: { id: string; label: string }[], key: keyof PeopleOptions) => {
