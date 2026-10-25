@@ -2504,7 +2504,7 @@ async function addToQueue(): Promise<void> {
   queue.push({
     id: Math.random().toString(36).slice(2, 9),
     label,
-    preset: { ...state.preset },
+    preset: renderPreset(),
     prompt: renderPrompt(),
     images: renderImages(cap),
     aspect: nearestAspectRatio(size.width, size.height),
@@ -3384,10 +3384,19 @@ async function recoverPending(round = 0): Promise<void> {
 const historyIds = new WeakMap<ImageData64, string>();
 
 /** Everything a render was made with, for History's "Use this setup". */
+/** What a render is filed under: the style preset, or the plan preset in Plan mode. */
+function renderPreset(): Preset {
+  if (!state.settings.planMode) return { ...state.preset };
+  const o = planOptions();
+  const p = PLAN_PRESETS.find((x) => x.id === o.preset) ?? PLAN_PRESETS[0];
+  return { ...nonePreset(state.preset.projectType), id: `plan:${p.id}`, name: `Plan: ${p.label}` };
+}
+
 function currentSetup(): RenderSetup {
   const s = state.settings;
   return {
-    preset: { ...state.preset },
+    preset: renderPreset(),
+    plan: s.planMode ? planOptions() : undefined,
     notes: state.notes,
     people: state.people,
     dna: state.dna.map((x) => ({ ...x })),
@@ -3406,7 +3415,10 @@ function currentSetup(): RenderSetup {
 async function useSetup(setup: RenderSetup): Promise<void> {
   const s = state.settings;
   if (s.styleLock) return toast("The project look is locked. Unlock it to use another setup.", "error");
-  state.preset = { ...setup.preset };
+  // A plan setup turns Plan mode back on and keeps the style preset as it was.
+  s.planMode = Boolean(setup.plan);
+  if (setup.plan) s.plan = { ...setup.plan };
+  else state.preset = { ...setup.preset };
   state.notes = setup.notes;
   state.people = setup.people;
   state.dna = setup.dna.map((x) => ({ ...x }));
@@ -3426,7 +3438,7 @@ async function useSetup(setup: RenderSetup): Promise<void> {
   toast(`Setup loaded: ${setup.preset.name}. Capture a view and render`, "ok");
 }
 
-async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = state.preset, setup?: RenderSetup, analysis?: string): Promise<string> {
+async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = renderPreset(), setup?: RenderSetup, analysis?: string): Promise<string> {
   const model = lastModelId || state.settings.kieModel;
   const provider = makeProvider({ ...state.settings, kieModel: model }, host);
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -4007,7 +4019,7 @@ function relightEditor(src: ImageData64): HTMLElement[] {
 /** The Edit tab's own model: cheap Seedream by default, or the Render model. */
 function editModelPicker(): HTMLElement | null {
   const s = state.settings;
-  if (s.backend !== "kie" || s.testMode) return modelChip();
+  if (s.backend !== "kie") return modelChip();
   const renderModel = findKieModel(s.kieModel);
   const sel = h(
     "select",

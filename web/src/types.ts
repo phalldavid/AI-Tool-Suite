@@ -1,5 +1,7 @@
 // Shared types for the render suite.
 
+import type { PlanOptions } from "./floorplan";
+
 /** An image held in memory as base64 (no data: prefix). */
 export interface ImageData64 {
   mimeType: string;
@@ -116,4 +118,6 @@ export interface RenderSetup {
   promptEdit: string | null;
   /** Style, mood and materials read from the reference photo. */
   borrowedLook?: string;
+  /** Set when the render was made in Plan mode. */
+  plan?: PlanOptions;
 }
