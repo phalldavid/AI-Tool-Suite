@@ -960,6 +960,7 @@ html { overflow-x: hidden; }
   .model-col .render-bar { position: sticky; bottom: 0; left: auto; right: auto; width: auto; max-width: none; margin: 0; padding: 10px 0 0; background: var(--bg); flex-wrap: wrap; }
   .model-col .render-bar .render-btn { flex: 1 1 100%; }
   .model-col .render-bar #credit-readout { flex: 1; }
+  .model-col .render-bar .topup { height: auto; align-self: stretch; padding: 0 16px; }
   .picture-col .stage-img { max-height: calc(100vh - 220px); object-fit: contain; }
   .controls-col { grid-area: controls; }
   .history-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }

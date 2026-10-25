@@ -1,6 +1,7 @@
 // Render progress. Image APIs don't say how far along a job is, so the bar
-// is paced to how long this model usually takes on this machine: quick to
-// about 30%, slower after that, and never past 90% until the image arrives.
+// is paced to how long this model usually takes on this machine: it starts
+// slow, speeds up in the middle, eases near the end, and creeps (never past
+// 95%) if the job runs long. When the image arrives the bar ramps to full.
 
 const KEY = "airs.durations";
 
@@ -36,12 +37,14 @@ export function rememberDuration(model: string, ms: number): void {
   }
 }
 
-/** Bar fill from 0 to 0.9 for a render running `elapsed` ms. */
+/** Bar fill from 0 to 0.95 for a render running `elapsed` ms. */
 export function progressAt(elapsed: number, typical: number): number {
   const t = Math.max(0, elapsed);
-  const fast = 0.3 * (1 - Math.exp(-t / 700));
-  const slow = 0.6 * (1 - Math.exp((-2.2 * t) / Math.max(1000, typical)));
-  return Math.min(0.9, fast + slow);
+  const x = t / Math.max(1000, typical);
+  // A small first step so a press shows at once.
+  const nudge = 0.03 * (1 - Math.exp(-t / 500));
+  if (x <= 1) return nudge + 0.85 * x * x * (3 - 2 * x);
+  return Math.min(0.95, nudge + 0.85 + 0.07 * (1 - Math.exp(-(x - 1))));
 }
 
 /** True once a render has run twice as long as usual. */
