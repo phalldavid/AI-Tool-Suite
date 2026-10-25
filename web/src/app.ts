@@ -4231,7 +4231,7 @@ function historyTab(body: HTMLElement): void {
     );
     return;
   }
-  const detail = h("div", {});
+  const detail = h("div", { class: "history-detail" });
   body.append(projectBar(), spendingSection());
   const rated = ratingSummary(state.history).slice(0, 5);
   if (rated.length) {
