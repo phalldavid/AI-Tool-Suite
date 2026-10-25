@@ -418,6 +418,13 @@ export function geometryLines(strength: number): string[] {
   return out;
 }
 
+/**
+ * SketchUp exports show a flat green ground plane and a plain white or grey
+ * sky. Models often keep them; this asks for them to be replaced completely.
+ */
+export const PLACEHOLDER_RULE =
+  "Replace SketchUp's flat green ground plane and plain white or grey background completely with real ground and a real sky that fit the setting. No flat green or empty white areas may remain.";
+
 export function buildRenderPrompt(input: RenderPromptInput): string {
   const { preset, notes, facts, hasLinePass, extras } = input;
   const cgi = input.look === "cgi";
@@ -464,6 +471,7 @@ export function buildRenderPrompt(input: RenderPromptInput): string {
   if (lighting && !input.lightingFromDynamic) lines.push(`Lighting: ${lighting}.`);
   lines.push(...fixtureLines(facts));
   if (env) lines.push(`Surroundings: ${env}.`);
+  if (env || preset.projectType === "exterior" || preset.projectType === "aerial") lines.push(PLACEHOLDER_RULE);
   const peopleSet = Boolean(input.people?.trim());
   const extra = (extras ?? []).filter(
     (x) => !(peopleSet && x.startsWith("People:")) && !(input.materialLock && x.startsWith("Materials:")),

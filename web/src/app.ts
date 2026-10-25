@@ -44,7 +44,7 @@ import { ProviderError } from "./providers/types";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
 import { nonePreset, parseScene, sceneLabel, scenePreset, scenePrompt, sceneTemplate, type SceneScan } from "./scene-scan";
 import { progressAt, rememberDuration, runningLong, typicalMs } from "./progress";
-import { applyPriceList, creditNumber, creditsFor, USD_PER_CREDIT, findKieModel, type PriceList, KIE_FAMILIES, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
+import { applyPriceList, creditNumber, creditsFor, USD_PER_CREDIT, findKieModel, type PriceList, KIE_FAMILIES, KIE_MODELS, modelsIn, priceFor, priceText, resolutionFor, type KieFamilyId, type KieModel, type KieResolution } from "./providers/kie-models";
 import { modelLogo } from "./model-logos";
 import { ACCENTS, FONTS, accentFrom, animateTheme, applyLook } from "./appearance";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "./context";
@@ -81,6 +81,9 @@ import {
 } from "./analysis";
 import { hostTransport } from "./providers/kie";
 import { mockAnalysis } from "./providers/mock";
+import { buildStyleMatchPrompt, MATCH_STRENGTHS, TRANSFER_PARTS, type MatchStrength, type TransferPart } from "./style-match";
+import { buildFloorplanPrompt, DEFAULT_PLAN, PLAN_PRESETS, type CutHeight, type PlanOptions } from "./floorplan";
+import { AUTO_ANALYSE_PROMPT, buildAutoPrompt, parseAutoScan, type AutoScan } from "./auto-render";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, RenderSetup, ToolId } from "./types";
 
 type Tab = "render" | "edit" | "lights" | "mirror" | "history";
@@ -179,7 +182,14 @@ interface State {
   editSource: ImageData64 | null;
   /** Earlier versions of the image being edited, newest last (Undo last edit). */
   editStack: ImageData64[];
-  editMode: "spot" | "relight";
+  editMode: "spot" | "relight" | "match";
+  /** Auto card: the JSON read from one capture, reused until the view changes. */
+  autoScan: { for: ImageData64; scan: AutoScan; raw: string } | null;
+  /** Style match: the reference whose look is copied, and the choices. */
+  matchRef: ImageData64 | null;
+  matchParts: TransferPart[];
+  matchStrength: MatchStrength;
+  matchNotes: string;
   editInstruction: string;
   relight: string;
   relightGroup: "exterior" | "interior" | "urban";
@@ -265,6 +275,11 @@ export async function start(el: HTMLElement): Promise<void> {
     editSource: null,
     editStack: [],
     editMode: "spot",
+    autoScan: null,
+    matchRef: null,
+    matchParts: TRANSFER_PARTS.map((x) => x.id),
+    matchStrength: "balanced",
+    matchNotes: "",
     editInstruction: "",
     relight: "blue-hour",
     relightGroup: "exterior",
@@ -1805,10 +1820,21 @@ function modeSwitch(): HTMLElement {
 
 function sceneTypeControl(): HTMLElement {
   const typeIcons: Record<ProjectType, string> = { exterior: "exterior", interior: "interior", aerial: "aerial", sketch: "sketch" };
-  return segmented(
-    (Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
-    state.preset.projectType,
+  const seg = segmented(
+    [
+      ...(Object.keys(PROJECT_TYPES) as ProjectType[]).map((id) => ({ id, label: t(id === "sketch" ? "Sketch" : PROJECT_TYPES[id].label.replace(" / masterplan", "")), icon: typeIcons[id] })),
+      { id: "plan", label: "Plan", icon: "plan" },
+    ],
+    state.settings.planMode ? "plan" : state.preset.projectType,
     async (v) => {
+      // Plan is its own mode: its presets never mix with normal renders.
+      if (v === "plan" || state.settings.planMode) {
+        state.settings.planMode = v === "plan";
+        state.promptEdit = null;
+        await persist();
+        render();
+        if (v === "plan") return;
+      }
       if (v === state.preset.projectType) return;
       rememberSetup();
       const saved = state.settings.lastSetup[v];
@@ -1822,6 +1848,9 @@ function sceneTypeControl(): HTMLElement {
       render();
     },
   );
+  // Five types: icon above the label so none get cut off in a narrow panel.
+  seg.classList.add("scene-seg");
+  return seg;
 }
 
 /** Keeps the current style, model and frame for this scene type. */
@@ -1842,13 +1871,48 @@ function presetCard(x: Preset): HTMLElement {
         render();
       },
     },
-    x.id === "none" ? h("span", { class: "swatches none" }, icon("close", 14)) : h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
+    x.id === "auto" ? h("span", { class: "swatches none auto" }, icon("wand", 14))
+    : x.id === "none" ? h("span", { class: "swatches none" }, icon("close", 14)) : h("span", { class: "swatches" }, presetSwatches(x).map((c) => h("i", { style: `background:${c}` }))),
     h("strong", {}, x.name),
-    x.builtIn ? null : h("small", {}, "Your preset"),
+    x.id === "auto" ? h("small", {}, "AI reads the view first") : x.builtIn ? null : h("small", {}, "Your preset"),
   );
 }
 
+function prettyJson(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(/\{[\s\S]*\}/.exec(text)?.[0] ?? text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+/** The Auto card: the AI reads the view, then one universal prompt is filled from what it saw. */
+function autoPreset(type: ProjectType): Preset {
+  return { ...nonePreset(type), id: "auto", name: "Auto" };
+}
+
+function autoScanFor(cap: Capture | null): AutoScan | null {
+  return cap && state.autoScan?.for === cap.view ? state.autoScan.scan : null;
+}
+
+/** Reads the current view once for the Auto card. False when it could not. */
+async function ensureAutoScan(): Promise<boolean> {
+  const cap = state.capture;
+  if (state.settings.planMode || state.preset.id !== "auto" || !cap || autoScanFor(cap)) return true;
+  const raw = await analyse(AUTO_ANALYSE_PROMPT, cap.view);
+  if (!raw) return false;
+  const scan = parseAutoScan(raw);
+  if (!scan) {
+    toast("Auto couldn't read this view. Try again, or pick a style instead.", "error");
+    return false;
+  }
+  state.autoScan = { for: cap.view, scan, raw };
+  state.promptEdit = null;
+  return true;
+}
+
 function quickTab(body: HTMLElement): void {
+  if (state.settings.planMode) return planBody(body);
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
   body.append(lockBanner());
@@ -1860,9 +1924,10 @@ function quickTab(body: HTMLElement): void {
         h(
           "div",
           { class: "preset-grid" },
+          presetCard(autoPreset(state.preset.projectType)),
           presetCard(nonePreset(state.preset.projectType)),
           // A style picked elsewhere (Browse all, Smart Detect) sits in the grid like the others.
-          state.preset.id === "none" || quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-cell" }, presetCard(state.preset)),
+          state.preset.id === "none" || state.preset.id === "auto" || quickLooks(state.preset.projectType).some((x) => x.id === state.preset.id) ? null : h("div", { class: "lib-cell" }, presetCard(state.preset)),
           quickLooks(state.preset.projectType).map((x) => h("div", { class: "lib-cell" }, presetCard(x), starButton(x.id, x.name))),
         ),
         h("div", { class: "row" },
@@ -1879,6 +1944,76 @@ function quickTab(body: HTMLElement): void {
         state.notes = v;
       }),
       h("p", { class: "hint" }, "Lighting, people, cars, material lists and the prompt itself are under All controls. In Quick they are not sent."),
+    ),
+  );
+}
+
+// ---------- Plan mode: 3D floor plan from a 2D plan ----------
+
+function planOptions(): PlanOptions {
+  return { ...DEFAULT_PLAN, ...state.settings.plan };
+}
+
+async function setPlan(patch: Partial<PlanOptions>): Promise<void> {
+  state.settings.plan = { ...planOptions(), ...patch };
+  state.promptEdit = null;
+  await persist();
+  render();
+}
+
+/** Plan mode replaces the style controls: the plan's own presets, cut height and rules. */
+function planBody(body: HTMLElement): void {
+  const o = planOptions();
+  body.append(modeSwitch());
+  body.append(
+    section(
+      t("Scene"),
+      sceneTypeControl(),
+      h("p", { class: "hint" }, "Capture a 2D floor plan (a top view in SketchUp, a CAD export or an iPad sketch). Walls, doors and rooms stay exactly where they are drawn."),
+      h(
+        "div",
+        { class: "plan-grid" },
+        PLAN_PRESETS.map((x) =>
+          h(
+            "button",
+            { class: x.id === o.preset ? "plan-card active" : "plan-card", type: "button", "aria-pressed": String(x.id === o.preset), onclick: () => setPlan({ preset: x.id }) },
+            icon(x.id === "top-down" ? "rect" : "plan", 20),
+            h("strong", {}, x.label),
+            h("small", {}, x.use),
+          ),
+        ),
+      ),
+    ),
+    section(
+      "Plan options",
+      h("div", { class: "field" }, h("span", {}, "Wall cut height"),
+        segmented<string>(
+          [900, 1200, 1500].map((v) => ({ id: String(v), label: `${v} mm` })),
+          String(o.cutHeight),
+          (v) => setPlan({ cutHeight: Number(v) as CutHeight }),
+        ),
+      ),
+      h("div", { class: "field" }, h("span", {}, "Furniture"),
+        segmented<PlanOptions["furniture"]>(
+          [{ id: "keep", label: "Only what's drawn" }, { id: "furnish", label: "Furnish empty rooms" }],
+          o.furniture,
+          (v) => setPlan({ furniture: v }),
+        ),
+      ),
+      h("div", { class: "field" }, h("span", {}, "Room names"),
+        segmented<PlanOptions["labels"]>(
+          [{ id: "remove", label: "Remove text" }, { id: "keep", label: "Keep names" }],
+          o.labels,
+          (v) => setPlan({ labels: v }),
+        ),
+      ),
+      h("label", { class: "field" }, h("span", {}, t("Notes for this view")),
+        textarea(state.notes, "e.g. dark walnut floor in the master bedroom", 2, (v) => {
+          state.notes = v;
+          updatePromptPreview();
+        }),
+      ),
+      state.settings.simple ? null : promptEditor(),
     ),
   );
 }
@@ -2344,6 +2479,7 @@ interface QueueItem {
   error?: string;
   cost: number | null;
   setup: RenderSetup;
+  analysis?: string;
 }
 
 const queue: QueueItem[] = [];
@@ -2362,19 +2498,20 @@ async function addToQueue(): Promise<void> {
   if (cost !== null && state.kieCredits !== null && queueCost() + cost > state.kieCredits) {
     return toast(`Not enough Kie credits: the queue needs ${queueCost() + cost}, you have ${Math.floor(state.kieCredits)}`, "error");
   }
-  const ref = activeReference();
+  if (!(await ensureAutoScan())) return;
   const size = await imageSize(cap.view);
   const label = cap.facts?.sceneName || `View ${queue.length + 1}`;
   queue.push({
     id: Math.random().toString(36).slice(2, 9),
     label,
-    preset: { ...state.preset },
+    preset: renderPreset(),
     prompt: renderPrompt(),
-    images: [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])],
+    images: renderImages(cap),
     aspect: nearestAspectRatio(size.width, size.height),
     status: "waiting",
     cost,
     setup: currentSetup(),
+    analysis: state.preset.id === "auto" && !state.settings.planMode ? state.autoScan?.raw : undefined,
   });
   render();
   toast(`${label} added. Capture the next view, then press Render to run the queue`, "ok");
@@ -2410,6 +2547,7 @@ async function runQueue(): Promise<void> {
       const pendingIds: string[] = [];
       try {
         const provider = makeProvider(state.settings, host);
+        lastModelId = state.settings.kieModel;
         const out = await provider.render({
           prompt: item.prompt,
           images: item.images,
@@ -2417,7 +2555,7 @@ async function runQueue(): Promise<void> {
           onJob: (job) => void notePending(job, item.prompt, item.images[0]).then((id) => id && pendingIds.push(id)),
         });
         for (const id of pendingIds) await removeHistory(id).catch(() => undefined);
-        await record("render", item.prompt, item.images[0], out.image, item.preset, item.setup);
+        await record("render", item.prompt, item.images[0], out.image, item.preset, item.setup, item.analysis);
         item.status = "done";
       } catch (e) {
         for (const id of pendingIds) await removeHistory(id).catch(() => undefined);
@@ -2508,7 +2646,7 @@ function renderTab(main: HTMLElement): void {
   main.append(pictureCol, body);
   // Wide screens: the model list and the Render button share the left panel.
   if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection(), renderBar()));
-  if (state.settings.simple) {
+  if (state.settings.simple || state.settings.planMode) {
     quickTab(body);
     return;
   }
@@ -2823,6 +2961,12 @@ function renderBar(): HTMLElement {
  */
 function currentRenderPrompt(): string {
   const st = state.settings;
+  if (st.planMode) return buildFloorplanPrompt({ ...planOptions(), notes: state.notes });
+  if (state.preset.id === "auto") {
+    const scan = autoScanFor(state.capture);
+    if (!scan) return "Auto: when you press Render, the AI first reads this view (scene, style, materials, lights, SketchUp stand-ins), then this prompt is filled in from what it saw.";
+    return [buildAutoPrompt(scan), state.notes.trim() ? `Also: ${state.notes.trim()}` : ""].filter(Boolean).join("\n");
+  }
   const quick = st.simple;
   const lock = st.styleLock;
   const dyn = quick ? {} : st.dynamic;
@@ -2846,6 +2990,13 @@ function currentRenderPrompt(): string {
     referenceIndex: ref ? (state.capture?.lines ? 3 : 2) : undefined,
     referenceIsRender: Boolean(lock?.reference && lock.referenceIsRender),
   });
+}
+
+/** Images a render sends: the view, its line pass and the reference. A plan sends the plan alone. */
+function renderImages(cap: Capture): ImageData64[] {
+  if (state.settings.planMode) return [cap.view];
+  const ref = activeReference();
+  return [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])];
 }
 
 /** The reference image the next render sends: the project lock's, else the one added here. */
@@ -3123,13 +3274,24 @@ async function finishProgress(): Promise<void> {
   await new Promise((r) => setTimeout(r, 450));
 }
 
-async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: string): Promise<ImageData64 | null> {
-  return (await runProviderMany(prompt, images, aspectRatio, 1))[0] ?? null;
+async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: string, modelId?: string): Promise<ImageData64 | null> {
+  return (await runProviderMany(prompt, images, aspectRatio, 1, modelId))[0] ?? null;
+}
+
+/** Kie model the last run used, so History records the right model and credits. */
+let lastModelId = "";
+
+/** Kie model for the Edit tab tools: its own choice, else the Render one. */
+function editModelId(): string {
+  const id = state.settings.editModel;
+  return id && findKieModel(id).id === id ? id : state.settings.kieModel;
 }
 
 /** Runs the same request `count` times side by side; returns the ones that worked. */
-async function runProviderMany(prompt: string, images: ImageData64[], aspectRatio: string | undefined, count: number): Promise<ImageData64[]> {
-  const provider = makeProvider(state.settings, host);
+async function runProviderMany(prompt: string, images: ImageData64[], aspectRatio: string | undefined, count: number, modelId?: string): Promise<ImageData64[]> {
+  const settings = modelId ? { ...state.settings, kieModel: modelId } : state.settings;
+  lastModelId = settings.kieModel;
+  const provider = makeProvider(settings, host);
   // The browser backend is one chat at a time.
   const n = state.settings.backend === "browser" ? 1 : Math.max(1, Math.min(4, count));
   setBusy(true);
@@ -3222,10 +3384,19 @@ async function recoverPending(round = 0): Promise<void> {
 const historyIds = new WeakMap<ImageData64, string>();
 
 /** Everything a render was made with, for History's "Use this setup". */
+/** What a render is filed under: the style preset, or the plan preset in Plan mode. */
+function renderPreset(): Preset {
+  if (!state.settings.planMode) return { ...state.preset };
+  const o = planOptions();
+  const p = PLAN_PRESETS.find((x) => x.id === o.preset) ?? PLAN_PRESETS[0];
+  return { ...nonePreset(state.preset.projectType), id: `plan:${p.id}`, name: `Plan: ${p.label}` };
+}
+
 function currentSetup(): RenderSetup {
   const s = state.settings;
   return {
-    preset: { ...state.preset },
+    preset: renderPreset(),
+    plan: s.planMode ? planOptions() : undefined,
     notes: state.notes,
     people: state.people,
     dna: state.dna.map((x) => ({ ...x })),
@@ -3244,7 +3415,10 @@ function currentSetup(): RenderSetup {
 async function useSetup(setup: RenderSetup): Promise<void> {
   const s = state.settings;
   if (s.styleLock) return toast("The project look is locked. Unlock it to use another setup.", "error");
-  state.preset = { ...setup.preset };
+  // A plan setup turns Plan mode back on and keeps the style preset as it was.
+  s.planMode = Boolean(setup.plan);
+  if (setup.plan) s.plan = { ...setup.plan };
+  else state.preset = { ...setup.preset };
   state.notes = setup.notes;
   state.people = setup.people;
   state.dna = setup.dna.map((x) => ({ ...x }));
@@ -3264,8 +3438,9 @@ async function useSetup(setup: RenderSetup): Promise<void> {
   toast(`Setup loaded: ${setup.preset.name}. Capture a view and render`, "ok");
 }
 
-async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = state.preset, setup?: RenderSetup): Promise<string> {
-  const provider = makeProvider(state.settings, host);
+async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = renderPreset(), setup?: RenderSetup, analysis?: string): Promise<string> {
+  const model = lastModelId || state.settings.kieModel;
+  const provider = makeProvider({ ...state.settings, kieModel: model }, host);
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   historyIds.set(after, id);
   await addHistory({
@@ -3279,9 +3454,10 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
     after,
     provider: provider.label,
     model: provider.modelName ?? state.settings.comfyUrl,
-    credits: state.settings.backend === "kie" && !state.settings.testMode ? creditsFor(findKieModel(state.settings.kieModel), state.settings.kieResolution) ?? undefined : undefined,
+    credits: state.settings.backend === "kie" && !state.settings.testMode ? creditsFor(findKieModel(model), state.settings.kieResolution) ?? undefined : undefined,
     project: state.settings.project || undefined,
     setup: tool === "render" ? (setup ?? currentSetup()) : undefined,
+    analysis,
   });
   state.history = await listHistory();
   return id;
@@ -3303,9 +3479,9 @@ async function runRender(keep = false): Promise<void> {
     toast("Add a key in Settings to render", "error");
     return;
   }
+  if (!(await ensureAutoScan())) return;
   const prompt = renderPrompt();
-  const ref = activeReference();
-  const images = [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])];
+  const images = renderImages(cap);
   const size = await imageSize(cap.view);
   const raws = await runProviderMany(prompt, images, nearestAspectRatio(size.width, size.height), state.settings.imageCount);
   if (raws.length) {
@@ -3383,7 +3559,8 @@ async function showRenders(raws: ImageData64[], prompt: string, before: ImageDat
   if (outs.length) {
     state.results = keep ? [...state.results, ...outs] : outs;
     state.result = outs[0];
-    for (const out of outs) await record("render", prompt, before, out);
+    const analysis = state.preset.id === "auto" && !state.settings.planMode ? state.autoScan?.raw : undefined;
+    for (const out of outs) await record("render", prompt, before, out, undefined, undefined, analysis);
   }
   render();
   refreshCredits();
@@ -3522,7 +3699,7 @@ function editTab(body: HTMLElement): void {
         { class: "empty" },
         icon("edit", 34),
         h("h2", {}, "Edit a render"),
-        h("p", {}, "Paint zones over an image and say what should change in each, or change its lighting. Pick a render from Render or History, or upload one."),
+        h("p", {}, "Paint zones over an image and say what should change in each, change its lighting, or match the look of another photo. Pick a render from Render or History, or upload one."),
         h("div", { class: "row center" }, primaryButton("Upload image", "upload", () => input.click()), state.history.length ? button("From history", "history", () => { state.tab = "history"; render(); }, "ghost") : null, input),
       ),
     );
@@ -3534,6 +3711,7 @@ function editTab(body: HTMLElement): void {
       [
         { id: "spot", label: t("Spot edit"), icon: "edit" },
         { id: "relight", label: t("Change lighting"), icon: "lights" },
+        { id: "match", label: "Style match", icon: "palette" },
       ],
       state.editMode,
       (v) => {
@@ -3545,6 +3723,7 @@ function editTab(body: HTMLElement): void {
     ),
   );
   if (state.editMode === "spot") body.append(...spotEditor(src));
+  else if (state.editMode === "match") body.append(...styleMatchEditor(src));
   else body.append(...relightEditor(src));
   body.append(
     h(
@@ -3837,11 +4016,30 @@ function relightEditor(src: ImageData64): HTMLElement[] {
   ];
 }
 
+/** The Edit tab's own model: cheap Seedream by default, or the Render model. */
+function editModelPicker(): HTMLElement | null {
+  const s = state.settings;
+  if (s.backend !== "kie") return modelChip();
+  const renderModel = findKieModel(s.kieModel);
+  const sel = h(
+    "select",
+    { class: "edit-model", "aria-label": "Model for edits", title: "Model for edits. Render keeps its own." },
+    h("option", { value: "", selected: !s.editModel }, `Same as Render (${renderModel.label})`),
+    KIE_MODELS.map((m) => h("option", { value: m.id, selected: s.editModel === m.id }, `${m.label} · ${creditLabel(m, s.kieResolution)}`)),
+  ) as HTMLSelectElement;
+  sel.addEventListener("change", async () => {
+    s.editModel = sel.value;
+    await persist();
+    render();
+  });
+  return sel;
+}
+
 /** Credits one edit costs: a single image at the chosen size. */
 function editCost(): number | null {
   const s = state.settings;
   if (s.backend !== "kie") return null;
-  return creditsFor(findKieModel(s.kieModel), s.kieResolution);
+  return creditsFor(findKieModel(editModelId()), s.kieResolution);
 }
 
 /** Model, cost and the same filling progress bar as Render, for the Edit tools. */
@@ -3850,7 +4048,7 @@ function editActionBar(label: string, iconName: string, run: () => Promise<void>
   return h(
     "div",
     { class: "action-bar" },
-    modelChip(),
+    editModelPicker(),
     h(
       "button",
       { class: state.busy ? "render-btn busy" : "render-btn", disabled: state.busy, type: "button", onclick: () => void run() },
@@ -3909,6 +4107,102 @@ function relightPrompt(): string {
   return buildLightingPrompt(state.relight, state.editInstruction, state.capture?.facts);
 }
 
+/**
+ * Adaptive Style Match: the reference's materials, light and mood on the
+ * image being edited, without moving anything.
+ */
+function styleMatchEditor(src: ImageData64): HTMLElement[] {
+  const input = h("input", { type: "file", accept: "image/*", class: "hidden" }) as HTMLInputElement;
+  input.addEventListener("change", async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    state.matchRef = await fileToImage(f, 1536);
+    render();
+  });
+  const ref = state.matchRef;
+  const pair = h(
+    "div",
+    { class: "match-pair" },
+    h("figure", {}, h("img", { src: toDataUrl(src), alt: "Target" }), h("figcaption", {}, "1 · Target (shape and camera)")),
+    h(
+      "figure",
+      { class: ref ? "" : "empty" },
+      ref
+        ? h("img", { src: toDataUrl(ref), alt: "Reference" })
+        : h("button", { type: "button", class: "match-add", onclick: () => input.click() }, icon("upload", 22), h("span", {}, "Add a reference photo or render")),
+      h("figcaption", {}, "2 · Reference (the look)", ref ? iconButton("close", "Remove reference", () => ((state.matchRef = null), render()), "small") : null),
+    ),
+    input,
+  );
+  return [
+    section(
+      "Style match",
+      h("p", { class: "hint" }, "Copies the look of the reference onto this image: materials, light and mood. Walls, openings, furniture and the camera stay exactly where they are."),
+      pair,
+      h(
+        "div",
+        { class: "field" },
+        h("span", {}, "Transfer"),
+        h(
+          "div",
+          { class: "chips" },
+          TRANSFER_PARTS.map((x) =>
+            chip(x.label, state.matchParts.includes(x.id), () => {
+              const on = state.matchParts.includes(x.id);
+              if (on && state.matchParts.length === 1) return toast("Keep at least one thing to transfer");
+              state.matchParts = on ? state.matchParts.filter((y) => y !== x.id) : [...state.matchParts, x.id];
+              render();
+            }),
+          ),
+        ),
+      ),
+      h(
+        "div",
+        { class: "field" },
+        h("span", {}, "Strength"),
+        segmented(MATCH_STRENGTHS.map((x) => ({ id: x.id, label: x.label })), state.matchStrength, (v) => {
+          state.matchStrength = v as MatchStrength;
+          render();
+        }),
+        h("small", { class: "muted" }, MATCH_STRENGTHS.find((x) => x.id === state.matchStrength)?.text ?? ""),
+      ),
+      h(
+        "label",
+        { class: "field" },
+        h("span", {}, "Notes"),
+        textarea(state.matchNotes, "Optional, e.g. keep the floor as it is", 2, (v) => (state.matchNotes = v)),
+      ),
+      exactPrompt(matchPrompt),
+    ),
+    editActionBar("Match style", "palette", runStyleMatch),
+  ];
+}
+
+function matchPrompt(): string {
+  return buildStyleMatchPrompt(state.matchParts, state.matchStrength, state.matchNotes);
+}
+
+async function runStyleMatch(): Promise<void> {
+  const src = state.editSource;
+  const ref = state.matchRef;
+  if (!src) return;
+  if (!ref) return toast("Add a reference image first: the look you want to copy.", "error");
+  const prompt = state.editPromptEdit?.trim() || matchPrompt();
+  const size = await imageSize(src);
+  // Target first, reference second, so the prompt's "Image 1" and "Image 2" are never mixed up.
+  const out = await runProvider(prompt, [src, ref], nearestAspectRatio(size.width, size.height), editModelId());
+  if (out) {
+    const fitted = await resizeTo(out, size.width, size.height);
+    await record("style-match", prompt, src, fitted);
+    pushEdit(src);
+    state.editSource = fitted;
+    painter = null;
+    showEditResult(src, fitted, "style-match");
+    return;
+  }
+  render();
+}
+
 async function runSpotEdit(): Promise<void> {
   const src = state.editSource;
   const p = painter;
@@ -3929,7 +4223,7 @@ async function runSpotEdit(): Promise<void> {
   const images = !zones.length ? [src] : single ? [overlay] : [src, overlay];
   const union = p.union();
   const size = await imageSize(src);
-  const out = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height));
+  const out = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height), editModelId());
   if (out) {
     const fitted = await resizeTo(out, size.width, size.height);
     // A relit picture changes everywhere, so only a plain spot edit is
@@ -3956,7 +4250,7 @@ async function runRelight(): Promise<void> {
   if (!src) return;
   const prompt = state.editPromptEdit?.trim() || relightPrompt();
   const size = await imageSize(src);
-  const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height));
+  const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), editModelId());
   if (out) {
     await record("lighting", prompt, src, out);
     showEditResult(src, out, "lighting");
@@ -4264,7 +4558,7 @@ function mirrorTab(body: HTMLElement): void {
 // ---------- History tab ----------
 
 function toolLabel(t: ToolId): string {
-  return t === "render" ? "Render" : t === "lighting" ? "Lighting" : "Spot edit";
+  return t === "render" ? "Render" : t === "lighting" ? "Lighting" : t === "style-match" ? "Style match" : "Spot edit";
 }
 
 /** History filtered by the project chip ("" = all). */
@@ -4465,6 +4759,7 @@ function historyDetail(item: HistoryItem): HTMLElement {
     resultActions(item.after, item.tool),
     item.setup ? setupBox(item.setup) : item.tool === "render" ? h("p", { class: "hint" }, "Made before History saved setups, so only the prompt is kept.") : null,
     h("details", {}, h("summary", {}, "Prompt used"), h("pre", {}, item.prompt)),
+    item.analysis ? h("details", {}, h("summary", {}, "What Auto read"), h("pre", {}, prettyJson(item.analysis))) : null,
     button("Delete from history", "trash", async () => {
       if (state.historyOpenId === item.id) state.historyOpenId = null;
       await removeHistory(item.id);

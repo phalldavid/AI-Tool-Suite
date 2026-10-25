@@ -19,6 +19,7 @@ const P: Record<string, string> = {
   exterior: '<path d="M3 21h18M5 21V10l7-5 7 5v11"/><path d="M9.5 21v-5h5v5M9 11.5h2M13 11.5h2"/>',
   interior: '<path d="M4 18v-5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5M4 18h16M6 18v2M18 18v2"/><path d="M6 11V8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3"/>',
   aerial: '<path d="M9 4L3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/>',
+  plan: '<path d="M4 4h16v16H4z"/><path d="M4 12h7v8M11 4v4M15 12h5M11 12a4 4 0 0 1 4 0"/>',
   sketch: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="M12.5 6.5l5 5"/>',
   wand: '<path d="M4 20L15 9M13 7l4 4"/><path d="M17 3v3M15.5 4.5h3M20 9v2M19 10h2"/>',
   spot: '<path d="M8.5 3h7l-1 3h-5z"/><path d="M9.5 6L5 20h14L14.5 6"/>',

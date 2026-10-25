@@ -11,6 +11,7 @@ import { fetchTransport, hostTransport, KieProvider } from "./providers/kie";
 import { DEFAULT_KIE_MODEL, type KieResolution } from "./providers/kie-models";
 import type { Provider } from "./providers/types";
 import { MockProvider } from "./providers/mock";
+import type { PlanOptions } from "./floorplan";
 
 export interface Settings {
   /** "browser" renders through the user's own signed-in chat site, no API key. */
@@ -70,6 +71,11 @@ export interface Settings {
   projects: string[];
   /** Admin test mode: renders are sample images, no key or credits used. */
   testMode?: boolean;
+  /** Kie model for the Edit tab ("" = same as Render). Cheap Seedream by default. */
+  editModel?: string;
+  /** Render tab makes a 3D floor plan from a 2D plan instead of a normal render. */
+  planMode?: boolean;
+  plan?: PlanOptions;
 }
 
 export interface SceneSetup {
@@ -136,6 +142,8 @@ export const DEFAULT_SETTINGS: Settings = {
   project: "",
   projects: [],
   browserSite: "gemini",
+  // Edits are cheap on Seedream 5 Flash; Render keeps its own model.
+  editModel: "seedream/5-flash-image-to-image",
 };
 
 const KEY = "settings";

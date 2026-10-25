@@ -549,6 +549,8 @@ export const GENERATORS: DynGenerator[] = [
         c("branches", "Overhanging branches", "overhanging tree branches framing the top and sides, with dappled shadows on the ground"),
         c("shadetree", "Shade tree at one side", "a mature broad-canopy shade tree partly framing the building from one side"),
         c("spiderlily", "Spider lilies", "spider lilies softly blurred in the foreground"),
+        c("foodcart", "Street-food cart", "a Cambodian street-food cart with a small parasol and plastic stools on the footpath at one side"),
+        c("raindrain", "Monsoon drain channel", "an open concrete monsoon drainage channel with a steel grate along the street edge"),
         c("cables", "Power poles and cables", "a concrete power pole with overhead cables at one edge of the frame"),
       ]),
     ],

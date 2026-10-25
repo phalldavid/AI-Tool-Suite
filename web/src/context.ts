@@ -74,6 +74,10 @@ export const CONTEXT_GROUPS: ContextGroup[] = [
       ctx("koh-pich", "Koh Pich", "Diamond Island, Phnom Penh", "on Koh Pich (Diamond Island) in Phnom Penh: new high-rise towers, wide roads and the river nearby"),
       ctx("siem-reap", "Siem Reap", "Laterite, sugar palms, temples far off", "in Siem Reap: red laterite paths, sugar palms, large old trees, a calm low-rise town setting"),
       ctx("kampot", "Kampot riverside", "Bokor mountain behind", "on the Kampot riverside with Bokor mountain in the distance and old shophouses nearby"),
+      ctx("angkor", "Siem Reap Angkor", "Temple forest, laterite, moat", "in the Angkor area of Siem Reap: tall old dipterocarp and silk-cotton trees, red laterite ground, sandstone temple ruins far in the background, a calm moat with lotus, soft hazy tropical light"),
+      ctx("sihanoukville", "Sihanoukville coast", "Bay, islands, hillside resorts", "on the Sihanoukville coast: a wide bay with turquoise water, islands on the horizon, coconut palms, sandy beach and hillside resort buildings"),
+      ctx("pp-metro", "Phnom Penh metropolis", "Modern towers, busy avenues", "in modern central Phnom Penh: glass and concrete high-rise towers, wide busy avenues with cars and motorbikes, street trees, the Mekong and Tonle Sap rivers in the distance"),
+      ctx("mondulkiri", "Mondulkiri highlands", "Rolling grass hills, pine trees", "in the Mondulkiri highlands: rolling green grass hills, scattered pine trees, red earth tracks, cool misty air and distant forested ridges"),
     ],
   },
   {

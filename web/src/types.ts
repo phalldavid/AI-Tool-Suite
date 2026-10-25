@@ -1,5 +1,7 @@
 // Shared types for the render suite.
 
+import type { PlanOptions } from "./floorplan";
+
 /** An image held in memory as base64 (no data: prefix). */
 export interface ImageData64 {
   mimeType: string;
@@ -44,7 +46,7 @@ export interface Capture {
   source: "sketchup" | "upload";
 }
 
-export type ToolId = "render" | "lighting" | "spot-edit";
+export type ToolId = "render" | "lighting" | "spot-edit" | "style-match";
 
 export type ProjectType = "exterior" | "interior" | "aerial" | "sketch";
 
@@ -95,6 +97,8 @@ export interface HistoryItem {
   pending?: { jobId: string; model: string };
   /** What the render was made with, so the look can be made again. */
   setup?: RenderSetup;
+  /** What the AI read in the image first (Auto render), as JSON text. */
+  analysis?: string;
 }
 
 /** Style, notes and choices behind a render ("Use this setup" in History). */
@@ -114,4 +118,6 @@ export interface RenderSetup {
   promptEdit: string | null;
   /** Style, mood and materials read from the reference photo. */
   borrowedLook?: string;
+  /** Set when the render was made in Plan mode. */
+  plan?: PlanOptions;
 }
