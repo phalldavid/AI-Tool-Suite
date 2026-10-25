@@ -93,4 +93,23 @@ export interface HistoryItem {
   project?: string;
   /** Set while a Kie job is still running; lets a render finish after a crash. */
   pending?: { jobId: string; model: string };
+  /** What the render was made with, so the look can be made again. */
+  setup?: RenderSetup;
+}
+
+/** Style, notes and choices behind a render ("Use this setup" in History). */
+export interface RenderSetup {
+  preset: Preset;
+  notes: string;
+  people: string;
+  dna: { id: string; text: string; on: boolean }[];
+  /** "photo" or "cgi" */
+  look: string;
+  simple: boolean;
+  dynamic: Record<string, unknown>;
+  kieModel: string;
+  kieResolution: string;
+  frameId: string;
+  /** The user's own wording of the prompt, when they edited it. */
+  promptEdit: string | null;
 }

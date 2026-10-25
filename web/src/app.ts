@@ -78,7 +78,7 @@ import {
   type PeopleOptions,
 } from "./analysis";
 import { hostTransport } from "./providers/kie";
-import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, ToolId } from "./types";
+import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, RenderSetup, ToolId } from "./types";
 
 type Tab = "render" | "edit" | "lights" | "mirror" | "history";
 /** Where the template library is: the category picker, a category, or your own. */
@@ -148,6 +148,10 @@ interface State {
   /** All images from the last render (1 to 4); result is the one shown. */
   results: ImageData64[];
   anglesOpen: boolean;
+  /** The render More angles works from: the one on the stage or a History item. */
+  anglesFrom: ImageData64 | null;
+  /** History item whose details are open. */
+  historyOpenId: string | null;
   /** Kie credits left, null until checked. */
   kieCredits: number | null;
   /** What Kie said about the key last time we asked; "bad" means it was rejected. */
@@ -236,6 +240,8 @@ export async function start(el: HTMLElement): Promise<void> {
     result: null,
     results: [],
     anglesOpen: false,
+    anglesFrom: null,
+    historyOpenId: null,
     kieCredits: null,
     kieKeyStatus: "unknown",
     lib: { open: false, type: "home", style: "all", subject: "all", query: "" },
@@ -1030,7 +1036,10 @@ document.addEventListener("keydown", (e) => {
     keepAnalysisDraft?.();
     state.analyseOpen = null;
   }
-  else if (state.anglesOpen) state.anglesOpen = false;
+  else if (state.anglesOpen) {
+    state.anglesOpen = false;
+    state.anglesFrom = null;
+  }
   else if (state.dynOpen) state.dynOpen = null;
   else if (state.lookOpen) state.lookOpen = false;
   else if (state.settingsOpen) state.settingsOpen = false;
@@ -2272,6 +2281,7 @@ interface QueueItem {
   status: "waiting" | "running" | "done" | "failed";
   error?: string;
   cost: number | null;
+  setup: RenderSetup;
 }
 
 const queue: QueueItem[] = [];
@@ -2302,6 +2312,7 @@ async function addToQueue(): Promise<void> {
     aspect: nearestAspectRatio(size.width, size.height),
     status: "waiting",
     cost,
+    setup: currentSetup(),
   });
   render();
   toast(`${label} added. Capture the next view, then press Render to run the queue`, "ok");
@@ -2344,7 +2355,7 @@ async function runQueue(): Promise<void> {
           onJob: (job) => void notePending(job, item.prompt, item.images[0]).then((id) => id && pendingIds.push(id)),
         });
         for (const id of pendingIds) await removeHistory(id).catch(() => undefined);
-        await record("render", item.prompt, item.images[0], out.image, item.preset);
+        await record("render", item.prompt, item.images[0], out.image, item.preset, item.setup);
         item.status = "done";
       } catch (e) {
         for (const id of pendingIds) await removeHistory(id).catch(() => undefined);
@@ -2853,6 +2864,7 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
       : null,
     tool === "render"
       ? iconButton("aerial", "More angles from this render", () => {
+          state.anglesFrom = after;
           state.anglesOpen = true;
           render();
         }, "ghost")
@@ -3108,7 +3120,48 @@ async function recoverPending(round = 0): Promise<void> {
 /** History id of each image on the stage, so it can be rated. */
 const historyIds = new WeakMap<ImageData64, string>();
 
-async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = state.preset): Promise<void> {
+/** Everything a render was made with, for History's "Use this setup". */
+function currentSetup(): RenderSetup {
+  const s = state.settings;
+  return {
+    preset: { ...state.preset },
+    notes: state.notes,
+    people: state.people,
+    dna: state.dna.map((x) => ({ ...x })),
+    look: s.look,
+    simple: s.simple,
+    dynamic: JSON.parse(JSON.stringify(s.dynamic)) as Record<string, unknown>,
+    kieModel: s.kieModel,
+    kieResolution: s.kieResolution,
+    frameId: state.frameId,
+    promptEdit: s.simple ? null : state.promptEdit,
+  };
+}
+
+/** Puts a History item's style, notes and choices back, ready for the next render. */
+async function useSetup(setup: RenderSetup): Promise<void> {
+  const s = state.settings;
+  if (s.styleLock) return toast("The project look is locked. Unlock it to use another setup.", "error");
+  state.preset = { ...setup.preset };
+  state.notes = setup.notes;
+  state.people = setup.people;
+  state.dna = setup.dna.map((x) => ({ ...x }));
+  state.dnaDraft = null;
+  state.peopleDraft = null;
+  s.look = setup.look as Settings["look"];
+  s.simple = setup.simple;
+  s.dynamic = JSON.parse(JSON.stringify(setup.dynamic)) as Settings["dynamic"];
+  if (findKieModel(setup.kieModel).id === setup.kieModel) s.kieModel = setup.kieModel;
+  s.kieResolution = setup.kieResolution as Settings["kieResolution"];
+  if (setup.frameId && setup.frameId !== state.frameId) await chooseFrame(setup.frameId);
+  state.promptEdit = setup.promptEdit;
+  await persist();
+  state.tab = "render";
+  render();
+  toast(`Setup loaded: ${setup.preset.name}. Capture a view and render`, "ok");
+}
+
+async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = state.preset, setup?: RenderSetup): Promise<string> {
   const provider = makeProvider(state.settings, host);
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   historyIds.set(after, id);
@@ -3125,8 +3178,10 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
     model: provider.modelName ?? state.settings.comfyUrl,
     credits: state.settings.backend === "kie" ? creditsFor(findKieModel(state.settings.kieModel), state.settings.kieResolution) ?? undefined : undefined,
     project: state.settings.project || undefined,
+    setup: tool === "render" ? (setup ?? currentSetup()) : undefined,
   });
   state.history = await listHistory();
+  return id;
 }
 
 /** keep: add the new renders beside the ones on screen ("Try again"). */
@@ -3243,9 +3298,11 @@ const ANGLES: { id: string; label: string; text: string }[] = [
 ];
 
 async function runAngle(text: string): Promise<void> {
-  const from = state.result;
-  const cap = state.capture;
-  if (!from || !cap) return;
+  const from = state.anglesFrom ?? state.result;
+  if (!from) return;
+  // From the stage, the new views join the renders on screen; from History
+  // they are saved there and opened, and the stage is left alone.
+  const onStage = state.tab === "render" && from === state.result;
   state.anglesOpen = false;
   const prompt = [
     "The image is a finished architectural photograph.",
@@ -3254,14 +3311,26 @@ async function runAngle(text: string): Promise<void> {
   ].join("\n");
   const size = await imageSize(from);
   const raws = await runProviderMany(prompt, [from], nearestAspectRatio(size.width, size.height), 1);
-  await showRenders(raws, prompt, from, true);
+  state.anglesFrom = null;
+  if (onStage) return showRenders(raws, prompt, from, true);
+  if (!raws.length) return render();
+  const source = state.history.find((x) => x.after === from);
+  let id = "";
+  for (const raw of raws) id = await record("render", prompt, from, raw, source?.setup?.preset ?? state.preset, source?.setup);
+  state.historyOpenId = id;
+  scrollToDetail = true;
+  state.tab = "history";
+  render();
+  toast("New angle saved in History", "ok");
 }
 
 function anglesSheet(): HTMLElement {
   const close = () => {
     state.anglesOpen = false;
+    state.anglesFrom = null;
     render();
   };
+  const from = state.anglesFrom ?? state.result;
   return h(
     "div",
     { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
@@ -3269,6 +3338,7 @@ function anglesSheet(): HTMLElement {
       "div",
       { class: "sheet", role: "dialog", "aria-modal": "true" },
       h("div", { class: "sheet-head" }, h("h2", {}, "More angles"), iconButton("close", "Close", close)),
+      from ? h("img", { class: "angles-from", src: toDataUrl(from), alt: "Render the new angle starts from" }) : null,
       h("p", { class: "hint" }, "Makes a new camera view from this render, keeping its design, materials and light. One image each."),
       h(
         "div",
@@ -4183,6 +4253,7 @@ function historyTab(body: HTMLElement): void {
             type: "button",
             title: new Date(item.createdAt).toLocaleString(),
             onclick: () => {
+              state.historyOpenId = item.id;
               clear(detail);
               detail.append(historyDetail(item));
               detail.scrollIntoView({ behavior: "smooth" });
@@ -4195,6 +4266,12 @@ function historyTab(body: HTMLElement): void {
     ),
     detail,
   );
+  const open = state.historyOpenId ? state.history.find((x) => x.id === state.historyOpenId) : undefined;
+  if (open) {
+    detail.append(historyDetail(open));
+    if (scrollToDetail) requestAnimationFrame(() => detail.scrollIntoView({ block: "start" }));
+  }
+  scrollToDetail = false;
 }
 
 /** Credits spent from this app, from its own history. Kie has no API for the account log. */
@@ -4242,17 +4319,47 @@ function moveToProject(item: HistoryItem): HTMLElement | null {
   return h("label", { class: "field" }, h("span", {}, "Project"), sel);
 }
 
+/** Set when History should scroll to the open item on its next draw. */
+let scrollToDetail = false;
+
+/** Style, notes and choices a render was made with, and a button to use them again. */
+function setupBox(setup: RenderSetup): HTMLElement {
+  const m = findKieModel(setup.kieModel);
+  const dnaOn = setup.dna.filter((x) => x.on).length;
+  const rows: [string, string][] = [
+    ["Style", setup.preset.name],
+    ["Look", setup.look === "cgi" ? "3D render" : "Photo"],
+    ["Model", `${m.label} · ${setup.kieResolution}`],
+    ["Frame", findFrame(setup.frameId).label],
+  ];
+  if (setup.notes.trim()) rows.push(["Notes", setup.notes.trim()]);
+  if (setup.people.trim()) rows.push(["People", setup.people.trim()]);
+  if (dnaOn) rows.push(["Materials", `${dnaOn} tag${dnaOn > 1 ? "s" : ""} from Material Scan`]);
+  if (!setup.simple && Object.keys(setup.dynamic).length) rows.push(["Controls", "All controls settings saved"]);
+  if (setup.promptEdit) rows.push(["Prompt", "Your own edited prompt"]);
+  return h(
+    "div",
+    { class: "setup-box" },
+    h("dl", {}, rows.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])),
+    primaryButton("Use this setup", "check", () => void useSetup(setup)),
+  );
+}
+
 function historyDetail(item: HistoryItem): HTMLElement {
   historyIds.set(item.after, item.id);
+  const ratio = item.after.width && item.after.height ? item.after.width / item.after.height : 16 / 9;
   return section(
     `${toolLabel(item.tool)}${item.presetName ? ` · ${item.presetName}` : ""}`,
     h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}${item.credits !== undefined ? ` · ${item.credits} credits` : ""}${item.project ? ` · ${item.project}` : ""}`),
     item.pending ? h("p", { class: "notice" }, icon("info", 16), h("span", {}, "Still finishing on Kie.ai. It appears here when done, even after a restart.")) : null,
     moveToProject(item),
-    h("div", { class: "stage-frame" }, compareSlider(item.before, item.after)),
+    // Fits the window: never taller than the screen, whatever the picture's shape.
+    h("div", { class: "stage-frame history-frame", style: `max-width:min(100%, calc((100vh - 200px) * ${ratio.toFixed(4)}))` }, compareSlider(item.before, item.after)),
     resultActions(item.after, item.tool),
+    item.setup ? setupBox(item.setup) : item.tool === "render" ? h("p", { class: "hint" }, "Made before History saved setups, so only the prompt is kept.") : null,
     h("details", {}, h("summary", {}, "Prompt used"), h("pre", {}, item.prompt)),
     button("Delete from history", "trash", async () => {
+      if (state.historyOpenId === item.id) state.historyOpenId = null;
       await removeHistory(item.id);
       state.history = await listHistory();
       render();
