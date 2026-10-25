@@ -929,7 +929,7 @@ const SHORTCUTS: [string, string][] = [
   ["M", "Open or close the AI model list"],
   ["1 to 5", "Render, Edit, Lights, Mirror, History tabs"],
   ["Ctrl + Z", "Undo: last paint stroke, then the last edit"],
-  ["H", "Open or close this list"],
+  ["H or ?", "Open or close this list"],
   ["Esc", "Close the open panel"],
 ];
 
@@ -984,11 +984,13 @@ document.addEventListener("keydown", (e) => {
     render();
     return true;
   };
-  if (toggle(state.keysOpen && k === "h", () => (state.keysOpen = false))) return;
+  // "?" still works for people used to it.
+  const help = k === "h" || e.key === "?";
+  if (toggle(state.keysOpen && help, () => (state.keysOpen = false))) return;
   if (toggle(state.lib.open && k === "l", () => (state.lib.open = false))) return;
   if (toggle(state.modelSheet && k === "m", () => (state.modelSheet = false))) return;
   if (anySheetOpen()) return;
-  if (k === "h") {
+  if (help) {
     e.preventDefault();
     state.keysOpen = true;
     render();
