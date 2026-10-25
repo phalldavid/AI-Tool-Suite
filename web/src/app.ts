@@ -3369,6 +3369,7 @@ function editTab(body: HTMLElement): void {
       state.editMode,
       (v) => {
         state.editMode = v as State["editMode"];
+        if (state.editPromptEdit !== null) toast("Your edited prompt was for the other tool, so this one starts from the built prompt");
         state.editPromptEdit = null;
         render();
       },
@@ -3580,8 +3581,8 @@ function spotEditor(src: ImageData64): HTMLElement[] {
       ),
       h("p", { class: "hint" }, "Off sends the clean image too, which can help when the paint hides fine detail the AI needs to keep."),
       exactPrompt(() => spotEditPrompt(p)),
-      editActionBar(state.editWithLight ? "Apply edit + lighting" : "Apply edit", "wand", runSpotEdit),
     ),
+    editActionBar(state.editWithLight ? "Apply edit + lighting" : "Apply edit", "wand", runSpotEdit),
   ];
 }
 
@@ -3662,8 +3663,8 @@ function relightEditor(src: ImageData64): HTMLElement[] {
         textarea(state.editInstruction, "Optional, e.g. wet road after rain", 2, (v) => (state.editInstruction = v)),
       ),
       exactPrompt(relightPrompt),
-      editActionBar(t("Change lighting"), "lights", runRelight),
     ),
+    editActionBar(t("Change lighting"), "lights", runRelight),
   ];
 }
 
@@ -3764,7 +3765,9 @@ async function runSpotEdit(): Promise<void> {
     const fitted = await resizeTo(out, size.width, size.height);
     // A relit picture changes everywhere, so only a plain spot edit is
     // pasted back over the original to keep the rest pixel-exact.
-    const merged = lighting || general || ownPrompt || !zones.length ? fitted : await compositeMasked(src, fitted, union);
+    // A hand-written prompt with zones painted is still pasted back into the
+    // zones only, so nothing changes outside them.
+    const merged = lighting || general || !zones.length ? fitted : await compositeMasked(src, fitted, union);
     const tool: ToolId = lighting && !zones.length ? "lighting" : "spot-edit";
     await record(tool, prompt, src, merged);
     pushEdit(src);
