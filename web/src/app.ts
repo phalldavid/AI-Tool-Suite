@@ -925,11 +925,11 @@ const SHORTCUTS: [string, string][] = [
   ["R", "Render"],
   ["T", "Try again (keeps the renders on screen)"],
   ["C", "Capture the SketchUp view (Upload in the web app)"],
-  ["L", "Open the style library"],
-  ["M", "Choose the AI model"],
+  ["L", "Open or close the style library"],
+  ["M", "Open or close the AI model list"],
   ["1 to 5", "Render, Edit, Lights, Mirror, History tabs"],
   ["Ctrl + Z", "Undo: last paint stroke, then the last edit"],
-  ["?", "This list"],
+  ["H or ?", "Open or close this list"],
   ["Esc", "Close the open panel"],
 ];
 
@@ -975,14 +975,27 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (mod) return;
-  if (e.key === "?") {
+  const k = e.key.toLowerCase();
+  // The key that opened a window closes it again.
+  const toggle = (open: boolean, shut: () => void) => {
+    if (!open) return false;
+    e.preventDefault();
+    shut();
+    render();
+    return true;
+  };
+  // "?" still works for people used to it.
+  const help = k === "h" || e.key === "?";
+  if (toggle(state.keysOpen && help, () => (state.keysOpen = false))) return;
+  if (toggle(state.lib.open && k === "l", () => (state.lib.open = false))) return;
+  if (toggle(state.modelSheet && k === "m", () => (state.modelSheet = false))) return;
+  if (anySheetOpen()) return;
+  if (help) {
     e.preventDefault();
     state.keysOpen = true;
     render();
     return;
   }
-  if (anySheetOpen()) return;
-  const k = e.key.toLowerCase();
   const tabs: Tab[] = ["render", "edit", "lights", "mirror", "history"];
   if (/^[1-5]$/.test(k)) {
     state.tab = tabs[Number(k) - 1];
@@ -2549,7 +2562,7 @@ function renderTab(main: HTMLElement): void {
 const quickTemplates = (): { label: string; text: string }[] => [
   { label: "Cambodian plates", text: `Give every vehicle ${platePhrase(state.settings.dynamic.vehicles?.plate)}.` },
   { label: "Ground mist", text: "Add a thin, low ground mist that softens the base of the trees and the distance." },
-  { label: "Green to mirror", text: "Turn the flat green-coloured surfaces into real opaque mirrors with correct reflections." },
+  { label: "Green to glass", text: "Turn the transparent green-coloured surfaces into real glass material." },
   { label: "Orange to LED", text: "Turn the orange and yellow lines on the ceiling into glowing warm-white LED strips." },
   { label: "Blue to water", text: "Turn the flat blue-coloured areas into real clear water with ripples and reflections." },
   { label: "Clean site", text: "Remove any construction clutter; the site is finished, clean and tidy." },
@@ -2667,6 +2680,10 @@ function renderBar(): HTMLElement {
     WIDE.matches ? null : modelChip(),
     btn,
     creditReadout(),
+    // Desktop: top up sits right by the balance.
+    WIDE.matches && state.settings.backend === "kie" && state.settings.kieKey.trim()
+      ? button("Top up", "plus", async () => openExternal(KIE_TOPUP_URL), "ghost small topup")
+      : null,
     state.busy && state.settings.backend === "browser"
       ? button("Bring result back", "arrowDown", () => host.call("browserGrab").catch((e: Error) => toast(e.message, "error")), "ghost")
       : null,
@@ -2794,20 +2811,6 @@ async function copyImage(img: ImageData64): Promise<void> {
   toast("Image copied. Paste it in Telegram, Line or email", "ok");
 }
 
-/** Phone share sheet where there is one; otherwise copy, ready to paste into a chat. */
-async function shareImage(img: ImageData64): Promise<void> {
-  const file = new File([imageBlob(img)], `render-${Date.now()}.${img.mimeType === "image/png" ? "png" : "jpg"}`, { type: img.mimeType });
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: "Render" });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") throw e;
-    }
-    return;
-  }
-  await copyImage(img);
-}
-
 function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
   return h(
     "div",
@@ -2828,7 +2831,6 @@ function resultActions(after: ImageData64, tool: ToolId): HTMLElement {
       : null,
     ),
     h("div", { class: "ra-tools" },
-    iconButton("share", "Share: send to Telegram, Line or email", () => shareImage(after), "ghost"),
     iconButton("copy", "Copy image", () => copyImage(after), "ghost"),
     tool === "render" ? rateButtons(after) : null,
     tool === "render"
@@ -2987,9 +2989,10 @@ function setBusy(on: boolean): void {
 async function finishProgress(): Promise<void> {
   const fill = document.getElementById("render-fill");
   if (!fill) return;
-  fill.style.transition = "transform 250ms ease-out";
+  // Ramps up to full: picks up speed into the end.
+  fill.style.transition = "transform 420ms cubic-bezier(0.55, 0, 0.9, 0.6)";
   fill.style.transform = "scaleX(1)";
-  await new Promise((r) => setTimeout(r, 280));
+  await new Promise((r) => setTimeout(r, 450));
 }
 
 async function runProvider(prompt: string, images: ImageData64[], aspectRatio?: string): Promise<ImageData64 | null> {
