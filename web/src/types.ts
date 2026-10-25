@@ -44,7 +44,7 @@ export interface Capture {
   source: "sketchup" | "upload";
 }
 
-export type ToolId = "render" | "lighting" | "spot-edit";
+export type ToolId = "render" | "lighting" | "spot-edit" | "style-match";
 
 export type ProjectType = "exterior" | "interior" | "aerial" | "sketch";
 
@@ -95,6 +95,8 @@ export interface HistoryItem {
   pending?: { jobId: string; model: string };
   /** What the render was made with, so the look can be made again. */
   setup?: RenderSetup;
+  /** What the AI read in the image first (Auto render), as JSON text. */
+  analysis?: string;
 }
 
 /** Style, notes and choices behind a render ("Use this setup" in History). */
