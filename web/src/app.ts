@@ -173,6 +173,10 @@ interface State {
   relight: string;
   relightGroup: "exterior" | "interior" | "urban";
   zonePrompts: Record<string, string>;
+  /** Spot edit change for the whole picture, on top of the zones. */
+  editGeneral: string;
+  /** The user's own wording of the Edit prompt, or null to use the built one. */
+  editPromptEdit: string | null;
   brushSize: number;
   editWithLight: boolean;
   lightMode: "spot" | "led";
@@ -250,6 +254,8 @@ export async function start(el: HTMLElement): Promise<void> {
     relight: "blue-hour",
     relightGroup: "exterior",
     zonePrompts: {},
+    editGeneral: "",
+    editPromptEdit: null,
     brushSize: 40,
     editWithLight: false,
     lightMode: "spot",
@@ -3359,6 +3365,7 @@ function editTab(body: HTMLElement): void {
       state.editMode,
       (v) => {
         state.editMode = v as State["editMode"];
+        state.editPromptEdit = null;
         render();
       },
     ),
@@ -3535,6 +3542,12 @@ function spotEditor(src: ImageData64): HTMLElement[] {
     ),
     section(
       "What should change",
+      h(
+        "label",
+        { class: "field general-edit" },
+        h("span", {}, "General edit (whole picture)"),
+        textarea(state.editGeneral, "e.g. make it a rainy evening, add wet reflections on the road", 2, (v) => (state.editGeneral = v)),
+      ),
       fields,
       h(
         "p",
@@ -3562,7 +3575,8 @@ function spotEditor(src: ImageData64): HTMLElement[] {
         "Send only the painted image (fewer tokens)",
       ),
       h("p", { class: "hint" }, "Off sends the clean image too, which can help when the paint hides fine detail the AI needs to keep."),
-      primaryButton(state.busy ? "Working..." : state.editWithLight ? "Apply edit + lighting" : "Apply edit", "wand", runSpotEdit, state.busy, "wide"),
+      exactPrompt(() => spotEditPrompt(p)),
+      editActionBar(state.editWithLight ? "Apply edit + lighting" : "Apply edit", "wand", runSpotEdit),
     ),
   ];
 }
@@ -3643,9 +3657,82 @@ function relightEditor(src: ImageData64): HTMLElement[] {
         h("span", {}, "Notes"),
         textarea(state.editInstruction, "Optional, e.g. wet road after rain", 2, (v) => (state.editInstruction = v)),
       ),
-      primaryButton(state.busy ? "Working..." : t("Change lighting"), "lights", runRelight, state.busy, "wide"),
+      exactPrompt(relightPrompt),
+      editActionBar(t("Change lighting"), "lights", runRelight),
     ),
   ];
+}
+
+/** Credits one edit costs: a single image at the chosen size. */
+function editCost(): number | null {
+  const s = state.settings;
+  if (s.backend !== "kie") return null;
+  return creditsFor(findKieModel(s.kieModel), s.kieResolution);
+}
+
+/** Model, cost and the same filling progress bar as Render, for the Edit tools. */
+function editActionBar(label: string, iconName: string, run: () => Promise<void>): HTMLElement {
+  const cost = editCost();
+  return h(
+    "div",
+    { class: "action-bar" },
+    modelChip(),
+    h(
+      "button",
+      { class: state.busy ? "render-btn busy" : "render-btn", disabled: state.busy, type: "button", onclick: () => void run() },
+      icon(iconName, 20),
+      state.busy ? h("span", { class: "render-progress", "aria-hidden": "true" }, h("i", { id: "render-fill", style: `transform:scaleX(${busyProgress().toFixed(3)})` })) : null,
+      h("span", { id: "render-label" }, state.busy ? busyLabel() : label),
+      !state.busy && cost !== null ? h("small", { class: "render-cost", title: "Kie credits this edit costs" }, `${creditNumber(cost)} credits`) : null,
+    ),
+    state.busy && state.abort ? iconButton("close", "Cancel", () => state.abort?.abort(), "ghost") : null,
+  );
+}
+
+/**
+ * Advanced: the exact prompt the next edit sends, editable. It follows the
+ * settings until you type in it; Reset goes back to the built one.
+ */
+function exactPrompt(build: () => string): HTMLElement {
+  const ta = h("textarea", { rows: 8, class: "prompt-edit", "aria-label": "Prompt sent to the AI" }) as HTMLTextAreaElement;
+  const reset = button("Reset", "undo", async () => {
+    state.editPromptEdit = null;
+    sync();
+    toast("Prompt follows your settings again", "ok");
+  }, "ghost small");
+  const sync = () => {
+    if (state.editPromptEdit === null) ta.value = build();
+    reset.hidden = state.editPromptEdit === null;
+  };
+  ta.addEventListener("input", () => {
+    state.editPromptEdit = ta.value;
+    reset.hidden = false;
+  });
+  // Fresh text each time it is opened or focused, so zone changes show up.
+  ta.addEventListener("focus", () => state.editPromptEdit === null && (ta.value = build()));
+  const box = h(
+    "details",
+    { class: "exact-prompt", open: state.editPromptEdit !== null },
+    h("summary", {}, "Advanced: exact prompt", state.editPromptEdit !== null ? h("em", {}, " (edited)") : null),
+    ta,
+    h("div", { class: "row" }, h("p", { class: "hint grow" }, "This is what the AI gets. Edit it to take full control."), reset),
+  ) as HTMLDetailsElement;
+  box.addEventListener("toggle", () => box.open && sync());
+  sync();
+  return box;
+}
+
+function spotEditPrompt(p: ZonePainter | null): string {
+  const painted = p?.paintedZones() ?? [];
+  const zones = ZONES.filter((z) => painted.includes(z.id));
+  return buildZoneEditPrompt(
+    zones.map((z) => ({ colour: z.colour, instruction: state.zonePrompts[z.id] ?? "" })),
+    { singleImage: state.settings.singleImage, lighting: state.editWithLight ? relightText(state.relight, state.capture?.facts) : null, general: state.editGeneral },
+  );
+}
+
+function relightPrompt(): string {
+  return buildLightingPrompt(state.relight, state.editInstruction, state.capture?.facts);
 }
 
 async function runSpotEdit(): Promise<void> {
@@ -3654,16 +3741,15 @@ async function runSpotEdit(): Promise<void> {
   if (!src || !p) return;
   const painted = p.paintedZones();
   const lightingOn = state.editWithLight;
-  if (!painted.length && !lightingOn) return toast("Paint at least one zone over the area you want to change.", "error");
+  const general = state.editGeneral.trim();
+  const ownPrompt = state.editPromptEdit?.trim() || "";
+  if (!painted.length && !lightingOn && !general && !ownPrompt) return toast("Paint a zone, or write a general edit for the whole picture.", "error");
   const missing = painted.filter((id) => !(state.zonePrompts[id] ?? "").trim());
   if (missing.length) return toast(`Describe what should change in ${missing.map((id) => `Zone ${id}`).join(", ")}.`, "error");
   const zones = ZONES.filter((z) => painted.includes(z.id));
   const single = state.settings.singleImage;
   const lighting = lightingOn ? relightText(state.relight, state.capture?.facts) : null;
-  const prompt = buildZoneEditPrompt(
-    zones.map((z) => ({ colour: z.colour, instruction: state.zonePrompts[z.id] })),
-    { singleImage: single, lighting },
-  );
+  const prompt = ownPrompt || spotEditPrompt(p);
   const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: p.canvases[z.id], colour: z.css }))) : src;
   // One image when asked: the painted copy carries the picture and the zones.
   const images = !zones.length ? [src] : single ? [overlay] : [src, overlay];
@@ -3674,13 +3760,15 @@ async function runSpotEdit(): Promise<void> {
     const fitted = await resizeTo(out, size.width, size.height);
     // A relit picture changes everywhere, so only a plain spot edit is
     // pasted back over the original to keep the rest pixel-exact.
-    const merged = lighting || !zones.length ? fitted : await compositeMasked(src, fitted, union);
+    const merged = lighting || general || ownPrompt || !zones.length ? fitted : await compositeMasked(src, fitted, union);
     const tool: ToolId = lighting && !zones.length ? "lighting" : "spot-edit";
     await record(tool, prompt, src, merged);
     pushEdit(src);
     state.editSource = merged;
     painter = null;
     state.zonePrompts = {};
+    state.editGeneral = "";
+    state.editPromptEdit = null;
     showEditResult(src, merged, tool);
     return;
   }
@@ -3690,7 +3778,7 @@ async function runSpotEdit(): Promise<void> {
 async function runRelight(): Promise<void> {
   const src = state.editSource;
   if (!src) return;
-  const prompt = buildLightingPrompt(state.relight, state.editInstruction, state.capture?.facts);
+  const prompt = state.editPromptEdit?.trim() || relightPrompt();
   const size = await imageSize(src);
   const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height));
   if (out) {

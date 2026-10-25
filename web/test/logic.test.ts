@@ -251,3 +251,13 @@ test("one request can carry zone edits and new lighting from a single image", ()
   assert.match(only, /^Edit this image\.\nThen change the lighting/);
   assert.doesNotMatch(only, /marker paint/);
 });
+
+test("spot edit: a general change goes in with or without zones", () => {
+  const only = buildZoneEditPrompt([], { general: "make it a rainy day." });
+  assert.match(only, /Across the whole picture: make it a rainy day\./);
+  assert.match(only, /Keep every building/);
+  const both = buildZoneEditPrompt([{ colour: "red", instruction: "remove the car" }], { general: "add wet reflections" });
+  assert.match(both, /Inside the red area only: remove the car\./);
+  assert.match(both, /Also, across the whole picture: add wet reflections\./);
+  assert.doesNotMatch(both, /outside the painted areas must stay/);
+});
