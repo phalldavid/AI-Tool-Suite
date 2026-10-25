@@ -1030,7 +1030,7 @@ html { overflow-x: hidden; }
 .general-edit { margin-bottom: 10px; }
 
 /* History: the picture fits the window; the setup it was made with. */
-.history-frame .compare img, .history-frame img { max-height: calc(100vh - 200px); object-fit: contain; }
+.history-frame .compare img, .history-frame img { max-height: calc(100vh - 240px); object-fit: contain; }
 .setup-box { display: grid; gap: 10px; margin: 10px 0; padding: 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel-2); }
 .setup-box dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
 .setup-box dt { color: var(--muted); }

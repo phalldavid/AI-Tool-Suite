@@ -4361,7 +4361,7 @@ function historyDetail(item: HistoryItem): HTMLElement {
     item.pending ? h("p", { class: "notice" }, icon("info", 16), h("span", {}, "Still finishing on Kie.ai. It appears here when done, even after a restart.")) : null,
     moveToProject(item),
     // Fits the window: never taller than the screen, whatever the picture's shape.
-    h("div", { class: "stage-frame history-frame", style: `max-width:min(100%, calc((100vh - 200px) * ${ratio.toFixed(4)}))` }, compareSlider(item.before, item.after)),
+    h("div", { class: "stage-frame history-frame", style: `max-width:min(100%, calc((100vh - 240px) * ${ratio.toFixed(4)}))` }, compareSlider(item.before, item.after)),
     resultActions(item.after, item.tool),
     item.setup ? setupBox(item.setup) : item.tool === "render" ? h("p", { class: "hint" }, "Made before History saved setups, so only the prompt is kept.") : null,
     h("details", {}, h("summary", {}, "Prompt used"), h("pre", {}, item.prompt)),
