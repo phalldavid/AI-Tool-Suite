@@ -2745,7 +2745,10 @@ function borrowedLookBox(): HTMLElement {
     "div",
     { class: "borrowed-look" },
     h("span", { class: "muted" }, "Borrowed look (added to the prompt, edit if needed)"),
-    textarea(state.borrowedLook, "", 3, (v) => (state.borrowedLook = v)),
+    textarea(state.borrowedLook, "", 3, (v) => {
+      state.borrowedLook = v;
+      updatePromptPreview();
+    }),
     button("Clear", "trash", async () => {
       state.borrowedLook = "";
       render();
@@ -3233,6 +3236,7 @@ function currentSetup(): RenderSetup {
     kieResolution: s.kieResolution,
     frameId: state.frameId,
     promptEdit: s.simple ? null : state.promptEdit,
+    borrowedLook: state.borrowedLook,
   };
 }
 
@@ -3253,6 +3257,7 @@ async function useSetup(setup: RenderSetup): Promise<void> {
   s.kieResolution = setup.kieResolution as Settings["kieResolution"];
   if (setup.frameId && setup.frameId !== state.frameId) await chooseFrame(setup.frameId);
   state.promptEdit = setup.promptEdit;
+  state.borrowedLook = setup.borrowedLook ?? "";
   await persist();
   state.tab = "render";
   render();
@@ -4437,6 +4442,7 @@ function setupBox(setup: RenderSetup): HTMLElement {
   if (setup.people.trim()) rows.push(["People", setup.people.trim()]);
   if (dnaOn) rows.push(["Materials", `${dnaOn} tag${dnaOn > 1 ? "s" : ""} from Material Scan`]);
   if (!setup.simple && Object.keys(setup.dynamic).length) rows.push(["Controls", "All controls settings saved"]);
+  if (setup.borrowedLook) rows.push(["Borrowed look", setup.borrowedLook]);
   if (setup.promptEdit) rows.push(["Prompt", "Your own edited prompt"]);
   return h(
     "div",
