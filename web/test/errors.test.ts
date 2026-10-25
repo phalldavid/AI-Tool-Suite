@@ -11,3 +11,11 @@ test("common errors get a plain message and a fix", () => {
   assert.equal(friendlyError("Image blocked by safety filter")?.action, null);
   assert.equal(friendlyError("Pick a capture first"), null);
 });
+
+test("offline failures say there is no internet, with Retry", () => {
+  for (const msg of ["Kie.ai error 0.", "No internet connection. Check your Wi-Fi, then try again.", "getaddrinfo: No such host is known.", "Could not reach Kie.ai. Check the internet connection."]) {
+    const f = friendlyError(msg);
+    assert.equal(f?.action, "retry", msg);
+    assert.match(f?.text ?? "", /No internet/);
+  }
+});

@@ -38,19 +38,27 @@ module AIRenderSuite
       defined?(Sketchup::Overlay) ? true : false
     end
 
+    OVERLAY_ID = 'airs.render_frame'.freeze
+
+    # Adds the frame overlay to a model unless it already has one. Looks it up
+    # by id on the model itself, so a newly opened model always gets its own.
     def self.install(model)
       return unless model && overlays_supported?
-      @installed ||= {}
-      key = model.object_id
-      overlay = @installed[key]
+      overlay = model.overlays.find { |o| o.respond_to?(:overlay_id) && o.overlay_id == OVERLAY_ID }
       unless overlay
         overlay = FrameOverlay.new
         model.overlays.add(overlay)
-        @installed[key] = overlay
       end
       overlay.enabled = true if overlay.respond_to?(:enabled=)
+      model.active_view.invalidate
     rescue StandardError => e
       puts "David Render Studio: could not add the frame overlay (#{e.message})"
+    end
+
+    # SketchUp is still setting up a model when it reports it opened, so the
+    # overlay is added a moment later.
+    def self.install_soon
+      UI.start_timer(0.3, false) { install(Sketchup.active_model) }
     end
 
     if defined?(Sketchup::Overlay)
@@ -59,7 +67,7 @@ module AIRenderSuite
         EDGE = Sketchup::Color.new(255, 255, 255, 220)
 
         def initialize
-          super('airs.render_frame', 'David Render Studio frame',
+          super(OVERLAY_ID, 'David Render Studio frame',
                 description: 'Shows the aspect ratio that AI renders will use.')
         end
 
@@ -92,12 +100,21 @@ module AIRenderSuite
     end
 
     class ModelWatcher < Sketchup::AppObserver
-      def onNewModel(model)
-        Frame.install(model)
+      def expectsStartupModelNotifications
+        true
       end
 
-      def onOpenModel(model)
-        Frame.install(model)
+      def onNewModel(_model)
+        Frame.install_soon
+      end
+
+      def onOpenModel(_model)
+        Frame.install_soon
+      end
+
+      # Mac: switching between open model windows.
+      def onActivateModel(_model)
+        Frame.install_soon
       end
     end
   end

@@ -17,7 +17,7 @@ const RULES: [RegExp, Friendly][] = [
   [/\b429\b|rate.?limit|too many requests|quota|resource.?exhausted/i, { text: "Too many requests right now. Wait a minute, then try again", action: "retry" }],
   [/safety|blocked|content policy|moderation|nsfw|prohibited/i, { text: "The AI refused this image. Try other notes or another model", action: null }],
   [/timed? ?out|timeout|took too long/i, { text: "It took too long. Try again", action: "retry" }],
-  [/failed to fetch|network|offline|ERR_INTERNET|ENOTFOUND|connection/i, { text: "No connection to the AI service. Check your internet, then try again", action: "retry" }],
+  [/no internet|failed to fetch|network|offline|ERR_INTERNET|ENOTFOUND|getaddrinfo|could not reach|connection|error 0\b/i, { text: "No internet connection. Check your Wi-Fi, then try again", action: "retry" }],
   [/\b50[0234]\b|internal (server )?error|busy|overloaded|unavailable|try again later|server error/i, { text: "The AI service is busy. Try again in a minute", action: "retry" }],
 ];
 
