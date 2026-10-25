@@ -449,15 +449,17 @@ async function reportBug(): Promise<void> {
     log: activityLog,
     secrets: [s.kieKey, s.geminiKey],
   });
-  if (!(await copyText(text))) {
+  // Browsers block a new tab that is not opened right on the click, so the
+  // copy starts first and Telegram opens before waiting for it.
+  const copied = copyText(text);
+  if (host.kind !== "sketchup") openExternal(CONTACT_URL);
+  if (!(await copied)) {
     showReportText(text);
-    return toast("Could not copy by itself. Select the report, copy it, then press Open Telegram", "error");
+    return toast("Could not copy by itself. Select the report, copy it, then paste it in Telegram", "error");
   }
   toast("Report and log copied. Paste them in Telegram", "ok");
-  // In SketchUp, a short pause so the message is seen before Telegram takes
-  // focus. Browsers block a new tab that is not opened right on the click.
+  // In SketchUp, a short pause so the message is seen before Telegram takes focus.
   if (host.kind === "sketchup") setTimeout(() => openExternal(CONTACT_URL), 900);
-  else openExternal(CONTACT_URL);
 }
 
 /** Puts text on the clipboard. True only when it really got there. */
@@ -946,7 +948,7 @@ const SHORTCUTS: [string, string][] = [
   ["M", "Open or close the AI model list"],
   ["1 to 5", "Render, Edit, Lights, Mirror, History tabs"],
   ["Ctrl + Z", "Undo: last paint stroke, then the last edit"],
-  ["H", "Open or close this list"],
+  ["H or ?", "Open or close this list"],
   ["Esc", "Close the open panel"],
 ];
 
@@ -1001,11 +1003,13 @@ document.addEventListener("keydown", (e) => {
     render();
     return true;
   };
-  if (toggle(state.keysOpen && k === "h", () => (state.keysOpen = false))) return;
+  // "?" still works for people used to it.
+  const help = k === "h" || e.key === "?";
+  if (toggle(state.keysOpen && help, () => (state.keysOpen = false))) return;
   if (toggle(state.lib.open && k === "l", () => (state.lib.open = false))) return;
   if (toggle(state.modelSheet && k === "m", () => (state.modelSheet = false))) return;
   if (anySheetOpen()) return;
-  if (k === "h") {
+  if (help) {
     e.preventDefault();
     state.keysOpen = true;
     render();
@@ -3435,6 +3439,7 @@ function editTab(body: HTMLElement): void {
       state.editMode,
       (v) => {
         state.editMode = v as State["editMode"];
+        if (state.editPromptEdit !== null) toast("Your edited prompt was for the other tool, so this one starts from the built prompt");
         state.editPromptEdit = null;
         render();
       },
@@ -3646,8 +3651,8 @@ function spotEditor(src: ImageData64): HTMLElement[] {
       ),
       h("p", { class: "hint" }, "Off sends the clean image too, which can help when the paint hides fine detail the AI needs to keep."),
       exactPrompt(() => spotEditPrompt(p)),
-      editActionBar(state.editWithLight ? "Apply edit + lighting" : "Apply edit", "wand", runSpotEdit),
     ),
+    editActionBar(state.editWithLight ? "Apply edit + lighting" : "Apply edit", "wand", runSpotEdit),
   ];
 }
 
@@ -3728,8 +3733,8 @@ function relightEditor(src: ImageData64): HTMLElement[] {
         textarea(state.editInstruction, "Optional, e.g. wet road after rain", 2, (v) => (state.editInstruction = v)),
       ),
       exactPrompt(relightPrompt),
-      editActionBar(t("Change lighting"), "lights", runRelight),
     ),
+    editActionBar(t("Change lighting"), "lights", runRelight),
   ];
 }
 
@@ -3830,7 +3835,9 @@ async function runSpotEdit(): Promise<void> {
     const fitted = await resizeTo(out, size.width, size.height);
     // A relit picture changes everywhere, so only a plain spot edit is
     // pasted back over the original to keep the rest pixel-exact.
-    const merged = lighting || general || ownPrompt || !zones.length ? fitted : await compositeMasked(src, fitted, union);
+    // A hand-written prompt with zones painted is still pasted back into the
+    // zones only, so nothing changes outside them.
+    const merged = lighting || general || !zones.length ? fitted : await compositeMasked(src, fitted, union);
     const tool: ToolId = lighting && !zones.length ? "lighting" : "spot-edit";
     await record(tool, prompt, src, merged);
     pushEdit(src);
