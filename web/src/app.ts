@@ -40,6 +40,7 @@ import {
   type Option,
 } from "./prompt";
 import { GeminiProvider } from "./providers/gemini";
+import { ProviderError } from "./providers/types";
 import { fetchTransport, KIE_KEY_PAGE, KieProvider } from "./providers/kie";
 import { nonePreset, parseScene, sceneLabel, scenePreset, scenePrompt, sceneTemplate, type SceneScan } from "./scene-scan";
 import { progressAt, rememberDuration, runningLong, typicalMs } from "./progress";
@@ -145,6 +146,8 @@ interface State {
   anglesOpen: boolean;
   /** Kie credits left, null until checked. */
   kieCredits: number | null;
+  /** What Kie said about the key last time we asked; "bad" means it was rejected. */
+  kieKeyStatus: "unknown" | "ok" | "bad";
   lib: { open: boolean; type: LibLevel; style: string; subject: string; query: string };
   /** Style preview sheets made on this computer, by sheet id. */
   sheets: Record<string, SheetRecord>;
@@ -223,6 +226,7 @@ export async function start(el: HTMLElement): Promise<void> {
     results: [],
     anglesOpen: false,
     kieCredits: null,
+    kieKeyStatus: "unknown",
     lib: { open: false, type: "home", style: "all", subject: "all", query: "" },
     sheets: {},
     previews: new Map(),
@@ -400,7 +404,7 @@ function logSheet(): HTMLElement {
         "div",
         { class: "sheet-actions" },
         button("Copy log", "check", async () => {
-          await navigator.clipboard.writeText(text());
+          if (!(await copyText(text()))) return toast("Could not copy the log", "error");
           toast("Log copied", "ok");
         }, "ghost"),
         button("Report a bug", "bug", reportBug, "ghost"),
@@ -426,25 +430,98 @@ async function reportBug(): Promise<void> {
     log: activityLog,
     secrets: [s.kieKey, s.geminiKey],
   });
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // Older embedded browsers block the clipboard API; the old copy command still works.
-    const ta = h("textarea", {}, text) as HTMLTextAreaElement;
-    document.body.append(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
+  // Browsers block a new tab that is not opened right on the click, so the
+  // copy starts first and Telegram opens before waiting for it.
+  const copied = copyText(text);
+  if (host.kind !== "sketchup") openExternal(CONTACT_URL);
+  if (!(await copied)) {
+    showReportText(text);
+    return toast("Could not copy by itself. Select the report, copy it, then paste it in Telegram", "error");
   }
-  openExternal(CONTACT_URL);
-  toast("Report copied, paste it in Telegram", "ok");
+  toast("Report and log copied. Paste them in Telegram", "ok");
+  // In SketchUp, a short pause so the message is seen before Telegram takes focus.
+  if (host.kind === "sketchup") setTimeout(() => openExternal(CONTACT_URL), 900);
 }
 
-function downloadJson(data: unknown, name: string): void {
-  const a = h("a", { href: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data, null, 2))}`, download: name });
+/** Puts text on the clipboard. True only when it really got there. */
+async function copyText(text: string): Promise<boolean> {
+  if (host.kind === "sketchup") {
+    try {
+      await host.call("copyText", { text });
+      return true;
+    } catch {
+      // Fall through to the panel's own ways.
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Older embedded browsers block the clipboard API; the old copy command still works.
+    const ta = h("textarea", { style: "position:fixed;left:-9999px;top:0" }) as HTMLTextAreaElement;
+    ta.value = text;
+    document.body.append(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
+    ta.remove();
+    return ok;
+  }
+}
+
+/** Last resort when nothing could copy: show the report so it can be copied by hand. */
+function showReportText(text: string): void {
+  const close = () => back.remove();
+  const ta = h("textarea", { class: "prompt-edit", rows: 12, readonly: true }) as HTMLTextAreaElement;
+  ta.value = text;
+  const back = h(
+    "div",
+    { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet", role: "dialog", "aria-modal": "true" },
+      h("div", { class: "sheet-head" }, h("h2", {}, "Bug report"), iconButton("close", "Close", close)),
+      ta,
+      h("div", { class: "sheet-actions" }, button("Open Telegram", "send", async () => (openExternal(CONTACT_URL), close()), "primary")),
+    ),
+  );
+  document.body.append(back);
+  ta.focus();
+  ta.select();
+}
+
+/**
+ * Saves a text file, asking where every time. SketchUp uses its own save
+ * dialog; browsers that can use the system picker (it asks before
+ * overwriting); others get a normal download. False when cancelled.
+ */
+async function saveTextFile(text: string, name: string, mime = "application/json"): Promise<boolean> {
+  if (host.kind === "sketchup") return Boolean(await host.call("saveText", { text, name, title: "Save settings" }));
+  const picker = (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<{ createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> }> }).showSaveFilePicker;
+  if (picker) {
+    try {
+      const handle = await picker({ suggestedName: name, types: [{ description: "Settings file", accept: { [mime]: [".json"] } }] });
+      const w = await handle.createWritable();
+      await w.write(text);
+      await w.close();
+      return true;
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return false;
+      // Some embedded browsers list the picker but refuse it: use a download.
+    }
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = h("a", { href: url, download: name });
   document.body.append(a);
   a.click();
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
 }
 
 /** Move presets, favourites, projects and choices to the other app or a new PC. */
@@ -475,8 +552,12 @@ function backupSection(): HTMLElement {
       { class: "help-row" },
       button("Export settings", "save", async () => {
         const stamp = new Date().toISOString().slice(0, 10);
-        downloadJson(makeBackup(state.settings, keys.checked), `render-studio-settings-${stamp}.json`);
-        toast(keys.checked ? "Exported, keys included" : "Exported, keys left out", "ok");
+        try {
+          const saved = await saveTextFile(JSON.stringify(makeBackup(state.settings, keys.checked), null, 2), `render-studio-settings-${stamp}.json`);
+          if (saved) toast(keys.checked ? "Exported, keys included" : "Exported, keys left out", "ok");
+        } catch (e) {
+          toast(`Could not save: ${(e as Error).message}`, "error");
+        }
       }, "ghost"),
       button("Import settings", "upload", async () => file.click(), "ghost"),
       file,
@@ -720,22 +801,23 @@ function presetSwatches(p: Preset): string[] {
 /** True when the chosen AI service has what it needs to render. */
 function isConnected(): boolean {
   const s = state.settings;
-  return s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : s.backend === "kie" ? Boolean(s.kieKey.trim()) : Boolean(s.geminiKey.trim());
+  return s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : s.backend === "kie" ? Boolean(s.kieKey.trim()) && state.kieKeyStatus !== "bad" : Boolean(s.geminiKey.trim());
 }
 
 function backendPill(): HTMLElement {
   const s = state.settings;
   const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
   const ready = isConnected();
+  const rejected = s.backend === "kie" && state.kieKeyStatus === "bad";
   const platform =
     s.backend === "comfyui" ? "ComfyUI" : s.backend === "browser" ? site.label : s.backend === "kie" ? findKieModel(s.kieModel).label : "Gemini API";
   const title =
     s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : s.backend === "kie" ? `Kie.ai, ${findKieModel(s.kieModel).label}` : "Backend settings";
   return h(
     "button",
-    { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title: ready ? `${platform}. ${title}` : "Not connected. Open Settings to add a key.", type: "button" },
+    { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title: ready ? `${platform}. ${title}` : rejected ? "Kie.ai rejected this key. Open Settings to fix it." : "Not connected. Open Settings to add a key.", type: "button" },
     h("span", { class: "dot" }),
-    h("span", {}, ready ? "Connected" : "Not connected"),
+    h("span", {}, ready ? "Connected" : rejected ? "Key rejected" : "Not connected"),
   );
 }
 
@@ -877,6 +959,11 @@ function typingIn(el: EventTarget | null): boolean {
 function anySheetOpen(): boolean {
   return Boolean(document.querySelector(".sheet-backdrop, .onboard-backdrop, .tour"));
 }
+
+// No browser right-click menu (Back, Reload, Inspect) in the panel; text fields keep theirs for copy and paste.
+document.addEventListener("contextmenu", (e) => {
+  if (!typingIn(e.target)) e.preventDefault();
+});
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" || typingIn(e.target) || e.altKey || !state) return;
@@ -2189,8 +2276,25 @@ async function addToQueue(): Promise<void> {
     cost,
   });
   render();
-  toast(`${label} added to the queue. Capture the next view`, "ok");
-  runQueue();
+  toast(`${label} added. Capture the next view, then press Render to run the queue`, "ok");
+}
+
+function queueWaiting(): number {
+  return queue.filter((q) => q.status === "waiting").length;
+}
+
+function startQueue(): void {
+  if (!isConnected()) {
+    state.settingsKie = state.settings.backend === "kie";
+    openSettings();
+    return toast("Add a key in Settings to render", "error");
+  }
+  const cost = queueCost();
+  if (cost !== null && state.kieCredits !== null && cost > state.kieCredits) {
+    return toast(`Not enough Kie credits: the queue needs ${creditNumber(cost)}, you have ${Math.floor(state.kieCredits)}`, "error");
+  }
+  void runQueue();
+  for (const bar of document.querySelectorAll(".render-bar")) bar.replaceWith(renderBar());
 }
 
 async function runQueue(): Promise<void> {
@@ -2228,6 +2332,7 @@ async function runQueue(): Promise<void> {
   } finally {
     queueRunning = false;
     drawQueue();
+    for (const bar of document.querySelectorAll(".render-bar")) bar.replaceWith(renderBar());
   }
 }
 
@@ -2272,7 +2377,7 @@ function queueSection(): HTMLElement {
         ),
       ),
     ),
-    h("p", { class: "hint" }, "Each view renders with the settings it had when you added it. You can keep working, or walk away."),
+    h("p", { class: "hint" }, queueRunning ? "Each view renders with the settings it had when you added it. You can keep working, or walk away." : "Each view keeps the settings it had when you added it. Press Render to run the whole queue."),
   );
 }
 
@@ -2538,14 +2643,23 @@ function fixturesFold(): HTMLElement {
 }
 
 function renderBar(): HTMLElement {
-  const disabled = state.busy || !state.capture;
+  // Views waiting in the queue: Render runs the whole queue instead of one view.
+  const waiting = queueRunning ? 0 : queueWaiting();
+  const disabled = state.busy || (!state.capture && !waiting);
+  const cost = waiting ? queueCost() : renderCost();
   const btn = h(
     "button",
-    { class: state.busy ? "render-btn busy" : "render-btn", disabled, onclick: () => runRender(), type: "button", title: !state.capture && !state.busy ? (host.kind === "sketchup" ? "Capture a view first" : "Upload an image first") : undefined },
+    {
+      class: state.busy ? "render-btn busy" : "render-btn",
+      disabled,
+      onclick: () => (waiting ? startQueue() : runRender()),
+      type: "button",
+      title: !state.capture && !state.busy && !waiting ? (host.kind === "sketchup" ? "Capture a view first" : "Upload an image first") : undefined,
+    },
     icon("render", 20),
     state.busy ? h("span", { class: "render-progress", "aria-hidden": "true" }, h("i", { id: "render-fill", style: `transform:scaleX(${busyProgress().toFixed(3)})` })) : null,
-    h("span", { id: "render-label" }, state.busy ? busyLabel() : t(state.result ? "Render again" : "Render")),
-    !state.busy && renderCost() !== null ? h("small", { class: "render-cost", title: "Kie credits this render costs" }, `${creditNumber(renderCost() ?? 0)} credits`) : null,
+    h("span", { id: "render-label" }, state.busy ? busyLabel() : waiting ? `Render queue (${waiting})` : t(state.result ? "Render again" : "Render")),
+    !state.busy && cost !== null ? h("small", { class: "render-cost", title: waiting ? "Kie credits the queue costs" : "Kie credits this render costs" }, `${creditNumber(cost ?? 0)} credits`) : null,
   );
   return h(
     "div",
@@ -3032,11 +3146,23 @@ async function refreshCredits(): Promise<void> {
   try {
     const p = new KieProvider(s.kieKey, s.kieModel, s.kieResolution, host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
     state.kieCredits = await p.balance();
+    const was = state.kieKeyStatus;
+    state.kieKeyStatus = "ok";
+    if (was === "bad") render();
     const el = document.getElementById("credit-readout");
     if (el) el.replaceWith(creditReadout());
-  } catch {
-    /* the balance is a nice-to-have; renders still work */
+  } catch (e) {
+    // A rejected key means Not connected; no internet leaves the status as it was.
+    if (keyRejected(e)) {
+      state.kieKeyStatus = "bad";
+      state.kieCredits = null;
+      render();
+    }
   }
+}
+
+function keyRejected(e: unknown): boolean {
+  return e instanceof ProviderError ? e.status === 401 || /rejected the api key/i.test(e.message) : false;
 }
 
 function creditText(c: number): string {
@@ -4730,8 +4856,10 @@ function settingsSheet(): HTMLElement {
       // Adding a key means "render with Kie".
       if (s.kieKey) s.backend = "kie";
       state.settingsKie = false;
+      state.kieKeyStatus = "unknown";
       await persist();
       render();
+      refreshCredits();
     });
     sheet.append(
       section(
@@ -4766,10 +4894,18 @@ function settingsSheet(): HTMLElement {
             await persist();
             toast("Checking key...");
             const msg = await makeProvider(s, host).test();
-            if (s.backend === "kie") await refreshCredits();
+            if (s.backend === "kie") {
+              state.kieKeyStatus = "ok";
+              await refreshCredits();
+            }
             render();
             toast(msg, "ok");
           } catch (e) {
+            if (s.backend === "kie" && keyRejected(e)) {
+              state.kieKeyStatus = "bad";
+              state.kieCredits = null;
+              render();
+            }
             toast((e as Error).message, "error");
           }
         }, "ghost"),

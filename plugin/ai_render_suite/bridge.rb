@@ -44,6 +44,8 @@ module AIRenderSuite
       when 'kieHttp' then Kie.http(payload, id)
       when 'kieDownload' then Kie.download(payload)
       when 'openUrl' then open_url(payload['url'])
+      when 'saveText' then save_text(payload)
+      when 'copyText' then copy_text(payload['text'])
       else raise "Unknown request: #{action}"
       end
     end
@@ -85,6 +87,70 @@ module AIRenderSuite
       end
       File.binwrite(path, payload['data'].to_s.unpack1('m'))
       path
+    end
+
+    # Asks where to save a text file every time (the system dialog asks
+    # before overwriting). Returns the path, or nil when cancelled.
+    def self.save_text(payload)
+      name = File.basename(payload['name'].to_s.gsub(/[^\w.\-]+/, '_'))
+      name = 'export.txt' if name.empty?
+      path = UI.savepanel(payload['title'].to_s.empty? ? 'Save file' : payload['title'].to_s, '', name)
+      return nil unless path
+      File.write(path, payload['text'].to_s, mode: 'w:UTF-8')
+      path
+    end
+
+    # Puts text on the system clipboard. The panel's own clipboard call can
+    # be blocked inside SketchUp.
+    def self.copy_text(text)
+      text = text.to_s
+      if Sketchup.platform == :platform_win
+        WinClipboard.write(text)
+      else
+        IO.popen('pbcopy', 'w') { |io| io.write(text) }
+      end
+      true
+    end
+
+    # Windows clipboard through the system API, so no console window flashes.
+    module WinClipboard
+      CF_UNICODETEXT = 13
+      GMEM_MOVEABLE = 0x0002
+
+      def self.api
+        @api ||= begin
+          require 'fiddle'
+          require 'fiddle/import'
+          Module.new do
+            extend Fiddle::Importer
+            dlload 'user32', 'kernel32'
+            extern 'int OpenClipboard(void*)'
+            extern 'int EmptyClipboard()'
+            extern 'void* SetClipboardData(unsigned int, void*)'
+            extern 'int CloseClipboard()'
+            extern 'void* GlobalAlloc(unsigned int, size_t)'
+            extern 'void* GlobalLock(void*)'
+            extern 'int GlobalUnlock(void*)'
+          end
+        end
+      end
+
+      def self.write(text)
+        a = api
+        data = "#{text}\0".encode('UTF-16LE')
+        mem = a.GlobalAlloc(GMEM_MOVEABLE, data.bytesize)
+        raise 'Could not copy to the clipboard.' if mem.null?
+        ptr = a.GlobalLock(mem)
+        ptr[0, data.bytesize] = data
+        a.GlobalUnlock(mem)
+        raise 'The clipboard is busy. Try again.' if a.OpenClipboard(nil).zero?
+        begin
+          a.EmptyClipboard
+          a.SetClipboardData(CF_UNICODETEXT, mem)
+        ensure
+          a.CloseClipboard
+        end
+      end
     end
 
     # Opens a web page in the system browser. https only.

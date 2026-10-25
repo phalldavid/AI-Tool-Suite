@@ -97,3 +97,8 @@ test("a price list from the website overrides built-in prices, but only sizes th
   assert.equal(creditsFor(findKieModel("seedream/5-flash-image-to-image"), "2K"), 3.24);
   m.credits = before;
 });
+
+test("Kie status 0 means the request never left the computer", async () => {
+  const { explainKie } = await import("../src/providers/kie");
+  assert.match(explainKie(0, ""), /No internet connection/);
+});

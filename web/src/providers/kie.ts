@@ -105,6 +105,8 @@ function checkAbort(signal?: AbortSignal): void {
 }
 
 export function explainKie(status: number, msg: string): string {
+  // SketchUp reports 0 when the request never left the computer.
+  if (status === 0) return "No internet connection. Check your Wi-Fi, then try again.";
   if (status === 401) return "Kie.ai rejected the API key. Check it in Settings.";
   if (status === 402) return "Not enough Kie credits. Top up at kie.ai, then render again.";
   if (status === 429) return "Kie.ai is busy (too many requests). Wait a moment and try again.";
