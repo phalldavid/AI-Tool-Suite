@@ -159,6 +159,8 @@ export interface ZoneEditOptions {
   singleImage?: boolean;
   /** new lighting for the whole picture, in the same request */
   lighting?: string | null;
+  /** a change for the whole picture, on top of the zone changes */
+  general?: string;
 }
 
 /**
@@ -180,12 +182,18 @@ export function buildZoneEditPrompt(zones: EditZone[], opts: ZoneEditOptions = {
     lines.push("Edit the first image.", `The second image is the same picture with ${painted}.`);
   }
   lines.push(...used.map((z) => `Inside the ${z.colour} area only: ${z.instruction.trim().replace(/\.$/, "")}.`));
+  const general = (opts.general ?? "").trim().replace(/\.$/, "");
+  if (general) lines.push(`${used.length ? "Also, across the whole picture" : "Across the whole picture"}: ${general}.`);
   if (opts.lighting) {
     lines.push(
       `Then change the lighting and sky of the whole picture to: ${opts.lighting}. Shadows, reflections and the new elements must all match this light. Keep every building, material, object and the camera exactly as they are apart from the painted changes.`,
     );
-  } else if (used.length) {
+  } else if (general && !used.length) {
+    lines.push("Keep every building, material, object and the camera exactly as they are apart from this change.");
+  } else if (used.length && !general) {
     lines.push("Everything outside the painted areas must stay exactly as it is. Match the perspective, lighting and photographic quality of the rest of the image.");
+  } else if (used.length) {
+    lines.push("Keep the camera and everything these changes do not mention exactly as they are. Match the perspective, lighting and photographic quality of the rest of the image.");
   }
   if (used.length) lines.push("Remove every trace of the marker paint: no coloured tint may be left in the result.");
   lines.push("The result must look like a real photograph.");
