@@ -430,15 +430,17 @@ async function reportBug(): Promise<void> {
     log: activityLog,
     secrets: [s.kieKey, s.geminiKey],
   });
-  if (!(await copyText(text))) {
+  // Browsers block a new tab that is not opened right on the click, so the
+  // copy starts first and Telegram opens before waiting for it.
+  const copied = copyText(text);
+  if (host.kind !== "sketchup") openExternal(CONTACT_URL);
+  if (!(await copied)) {
     showReportText(text);
-    return toast("Could not copy by itself. Select the report, copy it, then press Open Telegram", "error");
+    return toast("Could not copy by itself. Select the report, copy it, then paste it in Telegram", "error");
   }
   toast("Report and log copied. Paste them in Telegram", "ok");
-  // In SketchUp, a short pause so the message is seen before Telegram takes
-  // focus. Browsers block a new tab that is not opened right on the click.
+  // In SketchUp, a short pause so the message is seen before Telegram takes focus.
   if (host.kind === "sketchup") setTimeout(() => openExternal(CONTACT_URL), 900);
-  else openExternal(CONTACT_URL);
 }
 
 /** Puts text on the clipboard. True only when it really got there. */
