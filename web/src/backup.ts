@@ -6,7 +6,7 @@ import type { Settings } from "./settings";
 
 const KEYS: (keyof Settings)[] = ["kieKey", "geminiKey"];
 // Per-device or per-session values that should not travel.
-const SKIP: (keyof Settings)[] = ["onboarded", "tourDone", "styleLock"];
+const SKIP: (keyof Settings)[] = ["onboarded", "tourDone", "styleLock", "testMode"];
 
 export interface BackupFile {
   app: "david-render-studio";

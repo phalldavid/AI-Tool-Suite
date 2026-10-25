@@ -60,6 +60,8 @@ import { friendlyError, KIE_TOPUP_URL, type FixAction } from "./errors";
 import { applyBackup, makeBackup } from "./backup";
 import { BROWSER_SITES, loadSettings, makeProvider, saveSettings, type Settings, type StyleLock } from "./settings";
 import {
+  BORROW_LOOK_PROMPT,
+  cleanBorrowedLook,
   cleanPeople,
   dnaConflicts,
   dnaGroup,
@@ -78,6 +80,7 @@ import {
   type PeopleOptions,
 } from "./analysis";
 import { hostTransport } from "./providers/kie";
+import { mockAnalysis } from "./providers/mock";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, RenderSetup, ToolId } from "./types";
 
 type Tab = "render" | "edit" | "lights" | "mirror" | "history";
@@ -150,6 +153,10 @@ interface State {
   anglesOpen: boolean;
   /** The render More angles works from: the one on the stage or a History item. */
   anglesFrom: ImageData64 | null;
+  /** Style, mood and materials read from the reference photo ("Borrow this look"). */
+  borrowedLook: string;
+  /** Admin tools shown in Settings (tap the version five times, or ?admin=1). */
+  adminOpen: boolean;
   /** History item whose details are open. */
   historyOpenId: string | null;
   /** Kie credits left, null until checked. */
@@ -241,6 +248,8 @@ export async function start(el: HTMLElement): Promise<void> {
     results: [],
     anglesOpen: false,
     anglesFrom: null,
+    borrowedLook: "",
+    adminOpen: /[?&]admin=1\b/.test(location.search),
     historyOpenId: null,
     kieCredits: null,
     kieKeyStatus: "unknown",
@@ -597,7 +606,55 @@ function helpSection(): HTMLElement {
         render();
       }, "ghost"),
     ),
-    h("p", { class: "hint" }, `Contact: ${CONTACT_LABEL}. Report a bug copies your version, AI service and recent log (never your keys), then opens Telegram so you can paste it. Version ${APP_VERSION}.`),
+    h(
+      "p",
+      { class: "hint" },
+      `Contact: ${CONTACT_LABEL}. Report a bug copies your version, AI service and recent log (never your keys), then opens Telegram so you can paste it. `,
+      h("span", { class: "version-tap", onclick: tapVersion }, `Version ${APP_VERSION}.`),
+    ),
+    state.adminOpen || state.settings.testMode ? adminBox() : null,
+  );
+}
+
+let versionTaps = 0;
+let versionTapTimer = 0;
+
+/** Five taps on the version line show the admin tools. */
+function tapVersion(): void {
+  versionTaps++;
+  window.clearTimeout(versionTapTimer);
+  versionTapTimer = window.setTimeout(() => (versionTaps = 0), 1500);
+  if (versionTaps < 5 || state.adminOpen) return;
+  versionTaps = 0;
+  state.adminOpen = true;
+  render();
+  toast("Admin tools shown", "ok");
+}
+
+function adminBox(): HTMLElement {
+  const s = state.settings;
+  return h(
+    "div",
+    { class: "admin-box" },
+    h("strong", {}, "Admin"),
+    h(
+      "label",
+      { class: "switch" },
+      h("input", {
+        type: "checkbox",
+        checked: Boolean(s.testMode),
+        onchange: async (e: Event) => {
+          s.testMode = (e.target as HTMLInputElement).checked;
+          await persist();
+          render();
+          toast(s.testMode ? "Test mode on: renders are sample images, no key or credits" : "Test mode off: renders use your AI service again", "ok");
+          if (!s.testMode) refreshCredits();
+        },
+      }),
+      h("span", { class: "track" }),
+      "Test mode (no API key, no credits)",
+    ),
+    h("p", { class: "hint" }, "Every button runs as usual, but renders, edits and scans return sample results after a few seconds. Use it to test the app without paying for renders."),
   );
 }
 
@@ -820,6 +877,7 @@ function presetSwatches(p: Preset): string[] {
 /** True when the chosen AI service has what it needs to render. */
 function isConnected(): boolean {
   const s = state.settings;
+  if (s.testMode) return true;
   return s.backend === "comfyui" ? Boolean(s.comfyWorkflow.trim()) : s.backend === "browser" ? true : s.backend === "kie" ? Boolean(s.kieKey.trim()) && state.kieKeyStatus !== "bad" : Boolean(s.geminiKey.trim());
 }
 
@@ -834,9 +892,9 @@ function backendPill(): HTMLElement {
     s.backend === "gemini" ? `Gemini API key, model ${s.geminiModel}` : s.backend === "kie" ? `Kie.ai, ${findKieModel(s.kieModel).label}` : "Backend settings";
   return h(
     "button",
-    { class: ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title: ready ? `${platform}. ${title}` : rejected ? "Kie.ai rejected this key. Open Settings to fix it." : "Not connected. Open Settings to add a key.", type: "button" },
+    { class: s.testMode ? "pill test" : ready ? "pill ok" : "pill warn", onclick: () => openSettings(), title: ready ? `${platform}. ${title}` : rejected ? "Kie.ai rejected this key. Open Settings to fix it." : "Not connected. Open Settings to add a key.", type: "button" },
     h("span", { class: "dot" }),
-    h("span", {}, ready ? "Connected" : rejected ? "Key rejected" : "Not connected"),
+    h("span", {}, s.testMode ? "Test mode" : ready ? "Connected" : rejected ? "Key rejected" : "Not connected"),
   );
 }
 
@@ -2663,7 +2721,44 @@ function referenceField(): HTMLElement {
         : button("Add", "upload", () => input.click(), "ghost small"),
       input,
     ),
+    ref ? button(state.borrowedLook ? "Read the look again" : "Borrow this look", "wand", borrowLook, "ghost small borrow-btn") : null,
+    state.borrowedLook ? borrowedLookBox() : null,
   );
+}
+
+/** The AI reads the reference photo's style, mood and materials into words for the prompt. */
+async function borrowLook(): Promise<void> {
+  const ref = state.reference;
+  if (!ref) return;
+  const text = await analyse(BORROW_LOOK_PROMPT, ref);
+  if (text === null) return;
+  const look = cleanBorrowedLook(text);
+  if (!look) return toast("Couldn't read the look, try again", "error", `Borrow this look reply: ${text.slice(0, 300)}`);
+  state.borrowedLook = look;
+  state.promptEdit = null;
+  render();
+  toast("Look borrowed. It is now part of the prompt", "ok");
+}
+
+function borrowedLookBox(): HTMLElement {
+  return h(
+    "div",
+    { class: "borrowed-look" },
+    h("span", { class: "muted" }, "Borrowed look (added to the prompt, edit if needed)"),
+    textarea(state.borrowedLook, "", 3, (v) => {
+      state.borrowedLook = v;
+      updatePromptPreview();
+    }),
+    button("Clear", "trash", async () => {
+      state.borrowedLook = "";
+      render();
+    }, "ghost small"),
+  );
+}
+
+function borrowedLookLine(): string | null {
+  const look = state.borrowedLook.trim().replace(/\.$/, "");
+  return look ? `Match this look from the style reference: ${look}.` : null;
 }
 
 function activeDna(): string[] {
@@ -2737,7 +2832,9 @@ function currentRenderPrompt(): string {
     notes: state.notes,
     facts: state.capture?.facts,
     hasLinePass: Boolean(state.capture?.lines),
-    extras: quick ? [] : [fixtureSettingsLine(state.preset.projectType, st.fixtures), ...dynamicLines(dyn)].filter((x): x is string => Boolean(x)),
+    extras: quick
+      ? []
+      : [fixtureSettingsLine(state.preset.projectType, st.fixtures), ...dynamicLines(dyn), borrowedLookLine()].filter((x): x is string => Boolean(x)),
     lightingFromDynamic: Boolean(dyn.time?.time),
     lineStrength: st.lineStrength,
     look: lock ? lock.look : st.look,
@@ -3139,6 +3236,7 @@ function currentSetup(): RenderSetup {
     kieResolution: s.kieResolution,
     frameId: state.frameId,
     promptEdit: s.simple ? null : state.promptEdit,
+    borrowedLook: state.borrowedLook,
   };
 }
 
@@ -3159,6 +3257,7 @@ async function useSetup(setup: RenderSetup): Promise<void> {
   s.kieResolution = setup.kieResolution as Settings["kieResolution"];
   if (setup.frameId && setup.frameId !== state.frameId) await chooseFrame(setup.frameId);
   state.promptEdit = setup.promptEdit;
+  state.borrowedLook = setup.borrowedLook ?? "";
   await persist();
   state.tab = "render";
   render();
@@ -3180,7 +3279,7 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
     after,
     provider: provider.label,
     model: provider.modelName ?? state.settings.comfyUrl,
-    credits: state.settings.backend === "kie" ? creditsFor(findKieModel(state.settings.kieModel), state.settings.kieResolution) ?? undefined : undefined,
+    credits: state.settings.backend === "kie" && !state.settings.testMode ? creditsFor(findKieModel(state.settings.kieModel), state.settings.kieResolution) ?? undefined : undefined,
     project: state.settings.project || undefined,
     setup: tool === "render" ? (setup ?? currentSetup()) : undefined,
   });
@@ -3219,7 +3318,7 @@ async function runRender(keep = false): Promise<void> {
 /** Asks Kie how many credits are left and shows it next to Render. Quiet on failure. */
 async function refreshCredits(): Promise<void> {
   const s = state.settings;
-  if (s.backend !== "kie" || !s.kieKey) return;
+  if (s.backend !== "kie" || !s.kieKey || s.testMode) return;
   try {
     const p = new KieProvider(s.kieKey, s.kieModel, s.kieResolution, host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
     state.kieCredits = await p.balance();
@@ -4343,6 +4442,7 @@ function setupBox(setup: RenderSetup): HTMLElement {
   if (setup.people.trim()) rows.push(["People", setup.people.trim()]);
   if (dnaOn) rows.push(["Materials", `${dnaOn} tag${dnaOn > 1 ? "s" : ""} from Material Scan`]);
   if (!setup.simple && Object.keys(setup.dynamic).length) rows.push(["Controls", "All controls settings saved"]);
+  if (setup.borrowedLook) rows.push(["Borrowed look", setup.borrowedLook]);
   if (setup.promptEdit) rows.push(["Prompt", "Your own edited prompt"]);
   return h(
     "div",
@@ -4635,6 +4735,7 @@ function modelSection(): HTMLElement {
  */
 function pickAnalyser(): Analyser {
   const s = state.settings;
+  if (s.testMode) return (prompt) => new Promise((r) => setTimeout(() => r(mockAnalysis(prompt)), 1500));
   if (s.geminiKey.trim()) return geminiAnalyser(s.geminiKey.trim());
   if (s.kieKey.trim()) return kieAnalyser(s.kieKey.trim(), host.kind === "sketchup" ? hostTransport(host) : undefined);
   throw new Error("Analysis needs a Kie.ai key or a Gemini API key. Add one in Settings.");
@@ -4642,6 +4743,7 @@ function pickAnalyser(): Analyser {
 
 function analyserLabel(): string {
   const s = state.settings;
+  if (s.testMode) return "test mode (sample answers, no key)";
   return s.geminiKey.trim() ? "your Gemini key (Google's free allowance)" : s.kieKey.trim() ? "your Kie.ai key (a fraction of a cent each)" : "a key you add in Settings";
 }
 
@@ -4670,14 +4772,14 @@ function analysisKeySection(): HTMLElement {
 
 let analysing = false;
 
-async function analyse(prompt: string): Promise<string | null> {
-  const src = state.capture?.view;
+async function analyse(prompt: string, image?: ImageData64): Promise<string | null> {
+  const src = image ?? state.capture?.view;
   if (!src) {
     toast("Capture a view or upload an image first.", "error");
     return null;
   }
   if (analysing) return null;
-  if (!state.settings.kieKey.trim() && !state.settings.geminiKey.trim()) {
+  if (!state.settings.testMode && !state.settings.kieKey.trim() && !state.settings.geminiKey.trim()) {
     toast("Analysis needs a Kie.ai key or a Gemini API key. Add one in Settings.", "error");
     return null;
   }

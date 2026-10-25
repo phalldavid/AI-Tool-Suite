@@ -112,4 +112,6 @@ export interface RenderSetup {
   frameId: string;
   /** The user's own wording of the prompt, when they edited it. */
   promptEdit: string | null;
+  /** Style, mood and materials read from the reference photo. */
+  borrowedLook?: string;
 }

@@ -263,3 +263,24 @@ export function cleanPeople(text: string): string {
     .join(" ");
   return `${body} ${PEOPLE_CLOSER}`.trim();
 }
+
+// ---------- Borrow this look: read a style reference photo ----------
+
+/** Asks for the look of a reference photo only, never its shape or objects. */
+export const BORROW_LOOK_PROMPT = [
+  "This photo is a style reference for an architectural render.",
+  "Describe only its look, in exactly three short lines of plain text:",
+  "Style: the design style in a few words.",
+  "Mood and light: time of day, light quality, colour temperature and contrast.",
+  "Material palette: the main materials and colours, most visible first.",
+  "Do not describe the building's shape, layout, rooms, objects or camera. No lists, no extra text.",
+].join("\n");
+
+/** One tidy line for the prompt, e.g. "Style: tropical modern; Mood and light: …". */
+export function cleanBorrowedLook(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").replace(/\*\*/g, "").trim().replace(/[.;]+$/, ""))
+    .filter((l) => /^(style|mood|material)/i.test(l))
+    .join("; ");
+}
