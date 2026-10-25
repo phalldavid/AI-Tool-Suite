@@ -10,6 +10,7 @@ import { BrowserProvider } from "./providers/browser";
 import { fetchTransport, hostTransport, KieProvider } from "./providers/kie";
 import { DEFAULT_KIE_MODEL, type KieResolution } from "./providers/kie-models";
 import type { Provider } from "./providers/types";
+import { MockProvider } from "./providers/mock";
 
 export interface Settings {
   /** "browser" renders through the user's own signed-in chat site, no API key. */
@@ -67,6 +68,8 @@ export interface Settings {
   project: string;
   /** Project names the user has made, newest first. */
   projects: string[];
+  /** Admin test mode: renders are sample images, no key or credits used. */
+  testMode?: boolean;
 }
 
 export interface SceneSetup {
@@ -159,6 +162,7 @@ export async function saveSettings(host: Host, s: Settings): Promise<void> {
 }
 
 export function makeProvider(s: Settings, host?: Host): Provider & { modelName?: string } {
+  if (s.testMode) return new MockProvider();
   if (s.backend === "browser" && host) {
     const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
     return new BrowserProvider(host, site.id, site.label);

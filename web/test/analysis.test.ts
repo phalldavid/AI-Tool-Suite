@@ -140,3 +140,9 @@ test("kie analyser gives up on a route that never answers", async () => {
   };
   await assert.rejects(kieAnalyser("k", t, 20)("p", { mimeType: "image/jpeg", data: "AA" }), /no answer in 0 s/);
 });
+
+test("borrow this look keeps only the style, mood and material lines", async () => {
+  const { cleanBorrowedLook } = await import("../src/analysis");
+  const reply = "Here is the look:\n- **Style:** tropical modern.\n- Mood and light: late afternoon, warm 3000K, soft shadows\n- Material palette: teak, white render, grey terrazzo\nHope this helps!";
+  assert.equal(cleanBorrowedLook(reply), "Style: tropical modern; Mood and light: late afternoon, warm 3000K, soft shadows; Material palette: teak, white render, grey terrazzo");
+});
