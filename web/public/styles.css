@@ -1046,3 +1046,6 @@ html { overflow-x: hidden; }
 .admin-box { display: grid; gap: 8px; margin-top: 10px; padding: 12px; border: 1px dashed var(--accent); border-radius: 10px; }
 .pill.test { border-color: var(--accent); color: var(--accent); }
 .pill.test .dot { background: var(--accent); }
+
+/* Scrolled-to History item clears the sticky header and tabs. */
+.history-detail { scroll-margin-top: calc(var(--topbar-h, 48px) + 76px); }
