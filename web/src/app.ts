@@ -83,6 +83,7 @@ import { hostTransport } from "./providers/kie";
 import { mockAnalysis } from "./providers/mock";
 import { buildStyleMatchPrompt, MATCH_STRENGTHS, TRANSFER_PARTS, type MatchStrength, type TransferPart } from "./style-match";
 import { buildFloorplanPrompt, DEFAULT_PLAN, PLAN_PRESETS, type CutHeight, type PlanOptions } from "./floorplan";
+import { copyImage as clipImage, copyText as clipText, imageFromTransfer, readClipboardImage } from "./handoff";
 import { AUTO_ANALYSE_PROMPT, buildAutoPrompt, parseAutoScan, type AutoScan } from "./auto-render";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, RenderSetup, ToolId } from "./types";
 
@@ -183,6 +184,9 @@ interface State {
   /** Earlier versions of the image being edited, newest last (Undo last edit). */
   editStack: ImageData64[];
   editMode: "spot" | "relight" | "match";
+  /** A render handed to the user's own Gemini/ChatGPT tab (web app), waiting for its result. */
+  handoff: { prompt: string; images: ImageData64[]; before: ImageData64 } | null;
+  handoffOpen: boolean;
   /** Auto card: the JSON read from one capture, reused until the view changes. */
   autoScan: { for: ImageData64; scan: AutoScan; raw: string } | null;
   /** Style match: the reference whose look is copied, and the choices. */
@@ -276,6 +280,8 @@ export async function start(el: HTMLElement): Promise<void> {
     editStack: [],
     editMode: "spot",
     autoScan: null,
+    handoff: null,
+    handoffOpen: false,
     matchRef: null,
     matchParts: TRANSFER_PARTS.map((x) => x.id),
     matchStrength: "balanced",
@@ -1122,6 +1128,7 @@ document.addEventListener("keydown", (e) => {
   else if (state.settingsOpen) state.settingsOpen = false;
   else if (state.modelSheet) state.modelSheet = false;
   else if (state.keysOpen) state.keysOpen = false;
+  else if (state.handoffOpen) state.handoffOpen = false;
   else if (state.lib.open) state.lib.open = false;
   else return;
   e.preventDefault();
@@ -1220,6 +1227,7 @@ function render(): void {
   if (state.previewsOpen) root.append(previewsSheet());
   if (state.modelSheet) root.append(modelSheet());
   if (state.keysOpen) root.append(shortcutsSheet());
+  if (state.handoffOpen && state.handoff) root.append(handoffSheet());
   if (state.analyseOpen === "dna") root.append(dnaSheet());
   if (state.analyseOpen === "people") root.append(peopleSheet());
   if (state.analyseOpen === "scene") root.append(sceneSheet());
@@ -2493,6 +2501,7 @@ function queueCost(): number {
 async function addToQueue(): Promise<void> {
   const cap = state.capture;
   if (!cap) return;
+  if (handoffMode()) return toast("The queue needs a model with a key (Kie.ai). With your own Gemini account, render one view at a time.", "error");
   if (!isConnected()) return toast("Add a key in Settings to render", "error");
   const cost = renderCost();
   if (cost !== null && state.kieCredits !== null && queueCost() + cost > state.kieCredits) {
@@ -3482,6 +3491,7 @@ async function runRender(keep = false): Promise<void> {
   if (!(await ensureAutoScan())) return;
   const prompt = renderPrompt();
   const images = renderImages(cap);
+  if (handoffMode()) return openHandoff(prompt, images, cap.view);
   const size = await imageSize(cap.view);
   const raws = await runProviderMany(prompt, images, nearestAspectRatio(size.width, size.height), state.settings.imageCount);
   if (raws.length) {
@@ -3548,6 +3558,162 @@ function creditReadout(): HTMLElement {
     creditText(c),
   );
 }
+
+// ---------- Gemini with your own account (web app): copy, open, paste ----------
+
+/** In the web app, "your account" renders are handed over by clipboard, not automated. */
+function handoffMode(): boolean {
+  return state.settings.backend === "browser" && host.kind === "browser" && !state.settings.testMode;
+}
+
+function handoffSite(): (typeof BROWSER_SITES)[number] {
+  return BROWSER_SITES.find((x) => x.id === state.settings.browserSite) ?? BROWSER_SITES[0];
+}
+
+function openHandoff(prompt: string, images: ImageData64[], before: ImageData64): void {
+  state.handoff = { prompt, images, before };
+  state.handoffOpen = true;
+  render();
+}
+
+const IMAGE_ROLES = ["your view", "second image", "third image"];
+
+function handoffSheet(): HTMLElement {
+  const ho = state.handoff!;
+  const site = handoffSite();
+  const close = () => {
+    state.handoffOpen = false;
+    render();
+  };
+  const copyImg = async (i: number, open: boolean) => {
+    try {
+      // Copy first: the page has to have focus to write the clipboard, and the new tab takes it.
+      await clipImage(ho.images[i]);
+      toast(`Image ${i + 1} copied. In ${site.label}, click the chat box and press Ctrl+V.`, "ok");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+    if (open) window.open(site.url, "_blank", "noopener");
+  };
+  const promptBox = h("textarea", { rows: 6, class: "prompt-edit", "aria-label": "Prompt to paste" }, ho.prompt) as HTMLTextAreaElement;
+  promptBox.addEventListener("input", () => (ho.prompt = promptBox.value));
+  const fileIn = h("input", { type: "file", accept: "image/*", class: "hidden" }) as HTMLInputElement;
+  fileIn.addEventListener("change", async () => {
+    const f = fileIn.files?.[0];
+    if (f) await importResult(await fileToImage(f, 4096));
+  });
+  const many = ho.images.length > 1;
+  return h(
+    "div",
+    { class: "sheet-backdrop", onclick: (e: Event) => e.target === e.currentTarget && close() },
+    h(
+      "div",
+      { class: "sheet handoff", role: "dialog", "aria-modal": "true", "aria-label": `Render in ${site.label}` },
+      h("div", { class: "sheet-head" }, h("h2", {}, `Render in ${site.label} with your account`), iconButton("close", "Close", close)),
+      h("p", { class: "hint" }, `No key and no credits: your ${site.label} plan applies. A browser can copy one thing at a time, so it's two pastes.`),
+      h(
+        "ol",
+        { class: "handoff-steps" },
+        h(
+          "li",
+          {},
+          h("strong", {}, many ? `Copy the images and open ${site.label}` : `Copy your view and open ${site.label}`),
+          h("div", { class: "handoff-imgs" },
+            ho.images.map((img, i) =>
+              h("figure", {},
+                h("img", { src: toDataUrl(img), alt: `Image ${i + 1}` }),
+                h("figcaption", {}, `Image ${i + 1} · ${IMAGE_ROLES[i] ?? "image"}`),
+                i === 0
+                  ? primaryButton(`Copy & open ${site.label}`, "copy", () => void copyImg(0, true))
+                  : button(`Copy image ${i + 1}`, "copy", () => void copyImg(i, false), "ghost small"),
+              ),
+            ),
+          ),
+          h("p", { class: "hint" }, many
+            ? `In ${site.label}, click the chat box and press Ctrl+V (Cmd+V on Mac). Come back, copy the next image and paste it the same way, in order.`
+            : `In ${site.label}, click the chat box and press Ctrl+V (Cmd+V on Mac; on a phone, long-press and Paste). The picture appears in the chat box.`),
+        ),
+        h(
+          "li",
+          {},
+          h("strong", {}, "Copy the prompt and send"),
+          promptBox,
+          button("Copy prompt", "copy", async () => {
+            try {
+              await clipText(ho.prompt);
+              toast(`Prompt copied. Paste it in ${site.label} after the image and press Enter.`, "ok");
+            } catch (e) {
+              toast((e as Error).message, "error");
+            }
+          }, "primary"),
+          h("p", { class: "hint" }, `Back in ${site.label}, paste it after the image with Ctrl+V and press Enter.`),
+        ),
+        h(
+          "li",
+          {},
+          h("strong", {}, "Bring the result back"),
+          h("div", { class: "handoff-drop" }, icon("upload", 22), h("span", {}, `In ${site.label}, right-click the finished image and choose Copy image, then press Ctrl+V here. Or drop the downloaded file here.`)),
+          h("div", { class: "row" },
+            button("Paste result", "copy", async () => {
+              try {
+                const img = await readClipboardImage();
+                if (img) await importResult(img);
+                else toast("No image on the clipboard yet. Copy the image in the chat first.", "error");
+              } catch (e) {
+                toast((e as Error).message, "error");
+              }
+            }, "ghost"),
+            button("Choose file", "upload", () => fileIn.click(), "ghost"),
+            fileIn,
+          ),
+          h("p", { class: "hint" }, "You can also close this and paste or drop the image on the History tab later."),
+        ),
+      ),
+    ),
+  );
+}
+
+/** A finished picture from the user's own chat tab: saved like any render, with the prompt that made it. */
+async function importResult(img: ImageData64): Promise<void> {
+  const ho = state.handoff;
+  if (ho) {
+    lastModelId = "";
+    await showRenders([img], ho.prompt, ho.before);
+    state.handoff = null;
+    state.handoffOpen = false;
+    render();
+    toast(`${handoffSite().label} render saved to History`, "ok");
+    return;
+  }
+  await record("render", "Added from outside the app (no prompt saved).", img, img);
+  render();
+  toast("Image added to History", "ok");
+}
+
+// Paste or drop a finished picture: in the hand-off sheet, or on the History tab.
+function takesResults(): boolean {
+  return (state.handoffOpen && Boolean(state.handoff)) || state.tab === "history";
+}
+
+document.addEventListener("paste", async (e) => {
+  if (!takesResults() || typingIn(e.target)) return;
+  const img = await imageFromTransfer(e.clipboardData);
+  if (!img) return;
+  e.preventDefault();
+  await importResult(img);
+});
+
+document.addEventListener("dragover", (e) => {
+  if (takesResults() && [...(e.dataTransfer?.types ?? [])].includes("Files")) e.preventDefault();
+});
+
+document.addEventListener("drop", async (e) => {
+  if (!takesResults()) return;
+  e.preventDefault();
+  const img = await imageFromTransfer(e.dataTransfer);
+  if (img) await importResult(img);
+  else toast("Drop an image file (PNG or JPG).", "error");
+});
 
 /** Puts new renders on the stage and in history. */
 async function showRenders(raws: ImageData64[], prompt: string, before: ImageData64, keep = false): Promise<void> {
@@ -4901,7 +5067,35 @@ function modelList(pick: (id: string) => void): HTMLElement {
         }),
       )
     : null;
-  return h("div", { class: "model-list" }, h("div", { class: "model-grid", role: "radiogroup", "aria-label": "AI model" }, cards), menu);
+  const account = s.backend === "browser" && s.browserSite === "gemini";
+  const accountCard = h(
+    "div",
+    { class: `model-fam account${account ? " active" : ""}` },
+    h("span", { class: "model-badge" }, "Free"),
+    h(
+      "button",
+      {
+        class: "model-fam-main",
+        type: "button",
+        role: "radio",
+        "aria-checked": String(account),
+        title: host.kind === "browser"
+          ? "Gemini with your own Google account: Render copies the view and prompt, opens Gemini, and you paste them. No key, no credits."
+          : "Gemini with your own Google account, in a browser window (fallback).",
+        onclick: async () => {
+          s.backend = "browser";
+          s.browserSite = "gemini";
+          await persist();
+          render();
+          toast(host.kind === "browser" ? "Gemini (your account): press Render and follow the paste steps." : "Gemini (your account) in a browser window.", "ok");
+        },
+      },
+      logoMark("nano", 22),
+      h("strong", {}, "Gemini"),
+      h("small", {}, host.kind === "browser" ? "Your account · paste" : "Your account"),
+    ),
+  );
+  return h("div", { class: "model-list" }, h("div", { class: "model-grid", role: "radiogroup", "aria-label": "AI model" }, cards, accountCard), menu);
 }
 
 /** Quick switch next to Render: the chosen model and size, opens the list in a sheet. */
@@ -5584,7 +5778,7 @@ function settingsSheet(): HTMLElement {
                 toast((e as Error).message, "error");
               }
             }, "ghost")
-          : h("p", { class: "hint" }, "This mode works inside the SketchUp plugin only."),
+          : h("p", { class: "hint" }, "In the web app nothing is typed for you: Render copies your view and the prompt, opens the site in a new tab, and you paste them (Ctrl+V) and send. Paste or drop the finished image back here."),
       ),
     );
   } else if (view === "gemini") {
