@@ -3447,7 +3447,7 @@ async function useSetup(setup: RenderSetup): Promise<void> {
   toast(`Setup loaded: ${setup.preset.name}. Capture a view and render`, "ok");
 }
 
-async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = renderPreset(), setup?: RenderSetup, analysis?: string): Promise<string> {
+async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, preset: Preset = renderPreset(), setup?: RenderSetup, analysis?: string, outside = false): Promise<string> {
   const model = lastModelId || state.settings.kieModel;
   const provider = makeProvider({ ...state.settings, kieModel: model }, host);
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -3461,11 +3461,11 @@ async function record(tool: ToolId, prompt: string, before: ImageData64, after: 
     prompt,
     before,
     after,
-    provider: provider.label,
-    model: provider.modelName ?? state.settings.comfyUrl,
-    credits: state.settings.backend === "kie" && !state.settings.testMode ? creditsFor(findKieModel(model), state.settings.kieResolution) ?? undefined : undefined,
+    provider: outside ? "Added picture" : provider.label,
+    model: outside ? "" : provider.modelName ?? state.settings.comfyUrl,
+    credits: !outside && state.settings.backend === "kie" && !state.settings.testMode ? creditsFor(findKieModel(model), state.settings.kieResolution) ?? undefined : undefined,
     project: state.settings.project || undefined,
-    setup: tool === "render" ? (setup ?? currentSetup()) : undefined,
+    setup: tool === "render" && !outside ? (setup ?? currentSetup()) : undefined,
     analysis,
   });
   state.history = await listHistory();
@@ -3586,14 +3586,16 @@ function handoffSheet(): HTMLElement {
     render();
   };
   const copyImg = async (i: number, open: boolean) => {
+    // Start the copy while the page has focus, then open the tab in the same click
+    // (Safari blocks a new tab opened after an await), then wait for the copy.
+    const copying = clipImage(ho.images[i]);
+    if (open) window.open(site.url, "_blank", "noopener");
     try {
-      // Copy first: the page has to have focus to write the clipboard, and the new tab takes it.
-      await clipImage(ho.images[i]);
+      await copying;
       toast(`Image ${i + 1} copied. In ${site.label}, click the chat box and press Ctrl+V.`, "ok");
     } catch (e) {
       toast((e as Error).message, "error");
     }
-    if (open) window.open(site.url, "_blank", "noopener");
   };
   const promptBox = h("textarea", { rows: 6, class: "prompt-edit", "aria-label": "Prompt to paste" }, ho.prompt) as HTMLTextAreaElement;
   promptBox.addEventListener("input", () => (ho.prompt = promptBox.value));
@@ -3674,8 +3676,16 @@ function handoffSheet(): HTMLElement {
 }
 
 /** A finished picture from the user's own chat tab: saved like any render, with the prompt that made it. */
+/** The last picture brought in from outside, so a second paste of it is not saved twice. */
+let lastImported = "";
+
 async function importResult(img: ImageData64): Promise<void> {
   const ho = state.handoff;
+  if (img.data === lastImported) {
+    toast("That picture is already in History.");
+    return;
+  }
+  lastImported = img.data;
   if (ho) {
     lastModelId = "";
     await showRenders([img], ho.prompt, ho.before);
@@ -3685,7 +3695,7 @@ async function importResult(img: ImageData64): Promise<void> {
     toast(`${handoffSite().label} render saved to History`, "ok");
     return;
   }
-  await record("render", "Added from outside the app (no prompt saved).", img, img);
+  await record("render", "Added from outside the app (no prompt saved).", img, img, { ...nonePreset(state.preset.projectType), id: "added", name: "Added picture" }, undefined, undefined, true);
   render();
   toast("Image added to History", "ok");
 }
@@ -5101,6 +5111,18 @@ function modelList(pick: (id: string) => void): HTMLElement {
 /** Quick switch next to Render: the chosen model and size, opens the list in a sheet. */
 function modelChip(): HTMLElement | null {
   const s = state.settings;
+  const open = () => {
+    state.modelSheet = true;
+    render();
+  };
+  // Gemini with the user's own account: same chip, so the phone can switch back.
+  if (s.backend === "browser")
+    return h(
+      "button",
+      { class: "model-chip", type: "button", title: "Gemini with your account. Click to change.", "aria-label": "Model Gemini, your account. Change model", onclick: open },
+      logoMark("nano", 18),
+      h("small", {}, "Free"),
+    );
   if (s.backend !== "kie") return null;
   const m = findKieModel(s.kieModel);
   return h(
