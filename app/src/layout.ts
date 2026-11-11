@@ -49,7 +49,7 @@ export function useSizes(): LayoutSizes {
 }
 
 /** Window size, updated once per frame while resizing. */
-export function useViewport(): { w: number; h: number; wide: boolean } {
+export function useViewport(): { w: number; h: number; wide: boolean; phone: boolean } {
   const [v, setV] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
   useEffect(() => {
     let raf = 0;
@@ -63,5 +63,5 @@ export function useViewport(): { w: number; h: number; wide: boolean } {
       cancelAnimationFrame(raf);
     };
   }, []);
-  return { ...v, wide: v.w >= 900 && v.w > v.h * 1.05 };
+  return { ...v, wide: v.w >= 900 && v.w > v.h * 1.05, phone: v.w < 700 };
 }
