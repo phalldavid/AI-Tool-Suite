@@ -1,4 +1,4 @@
-// Image models on Kie.ai that the model picker offers: two per family, so the
+// Image models on Kie.ai that the model picker offers: a few per family, so the
 // choice stays simple. This list is the one place to edit (for example to
 // add or swap a model when Kie releases a new one). Ids, inputs and
 // prices come from docs.kie.ai and kie.ai/pricing (GPT and Seedream Flash
@@ -114,6 +114,25 @@ export const KIE_MODELS: KieModel[] = [
     resolutions: ["1K", "2K", "4K"],
     ratios: GPT_RATIOS,
     input: (prompt, urls, ratio, res) => (urls.length ? { prompt, input_urls: urls, aspect_ratio: ratio, resolution: res } : { prompt, aspect_ratio: ratio, resolution: res }),
+  },
+  {
+    // kie.ai/seedream-5-5 (2026-11-11): 1K and 1.5K cost the same, so only 1K and 2K are offered.
+    id: "seedream/5-5-image-to-image",
+    family: "seedream",
+    label: "Seedream 5.5",
+    note: "Newest Seedream, 1K or 2K",
+    short: "5.5",
+    credits: { "1K": 3.6, "2K": 6.3 },
+    resolutions: ["2K", "1K"],
+    ratios: ["1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "21:9"],
+    input: (prompt, urls, ratio, res) => ({
+      prompt,
+      image_urls: urls,
+      aspect_ratio: ratio,
+      size: res,
+      output_format: "png",
+      background: "opaque",
+    }),
   },
   {
     id: "seedream/5-pro-image-to-image",

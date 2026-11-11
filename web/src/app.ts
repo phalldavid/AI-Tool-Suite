@@ -5430,7 +5430,7 @@ function historyDetail(item: HistoryItem): HTMLElement {
   const ratio = item.after.width && item.after.height ? item.after.width / item.after.height : 16 / 9;
   return section(
     `${toolLabel(item.tool)}${item.presetName ? ` · ${item.presetName}` : ""}`,
-    h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}${item.credits !== undefined ? ` · ${item.credits} credits` : ""}${item.project ? ` · ${item.project}` : ""}`),
+    h("p", { class: "hint" }, [new Date(item.createdAt).toLocaleString(), item.provider, item.model, item.credits !== undefined ? `${item.credits} credits` : "", item.project ?? ""].filter(Boolean).join(" · ")),
     item.pending ? h("p", { class: "notice" }, icon("info", 16), h("span", {}, "Still finishing on Kie.ai. It appears here when done, even after a restart.")) : null,
     moveToProject(item),
     // Fits the window: never taller than the screen, whatever the picture's shape.
