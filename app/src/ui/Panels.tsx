@@ -6,10 +6,13 @@ import type { ReactNode } from "react";
 import { resetSize, setSizes, useSizes, useViewport } from "../layout";
 import { Splitter } from "./Splitter";
 
+/** Narrowest the side panel gets on desktop, so its buttons keep their padding. */
+const SIDE_MIN = 440;
+
 export function Panels({ work, side, label }: { work: ReactNode; side: ReactNode; label: string }) {
   const { sideW, sideH } = useSizes();
   const vp = useViewport();
-  const w = Math.max(320, Math.min(sideW, Math.round(vp.w * 0.55)));
+  const w = Math.max(SIDE_MIN, Math.min(sideW, Math.round(vp.w * 0.55)));
   const h = Math.max(220, Math.min(sideH, Math.round(vp.h * 0.7)));
   if (vp.phone) {
     // Phones: normal scrolling page. Image at full width in its real shape,
@@ -32,7 +35,7 @@ export function Panels({ work, side, label }: { work: ReactNode; side: ReactNode
         value={vp.wide ? w : h}
         onSize={(p, box) =>
           vp.wide
-            ? setSizes({ sideW: Math.round(Math.max(320, Math.min(box.right - p.x, box.width * 0.55))) }, false)
+            ? setSizes({ sideW: Math.round(Math.max(SIDE_MIN, Math.min(box.right - p.x, box.width * 0.55))) }, false)
             : setSizes({ sideH: Math.round(Math.max(220, Math.min(box.bottom - p.y, box.height * 0.7))) }, false)
         }
         onDone={() => setSizes({}, true)}

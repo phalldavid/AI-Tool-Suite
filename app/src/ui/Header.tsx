@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "render", label: "Render" },
-  { id: "result", label: "Result" },
+  { id: "edit", label: "Edit" },
   { id: "history", label: "History" },
 ];
 
@@ -16,11 +16,10 @@ export function Header() {
   const check = useApp((s) => s.keyCheck);
   const credits = useApp((s) => s.kieCredits);
   const customise = useApp((s) => s.customiseOpen);
-  const hasResult = useApp((s) => s.versions.length > 0);
   const prefs = usePrefs();
   const light = isLight(prefs);
   const st = backendStatus(settings, check);
-  const navTab = tab === "sun" ? "render" : tab === "camera" ? "result" : tab;
+  const navTab = tab === "sun" ? "render" : tab;
   return (
     <header className="topbar glass">
       <div className="left">
@@ -29,7 +28,7 @@ export function Header() {
         </div>
         <div className="brand display">David Render Studio</div>
         <nav className="nav" aria-label="Main">
-          {TABS.filter((t) => t.id !== "result" || hasResult).map((t) => (
+          {TABS.map((t) => (
             <button key={t.id} type="button" aria-current={navTab === t.id ? "page" : undefined} onClick={() => setState({ tab: t.id })}>
               {t.label}
             </button>

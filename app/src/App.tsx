@@ -9,10 +9,11 @@ import { HandoffSheet } from "./ui/HandoffSheet";
 import { Palette } from "./ui/Palette";
 import { Toasts } from "./ui/Toasts";
 import { RenderScreen } from "./screens/Render";
-import { ResultScreen } from "./screens/Result";
+import { EditScreen } from "./screens/Edit";
 import { HistoryScreen } from "./screens/History";
 import { SunScreen } from "./screens/Sun";
-import { CameraScreen } from "./screens/Camera";
+import { LibrarySheet } from "./ui/LibrarySheet";
+import { DynamicSheet } from "./ui/DynamicSheet";
 
 function typing(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
@@ -35,14 +36,14 @@ export function App() {
         setState({ customiseOpen: false });
         return;
       }
-      if (mod || e.altKey || typing(e.target) || getState().dialog || getState().review || getState().handoff) return;
+      if (mod || e.altKey || typing(e.target) || getState().dialog || getState().review || getState().handoff || getState().libOpen || getState().dynOpen) return;
       const k = e.key.toLowerCase();
       // R opens Review: nothing is spent without the confirm step (audit M-04).
-      if (k === "r" && (getState().tab === "render" || getState().tab === "result")) {
+      if (k === "r" && getState().tab === "render") {
         e.preventDefault();
         void openReview();
       } else if (k === "1") setState({ tab: "render" });
-      else if (k === "2" && getState().versions.length) setState({ tab: "result" });
+      else if (k === "2") setState({ tab: "edit" });
       else if (k === "3") setState({ tab: "history" });
     };
     const onPaste = (e: ClipboardEvent) => {
@@ -52,8 +53,8 @@ export function App() {
       e.preventDefault();
       if (getState().handoff) void importResult(f);
       else {
+        if (getState().tab !== "render" && getState().tab !== "edit") setState({ tab: "render" });
         void useFile(f, "Pasted image");
-        if (getState().tab !== "render") setState({ tab: "render" });
       }
     };
     const onDragOver = (e: DragEvent) => {
@@ -87,12 +88,14 @@ export function App() {
       </div>
       <Header />
       <KeyBanner />
-      {tab === "render" ? <RenderScreen /> : tab === "result" ? <ResultScreen /> : tab === "history" ? <HistoryScreen /> : tab === "sun" ? <SunScreen /> : <CameraScreen />}
+      {tab === "render" ? <RenderScreen /> : tab === "edit" ? <EditScreen /> : tab === "history" ? <HistoryScreen /> : <SunScreen />}
       <Customise />
       <SettingsSheet />
       <ReviewSheet />
       <HandoffSheet />
       <Palette />
+      <LibrarySheet />
+      <DynamicSheet />
       <Toasts />
     </div>
   );

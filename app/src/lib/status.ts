@@ -18,7 +18,7 @@ export function backendStatus(s: Settings, check: KeyCheck): BackendStatus {
   if (s.testMode) return { tone: "neutral", label: "Test mode", detail: "Renders are sample images. No key and no credits are used." };
   if (s.backend === "browser") {
     const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
-    return { tone: "neutral", label: `Free · ${site.label} copy-paste`, detail: `You paste the view and prompt into ${site.label} yourself. Nothing is connected.` };
+    return { tone: "neutral", label: `Prompt Copy · ${site.label}`, detail: `You paste the view and prompt into ${site.label} yourself. Nothing is connected.` };
   }
   if (s.backend === "comfyui") {
     if (!s.comfyWorkflow.trim()) return { tone: "bad", label: "ComfyUI · no workflow", detail: "Add a workflow in Settings.", fix: "settings" };
@@ -26,7 +26,7 @@ export function backendStatus(s: Settings, check: KeyCheck): BackendStatus {
   }
   const name = s.backend === "kie" ? "Kie" : "Gemini";
   const key = s.backend === "kie" ? s.kieKey : s.geminiKey;
-  if (!key.trim()) return { tone: "bad", label: `No ${name} key`, detail: `Add your ${name} key in Settings, or use free Gemini copy-paste.`, fix: "settings" };
+  if (!key.trim()) return { tone: "bad", label: `No ${name} key`, detail: `Add your ${name} key in Settings, or use Prompt Copy (free).`, fix: "settings" };
   if (check === "bad") return { tone: "bad", label: "Key rejected", detail: `${name} rejected your API key. Paid renders are paused.`, fix: "settings" };
   if (check === "ok") return { tone: "ok", label: `${name} · key OK`, detail: `${name} accepted your key.` };
   if (check === "offline") return { tone: "neutral", label: `${name} · offline`, detail: "Couldn't reach the service to check your key." };

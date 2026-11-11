@@ -1,0 +1,42 @@
+name: Monday model check
+
+# 09:00 Phnom Penh every Monday (02:00 UTC). Can also be run by hand from the Actions tab.
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - id: check
+        run: node scripts/check-kie-models.mjs
+      - name: Open a pull request for new models
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAMES: ${{ steps.check.outputs.names }}
+        run: |
+          branch="models/$(date -u +%Y-%m-%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add app/public/model-watch.json
+          git commit -m "New Kie image models to check: $NAMES"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "New Kie models: $NAMES" \
+            --body "The Monday check found image models on Kie that the app doesn't list yet: **$NAMES**.
+
+          Before adding one to the model picker, check on docs.kie.ai: its model id, the request fields (image input, aspect ratio, resolution) and the credit price. Then add it to \`app/src/core/providers/kie-models.ts\` in this branch, or ask Claude to.
+
+          Merging this as-is only records that the models were seen, so next Monday doesn't ask again."

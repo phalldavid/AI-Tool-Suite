@@ -9,7 +9,9 @@ import type { KeyCheck } from "./lib/status";
 import type { CameraMove } from "./lib/camera";
 import type { LintResult } from "./lib/lint";
 
-export type Tab = "render" | "result" | "history" | "sun" | "camera";
+export type Tab = "render" | "edit" | "history" | "sun";
+
+export type EditMode = "compare" | "spot" | "relight" | "view";
 
 export interface SunState {
   mode: "time" | "free" | "sketchup";
@@ -23,11 +25,31 @@ export interface SunState {
   exact: boolean;
 }
 
+/** What a render was made with, for the summary on the Edit tab. */
+export interface VersionMeta {
+  scene?: string;
+  look?: string;
+  light?: string;
+  environment?: string;
+  model?: string;
+  at: number;
+}
+
 export interface Version {
   image: ImageData64;
   label: string;
   prompt: string;
   historyId?: string;
+  /** "view" = a new angle (shown in the Views row), else a version of the same angle. */
+  kind?: "version" | "view";
+  meta?: VersionMeta;
+  /** What "Before" shows for this version, when it differs from the main before image. */
+  before?: ImageData64;
+}
+
+export interface Shot {
+  image: ImageData64;
+  name: string;
 }
 
 export interface Busy {
@@ -41,7 +63,9 @@ export interface ReviewState {
   lint: LintResult;
   images: ImageData64[];
   aspectRatio: string;
-  kind: "render" | "edit" | "view";
+  kind: "render" | "edit" | "view" | "shots";
+  /** "shots": one image set per screenshot, all with the same prompt. */
+  batch?: ImageData64[][];
 }
 
 export interface AppState {
@@ -62,7 +86,18 @@ export interface AppState {
   sun: SunState;
   camera: CameraMove;
   notes: string;
-  moreOpen: boolean;
+  /** Additional Notes chips picked. */
+  noteChips: string[];
+  glassColour: string;
+  advancedOpen: boolean;
+  /** Full-screen pickers: the look library, the environment list, a dynamic prompt form. */
+  libOpen: null | "look" | "env";
+  dynOpen: string | null;
+  editMode: EditMode;
+  viewSource: "camera" | "shot";
+  shots: Shot[];
+  /** Version the new view copies its look from. */
+  lookIndex: number;
   keyCheck: KeyCheck;
   kieCredits: number | null;
   busy: Busy | null;
@@ -71,7 +106,7 @@ export interface AppState {
   activeVersion: number;
   history: HistoryItem[];
   review: ReviewState | null;
-  handoff: { prompt: string; images: ImageData64[]; before: ImageData64 } | null;
+  handoff: { prompt: string; images: ImageData64[]; before: ImageData64 | null } | null;
   dialog: null | "settings" | "palette" | "confirm-cost" | "import";
   customiseOpen: boolean;
   dragging: boolean;

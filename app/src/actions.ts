@@ -1,7 +1,7 @@
 // Everything that changes state or talks to a backend. Screens call these.
 
 import { getState, setState } from "./store";
-import type { AppState, Version } from "./store";
+import type { AppState, Version, VersionMeta } from "./store";
 import { toast } from "./toasts";
 import { detectHost } from "./core/host";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SITES } from "./core/settings";
@@ -23,6 +23,11 @@ import { lintPrompt } from "./lib/lint";
 import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
 import { cameraPromptLine } from "./lib/camera";
+import { dynamicLines, countSet } from "./core/dynamic";
+import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
+import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
+import { findKieModel } from "./core/providers/kie-models";
+import { contextLabel, parseContexts } from "./core/context";
 import { getPrefs } from "./prefs";
 
 export const DEFAULT_LOOK = "ext-mansion-tropical";
@@ -54,7 +59,15 @@ export async function init(): Promise<AppState> {
     sun: { mode: "time", toCamera: 225, elevation: 14, north: 336, dayOfYear: dayNow(), exact: false },
     camera: { orbit: 35, tilt: 15, lensMm: 35, distanceM: 35 },
     notes: "",
-    moreOpen: false,
+    noteChips: [],
+    glassColour: "red",
+    advancedOpen: false,
+    libOpen: null,
+    dynOpen: null,
+    editMode: "compare",
+    viewSource: "shot",
+    shots: [],
+    lookIndex: 0,
     keyCheck: "unknown",
     kieCredits: null,
     busy: null,
@@ -111,6 +124,7 @@ export async function checkKey(): Promise<void> {
 
 export async function useFile(file: File, name?: string): Promise<void> {
   if (!file.type.startsWith("image/")) return void toast("That isn't an image. Use PNG, JPG or WebP.", "error");
+  if (getState().tab === "edit") return useEditFile(file, name);
   try {
     const view = await fileToImage(file, getState().settings.captureSize || 1600);
     const cap: Capture = { view, source: "upload" };
@@ -118,6 +132,24 @@ export async function useFile(file: File, name?: string): Promise<void> {
     toast("Image added. Pick a look and render.", "ok");
   } catch {
     toast("Couldn't read that image. Try PNG or JPG.", "error", { label: "Retry", run: () => void useFile(file, name) });
+  }
+}
+
+/** A picture dropped or pasted on the Edit tab: a new view screenshot, or a render to edit. */
+export async function useEditFile(file: File, name?: string): Promise<void> {
+  try {
+    const st = getState();
+    const img = await fileToImage(file, 4096);
+    const label = name ?? file.name ?? "Pasted image";
+    if (st.editMode === "view" && st.versions.length) {
+      setState((x) => ({ viewSource: "shot", shots: [...x.shots, { image: img, name: label }] }));
+      toast(`View added${getState().shots.length > 1 ? ` · ${getState().shots.length} in the queue` : ""}`, "ok");
+      return;
+    }
+    setState({ before: null, versions: [{ image: img, label: "Uploaded", prompt: "", kind: "version", meta: { at: Date.now() } }], activeVersion: 0, editMode: "compare" });
+    toast("Image ready to edit", "ok");
+  } catch {
+    toast("Couldn't read that image. Try PNG or JPG.", "error");
   }
 }
 
@@ -188,8 +220,8 @@ export function buildPrompt(): BuiltPrompt {
   const cap = st.capture;
   const split = splitTypology(st.preset.style);
   const preset: Preset = { ...st.preset, style: split.style, lighting: lightingId() };
-  const extras: string[] = [];
-  let fromSun = false;
+  const extras: string[] = [...dynamicLines(s.dynamic), ...currentNoteLines()];
+  let fromSun = countSet(s.dynamic.time) > 0;
   if (st.sun.exact) {
     const live = sunNow();
     extras.push(sunPromptLine(live));
@@ -209,6 +241,34 @@ export function buildPrompt(): BuiltPrompt {
     avoid: s.avoid,
   });
   return { prompt, removed: split.removed };
+}
+
+/** Sentences from the Additional Notes chips. */
+export function currentNoteLines(): string[] {
+  const st = getState();
+  return noteLines(st.noteChips, [...BUILT_IN_NOTES, ...loadCustomNotes()], st.glassColour);
+}
+
+/** Where the sun is, in words tied to the building (for new views). */
+function sunForViews(): string {
+  const st = getState();
+  if (st.lighting !== "time") return `same light as Image 2 (${lightingText(st.lighting) ?? st.lighting})`;
+  const live = sunNow();
+  return sunWords({ bearing: live.bearing, elevation: live.elevation, when: partOfDay(st.hour) });
+}
+
+function metaNow(): VersionMeta {
+  const st = getState();
+  const s = st.settings;
+  const env = parseContexts(st.preset.environment);
+  return {
+    scene: st.preset.projectType,
+    look: st.preset.name,
+    light: lightCaption().replace(/\.$/, ""),
+    environment: env.length ? env.map(contextLabel).join(", ") : "As modelled",
+    model: s.testMode ? "Test mode" : s.backend === "kie" ? findKieModel(s.kieModel).label : s.backend === "browser" ? "Prompt Copy" : s.backend === "gemini" ? "Gemini API" : "ComfyUI",
+    at: Date.now(),
+  };
 }
 
 /** The sun as the Sun screen currently has it. */
@@ -239,30 +299,38 @@ async function viewForRender(cap: Capture): Promise<ImageData64> {
 }
 
 /** Builds the prompt, checks it, and opens Review. Nothing is spent here. */
-export async function openReview(kind: "render" | "view" = "render"): Promise<void> {
+export async function openReview(kind: "render" | "view" | "shots" = "render"): Promise<void> {
   const st = getState();
   if (st.busy) return;
-  if (kind === "render" && !st.capture) return void toast("Add a view first: paste, drop or upload one.", "warn");
+  const promptOnly = st.settings.backend === "browser" && !st.settings.testMode;
+  if (kind === "render" && !st.capture && !promptOnly) return void toast("Add a view first: paste, drop or upload one.", "warn");
   let prompt: string;
   let images: ImageData64[];
-  if (kind === "view") {
-    const master = activeImage();
-    if (!master) return void toast("Render a master view first.", "warn");
-    prompt = [
-      "Image 1 is an approved render of this building. Make a new photograph of the same building from a different camera position.",
-      "Keep exactly the same building, materials, colours, sky, planting and lighting mood, so both images look like one photo shoot.",
-      cameraPromptLine(st.camera),
-      "Make it look like a real photograph. No text, no watermark.",
-    ].join("\n");
-    images = [master];
+  let batch: ImageData64[][] | undefined;
+  if (kind === "view" || kind === "shots") {
+    const look = st.versions[st.lookIndex]?.image ?? activeImage();
+    if (!look) return void toast("Open or upload a render first.", "warn");
+    if (kind === "view") {
+      prompt = cameraViewPrompt(cameraPromptLine(st.camera), sunForViews(), currentNoteLines());
+      images = [look];
+    } else {
+      if (!st.shots.length) return void toast("Paste, drop or upload a screenshot of the new view.", "warn");
+      prompt = shotViewPrompt({ type: st.preset.projectType, sun: sunForViews(), notes: currentNoteLines() });
+      batch = st.shots.map((x) => [x.image, look]);
+      images = batch[0];
+    }
   } else {
     prompt = buildPrompt().prompt;
-    const view = await viewForRender(st.capture!);
-    images = [view, ...(st.capture!.lines ? [st.capture!.lines] : [])];
+    if (st.capture) {
+      const view = await viewForRender(st.capture);
+      images = [view, ...(st.capture.lines ? [st.capture.lines] : [])];
+    } else images = [];
   }
   const lint = lintPrompt(prompt);
-  const size = await imageSize(images[0]);
-  setState({ review: { prompt: lint.prompt, lint, images, aspectRatio: nearestAspectRatio(size.width, size.height), kind } });
+  const size = images[0] ? await imageSize(images[0]) : { width: 4, height: 3 };
+  const fr = frameRatio();
+  const aspect = !images[0] && fr ? nearestAspectRatio(fr * 1000, 1000) : nearestAspectRatio(size.width, size.height);
+  setState({ review: { prompt: lint.prompt, lint, images, aspectRatio: aspect, kind, batch } });
 }
 
 export function closeReview(): void {
@@ -277,16 +345,30 @@ export async function confirmReview(prompt: string): Promise<void> {
   setState({ review: null });
   const s = st.settings;
   if (s.backend === "browser" && st.host.kind === "browser" && !s.testMode) {
-    setState({ handoff: { prompt, images: r.images, before: r.images[0] } });
+    setState({ handoff: { prompt, images: r.images, before: r.images[0] ?? null } });
     return;
   }
-  const before = r.kind === "view" ? r.images[0] : st.capture!.view;
+  const meta = metaNow();
+  const tool: ToolId = "render";
+  if (r.kind === "view" || r.kind === "shots") {
+    const sets = r.batch ?? [r.images];
+    const made: Version[] = [];
+    for (let i = 0; i < sets.length; i++) {
+      const set = sets[i];
+      const size = await imageSize(set[0]);
+      const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, undefined, sets.length > 1 ? `View ${i + 1} of ${sets.length}` : undefined);
+      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta, before: set[0], historyId: await record(tool, prompt, set[0], img) });
+    }
+    if (!made.length) return;
+    setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, shots: r.kind === "shots" ? [] : x.shots, editMode: "compare" }));
+    return;
+  }
+  const before = st.capture?.view ?? null;
   const out = await runProvider(prompt, r.images, r.aspectRatio);
   if (!out.length) return;
-  const tool: ToolId = "render";
   const versions: Version[] = [];
-  for (const img of out) versions.push({ image: img, label: r.kind === "view" ? "New view" : "Render", prompt, historyId: await record(tool, prompt, before, img) });
-  setState((x) => ({ before, versions: r.kind === "view" ? [...x.versions, ...versions] : versions, activeVersion: r.kind === "view" ? x.versions.length : 0, tab: "result" }));
+  for (const img of out) versions.push({ image: img, label: "Render", prompt, kind: "version", meta, historyId: await record(tool, prompt, before ?? img, img) });
+  setState({ before, versions, activeVersion: 0, lookIndex: 0, tab: "edit", editMode: "compare" });
   void updateSettings({ lastSetup: { ...s.lastSetup, [st.preset.projectType]: { preset: st.preset, kieModel: s.kieModel, frameId: st.frameId } } });
 }
 
@@ -296,14 +378,14 @@ export function cancelRender(): void {
   abort?.abort();
 }
 
-async function runProvider(prompt: string, images: ImageData64[], aspectRatio: string, modelId?: string): Promise<ImageData64[]> {
+async function runProvider(prompt: string, images: ImageData64[], aspectRatio: string, modelId?: string, label?: string): Promise<ImageData64[]> {
   const st = getState();
   const settings = modelId ? { ...st.settings, kieModel: modelId } : st.settings;
   const provider = makeProvider(settings, st.host);
   const key = `${settings.backend}:${settings.kieModel}:${settings.kieResolution}`;
   const n = settings.backend === "browser" ? 1 : Math.max(1, Math.min(4, settings.imageCount));
   abort = typeof AbortController === "undefined" ? null : new AbortController();
-  setState({ busy: { label: n > 1 ? `Rendering ${n} images` : "Rendering", since: Date.now(), typical: typicalMs(key) } });
+  setState({ busy: { label: label ?? (n > 1 ? `Rendering ${n} images` : "Rendering"), since: Date.now(), typical: typicalMs(key) } });
   try {
     const runs = await Promise.allSettled(Array.from({ length: n }, () => provider.render({ prompt, images, aspectRatio }, abort?.signal)));
     const ok = runs.flatMap((x) => (x.status === "fulfilled" ? [x.value.image] : []));
@@ -389,9 +471,10 @@ export async function importResult(file: File): Promise<void> {
   const h = st.handoff;
   const after = await fileToImage(file, 4096);
   const before = h?.before ?? st.capture?.view ?? after;
+  const fresh = !h?.before;
   const prompt = h?.prompt ?? "(pasted result)";
   const id = await record("render", prompt, before, after);
-  setState((x) => ({ handoff: null, before, versions: [...x.versions, { image: after, label: "Pasted result", prompt, historyId: id }], activeVersion: x.versions.length, tab: "result" }));
+  setState((x) => ({ handoff: null, before: fresh ? null : before, versions: [...x.versions, { image: after, label: "Pasted result", prompt, kind: "version", meta: metaNow(), historyId: id }], activeVersion: x.versions.length, tab: "edit", editMode: "compare" }));
   toast("Result saved to History", "ok");
 }
 
@@ -420,9 +503,10 @@ export async function runSpotEdit(painter: ZonePainter, instructions: Record<str
   const merged = general.trim() || !zones.length ? fitted : await compositeMasked(src, fitted, painter.union());
   const id = await record("spot-edit", prompt, src, merged);
   painter.clearAll();
-  setState((x) => ({ versions: [...x.versions, { image: merged, label: "Spot edit", prompt, historyId: id }], activeVersion: x.versions.length }));
+  setState((x) => ({ versions: [...x.versions, { image: merged, label: "Spot edit", prompt, kind: "version", meta: x.versions[x.activeVersion]?.meta, historyId: id }], activeVersion: x.versions.length }));
 }
 
+/** lightId: a light card id, or a dial time from dialTimeId(). */
 export async function runRelight(lightId: string): Promise<void> {
   const src = activeImage();
   if (!src) return;
@@ -433,11 +517,11 @@ export async function runRelight(lightId: string): Promise<void> {
   const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), s.backend === "kie" ? s.editModel || undefined : undefined);
   if (!out.length) return;
   const id = await record("lighting", prompt, src, out[0]);
-  setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt, historyId: id }], activeVersion: x.versions.length }));
+  setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), light: light.replace(/^./, (ch) => ch.toUpperCase()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
 
 export function openHistoryItem(item: HistoryItem): void {
-  setState({ before: item.before, versions: [{ image: item.after, label: item.presetName ?? "Render", prompt: item.prompt, historyId: item.id }], activeVersion: 0, tab: "result" });
+  setState({ before: item.before, versions: [{ image: item.after, label: item.presetName ?? "Render", prompt: item.prompt, historyId: item.id, kind: "version", meta: { look: item.presetName, model: item.model, at: item.createdAt } }], activeVersion: 0, lookIndex: 0, tab: "edit", editMode: "compare" });
 }
 
 export async function deleteHistoryItem(id: string): Promise<void> {

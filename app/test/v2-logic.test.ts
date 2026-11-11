@@ -75,7 +75,7 @@ test("lint: day and night together is flagged", () => {
 test("status: copy-paste is never 'Connected' (H-01)", () => {
   const s = { ...DEFAULT_SETTINGS, backend: "browser" as const };
   assert.equal(backendStatus(s, "ok").tone, "neutral");
-  assert.match(backendStatus(s, "ok").label, /Free/);
+  assert.match(backendStatus(s, "ok").label, /Prompt Copy/);
   const k = { ...DEFAULT_SETTINGS, backend: "kie" as const, kieKey: "abc" };
   assert.equal(backendStatus(k, "bad").label, "Key rejected");
   assert.equal(backendStatus(k, "ok").tone, "ok");

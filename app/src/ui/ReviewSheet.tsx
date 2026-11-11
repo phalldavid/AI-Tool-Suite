@@ -12,7 +12,9 @@ export function ReviewSheet() {
   const [text, setText] = useState("");
   useEffect(() => setText(review?.prompt ?? ""), [review]);
   if (!review) return <Sheet open={false} onClose={closeReview}>{null}</Sheet>;
-  const cost = renderCost(s);
+  const one = renderCost(s);
+  const n = review.batch?.length ?? 1;
+  const cost = n > 1 && one.credits !== null ? { ...one, credits: one.credits * n, label: `${one.credits * n} credits` } : one;
   const removed = review.kind === "render" ? buildPrompt().removed : [];
   const where = s.testMode
     ? "Nothing is sent. Test mode makes a sample image."
@@ -36,7 +38,7 @@ export function ReviewSheet() {
           <div className="end">
             <button type="button" className="btn ghost" onClick={closeReview}>Back</button>
             <button type="button" className="btn primary" autoFocus onClick={() => void confirmReview(text)}>
-              {s.backend === "browser" && !s.testMode ? "Next: copy and paste" : `Render · ${cost.label}`}
+              {s.backend === "browser" && !s.testMode ? "Next: copy and paste" : n > 1 ? `Render ${n} views · ${cost.label}` : `Render · ${cost.label}`}
             </button>
           </div>
         </>
@@ -87,7 +89,7 @@ export function ReviewSheet() {
             <div className="k">Cost</div>
             <div className="v num">{cost.credits !== null ? `${cost.credits} credits` : cost.label}</div>
             <small style={{ color: "var(--soft)" }}>
-              {s.backend === "kie" && !s.testMode ? `${findKieModel(s.kieModel).label} · ${s.kieResolution} · ${s.imageCount} image${s.imageCount > 1 ? "s" : ""}${cost.credits !== null ? ` · about ${usd(cost.credits)}` : ""}` : review.images.length > 1 ? `${review.images.length} images sent` : "1 image sent"}
+              {s.backend === "kie" && !s.testMode ? `${findKieModel(s.kieModel).label} · ${s.kieResolution} · ${s.imageCount} image${s.imageCount > 1 ? "s" : ""}${cost.credits !== null ? ` · about ${usd(cost.credits)}` : ""}` : !review.images.length ? "Prompt only, no image" : review.images.length > 1 ? `${review.images.length} images sent` : "1 image sent"}
             </small>
           </div>
           <div className="tile">

@@ -9,7 +9,7 @@ export interface LayoutSizes {
 }
 
 const KEY = "drs2.layout";
-const DEFAULTS: LayoutSizes = { sideW: 420, sideH: 360, stripH: 150 };
+const DEFAULTS: LayoutSizes = { sideW: 460, sideH: 360, stripH: 150 };
 let sizes: LayoutSizes = load();
 const listeners = new Set<() => void>();
 
