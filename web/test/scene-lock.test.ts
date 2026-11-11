@@ -26,7 +26,7 @@ test("scene lock prompt has the slots, sun, lens and placeholder rules", () => {
   assert.match(p, /- Floor: grey terrazzo/);
   assert.match(p, /- Glass screen: clear glass, brass frame/);
   assert.match(p, /24 mm lens/);
-  assert.match(p, /green panels are glass/);
+  assert.match(p, /Bright green surfaces are placeholders for clear glass/);
   assert.match(p, /section cut/);
   assert.match(p, /light fitting/);
   assert.match(p, /Also: no towels\./);

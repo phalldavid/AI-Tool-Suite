@@ -191,7 +191,7 @@ interface State {
   matchParts: TransferPart[];
   matchStrength: MatchStrength;
   matchNotes: string;
-  /** SketchUp scene names for a SceneLock batch, once listed. */
+  /** SketchUp scene names for a Multi-View batch, once listed. */
   lockScenes: string[] | null;
   lockPicked: string[];
   editInstruction: string;
@@ -1958,7 +1958,7 @@ function quickTab(body: HTMLElement): void {
   );
 }
 
-// ---------- SceneLock: same look, new view ----------
+// ---------- Multi-View (scene lock): same look, new view ----------
 
 function lockState(): SceneLock {
   return state.settings.sceneLock ?? { ...EMPTY_LOCK, slots: {} };
@@ -1974,7 +1974,7 @@ function lockPreset(scene?: string): Preset {
   return { ...nonePreset(lockState().kind === "interior" ? "interior" : "exterior"), id: "scenelock", name: scene ? `${SCENE_LOCK_NAME}: ${scene}` : SCENE_LOCK_NAME };
 }
 
-/** True when not in SceneLock, or when it has its master render. */
+/** True when not in Multi-View, or when it has its master render. */
 function lockReady(): boolean {
   if (!state.settings.sceneLockMode || lockState().master) return true;
   toast(`${SCENE_LOCK_NAME} needs a master render first: pick one from History or upload it.`, "error");
