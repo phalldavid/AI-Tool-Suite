@@ -84,6 +84,7 @@ import { mockAnalysis } from "./providers/mock";
 import { buildStyleMatchPrompt, MATCH_STRENGTHS, TRANSFER_PARTS, type MatchStrength, type TransferPart } from "./style-match";
 import { buildFloorplanPrompt, DEFAULT_PLAN, PLAN_PRESETS, type CutHeight, type PlanOptions } from "./floorplan";
 import { copyImage as clipImage, copyText as clipText, imageFromTransfer, readClipboardImage } from "./handoff";
+import { buildSceneLockPrompt, EMPTY_LOCK, LOCK_KINDS, parseSlots, SCENE_LOCK_NAME, slotReadPrompt, slotsFor, sunLine, type LockKind, type SceneLock } from "./scene-lock";
 import { AUTO_ANALYSE_PROMPT, buildAutoPrompt, parseAutoScan, type AutoScan } from "./auto-render";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, RenderSetup, ToolId } from "./types";
 
@@ -194,6 +195,9 @@ interface State {
   matchParts: TransferPart[];
   matchStrength: MatchStrength;
   matchNotes: string;
+  /** SketchUp scene names for a Multi-View batch, once listed. */
+  lockScenes: string[] | null;
+  lockPicked: string[];
   editInstruction: string;
   relight: string;
   relightGroup: "exterior" | "interior" | "urban";
@@ -286,6 +290,8 @@ export async function start(el: HTMLElement): Promise<void> {
     matchParts: TRANSFER_PARTS.map((x) => x.id),
     matchStrength: "balanced",
     matchNotes: "",
+    lockScenes: null,
+    lockPicked: [],
     editInstruction: "",
     relight: "blue-hour",
     relightGroup: "exterior",
@@ -1815,10 +1821,13 @@ function modeSwitch(): HTMLElement {
       [
         { id: "quick", label: "Quick" },
         { id: "all", label: "All controls" },
+        { id: "lock", label: SCENE_LOCK_NAME },
       ],
-      state.settings.simple ? "quick" : "all",
+      state.settings.sceneLockMode ? "lock" : state.settings.simple ? "quick" : "all",
       async (v) => {
-        state.settings.simple = v === "quick";
+        state.settings.sceneLockMode = v === "lock";
+        if (v !== "lock") state.settings.simple = v === "quick";
+        state.promptEdit = null;
         await persist();
         render();
       },
@@ -1920,6 +1929,7 @@ async function ensureAutoScan(): Promise<boolean> {
 }
 
 function quickTab(body: HTMLElement): void {
+  if (state.settings.sceneLockMode) return sceneLockBody(body);
   if (state.settings.planMode) return planBody(body);
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
@@ -1951,9 +1961,231 @@ function quickTab(body: HTMLElement): void {
       textarea(state.notes, "e.g. add a parked Honda Dream by the gate", 2, (v) => {
         state.notes = v;
       }),
+      glassButton(),
       h("p", { class: "hint" }, "Lighting, people, cars, material lists and the prompt itself are under All controls. In Quick they are not sent."),
     ),
   );
+}
+
+// ---------- Multi-View (scene lock): same look, new view ----------
+
+function lockState(): SceneLock {
+  return state.settings.sceneLock ?? { ...EMPTY_LOCK, slots: {} };
+}
+
+async function setLock(patch: Partial<SceneLock>): Promise<void> {
+  state.settings.sceneLock = { ...lockState(), ...patch };
+  state.promptEdit = null;
+  await persist();
+}
+
+function lockPreset(scene?: string): Preset {
+  return { ...nonePreset(lockState().kind === "interior" ? "interior" : "exterior"), id: "scenelock", name: scene ? `${SCENE_LOCK_NAME}: ${scene}` : SCENE_LOCK_NAME };
+}
+
+/** True when not in Multi-View, or when it has its master render. */
+function lockReady(): boolean {
+  if (!state.settings.sceneLockMode || lockState().master) return true;
+  toast(`${SCENE_LOCK_NAME} needs a master render first: pick one from History or upload it.`, "error");
+  return false;
+}
+
+/** Makes an image the master (Image 2) and reads its look into the slots. */
+async function setMaster(img: ImageData64, from?: HistoryItem): Promise<void> {
+  // A History render says whether it is inside or outside; Bathroom stays if already picked.
+  const prev = lockState().kind;
+  const type = from?.setup?.preset.projectType;
+  const kind: LockKind = !type ? prev : type === "interior" ? (prev === "exterior" ? "interior" : prev) : "exterior";
+  await setLock({ master: await shrinkJpeg(img, 1280, 0.88), masterId: from?.id, kind, slots: {} });
+  // Same model as the master keeps the set consistent.
+  const m = from?.setup?.kieModel;
+  if (m && findKieModel(m).id === m && m !== state.settings.kieModel && state.settings.backend === "kie") {
+    state.settings.kieModel = m;
+    await persist();
+    toast(`Model set to ${findKieModel(m).label}, the one that made the master.`, "ok");
+  }
+  render();
+  await readMaster();
+}
+
+async function readMaster(): Promise<void> {
+  const lock = lockState();
+  if (!lock.master) return;
+  const raw = await analyse(slotReadPrompt(lock.kind), lock.master);
+  if (!raw) return;
+  const slots = parseSlots(raw, lock.kind);
+  if (!slots) return toast("Couldn't read the master's look. Fill the slots yourself, or try again.", "error");
+  await setLock({ slots });
+  render();
+  toast(`Read ${Object.keys(slots).length} parts of the look from the master. Edit any of them.`, "ok");
+}
+
+async function newViewOf(item: HistoryItem): Promise<void> {
+  state.settings.sceneLockMode = true;
+  state.tab = "render";
+  await setMaster(item.after, item);
+}
+
+function sceneLockBody(body: HTMLElement): void {
+  const lock = lockState();
+  const cap = state.capture;
+  const input = h("input", { type: "file", accept: "image/*", class: "hidden" }) as HTMLInputElement;
+  input.addEventListener("change", async () => {
+    const f = input.files?.[0];
+    if (f) await setMaster(await fileToImage(f, 2048));
+  });
+  const pickHistory = () => {
+    state.tab = "history";
+    render();
+    toast("Open a render you like and press New view of this.", "ok");
+  };
+  const sun = sunLine(cap?.facts);
+  body.append(modeSwitch());
+  body.append(
+    section(
+      SCENE_LOCK_NAME,
+      h("p", { class: "hint" }, "Same room, same materials, same light, from a new camera. 1 is the view you capture, 2 is a render you already like."),
+      h(
+        "div",
+        { class: "match-pair" },
+        h(
+          "figure",
+          { class: cap ? "" : "empty" },
+          cap ? h("img", { src: toDataUrl(cap.view), alt: "New view" }) : h("div", { class: "match-add static" }, icon("capture", 22), h("span", {}, host.kind === "sketchup" ? "Capture a view on the left" : "Upload a view on the left")),
+          h("figcaption", {}, "1 · New view (shape and camera)"),
+        ),
+        h(
+          "figure",
+          { class: lock.master ? "" : "empty" },
+          lock.master
+            ? h("img", { src: toDataUrl(lock.master), alt: "Master render" })
+            : h("div", { class: "match-add static" }, icon("star", 22), h("span", {}, "Pick the master render")),
+          h(
+            "figcaption",
+            {},
+            "2 · Master look",
+            lock.master ? iconButton("close", "Remove the master", async () => {
+              await setLock({ master: null, masterId: undefined, slots: {} });
+              render();
+            }, "small") : null,
+          ),
+        ),
+        input,
+      ),
+      h("div", { class: "row" },
+        button("From History", "history", pickHistory, lock.master ? "ghost grow" : "primary grow"),
+        button("Upload", "upload", () => input.click(), "ghost grow"),
+      ),
+    ),
+  );
+  const field = (id: string, label: string) => {
+    const el = h("input", { type: "text", value: lock.slots[id] ?? "", placeholder: lock.master ? "not set" : "read from the master", "aria-label": label }) as HTMLInputElement;
+    el.addEventListener("change", () => {
+      const slots = { ...lockState().slots, [id]: el.value.trim() };
+      if (!el.value.trim()) delete slots[id];
+      void setLock({ slots }).then(updatePromptPreview);
+    });
+    return [h("dt", {}, label), h("dd", {}, el)];
+  };
+  body.append(
+    section(
+      "Scene look",
+      segmented<LockKind>(
+        LOCK_KINDS,
+        lock.kind,
+        async (v) => {
+          if (v === lock.kind) return;
+          await setLock({ kind: v, slots: {} });
+          render();
+          await readMaster();
+        },
+      ),
+      h("dl", { class: "lock-slots" },
+        slotsFor(lock.kind).flatMap((s) => field(s.id, s.label)),
+        h("dt", {}, "Sun"),
+        h("dd", { class: "muted small" }, sun ?? (host.kind === "sketchup" ? "Capture a view with shadows set in SketchUp to place the sun for this camera." : "Set by SketchUp per camera; in the web app the master's sun is kept.")),
+      ),
+      lock.master ? h("div", { class: "row" }, button("Read the master again", "refresh", () => void readMaster(), "ghost small")) : null,
+      h("label", { class: "field" }, h("span", {}, t("Notes for this view")),
+        textarea(state.notes, "e.g. no people in this view", 2, (v) => {
+          state.notes = v;
+          updatePromptPreview();
+        }),
+      ),
+      glassButton(),
+      promptEditor(),
+    ),
+  );
+  if (host.kind === "sketchup") body.append(sceneBatchSection());
+}
+
+/** Several SketchUp scenes, each captured and rendered with the same look. */
+function sceneBatchSection(): HTMLElement {
+  const names = state.lockScenes;
+  const picked = state.lockPicked;
+  return section(
+    "Render several scenes",
+    h("p", { class: "hint" }, "Each scene is captured with its own camera and sun, then rendered with this look. They run one after another in the queue."),
+    names === null
+      ? button("Choose scenes", "folder", () => void listScenes(), "ghost")
+      : names.length
+        ? h("div", { class: "chips" }, names.map((n) => chip(n, picked.includes(n), () => {
+            state.lockPicked = picked.includes(n) ? picked.filter((x) => x !== n) : [...picked, n];
+            render();
+          })))
+        : h("p", { class: "hint" }, "This model has no scenes yet. Add them in SketchUp under View > Animation > Add Scene."),
+    names?.length
+      ? h("div", { class: "row" },
+          primaryButton(`Render ${picked.length} scene${picked.length === 1 ? "" : "s"}`, "render", () => void renderScenes(), !picked.length),
+          button("Refresh list", "refresh", () => void listScenes(), "ghost"),
+        )
+      : null,
+  );
+}
+
+async function listScenes(): Promise<void> {
+  try {
+    const names = await host.call<string[]>("listScenes");
+    state.lockScenes = names;
+    state.lockPicked = state.lockPicked.filter((n) => names.includes(n));
+    if (!state.lockPicked.length) state.lockPicked = [...names];
+    render();
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+async function renderScenes(): Promise<void> {
+  if (!lockReady()) return;
+  if (!isConnected()) return toast("Add a key in Settings to render", "error");
+  const lock = lockState();
+  const frame = findFrame(state.frameId);
+  const cost = renderCost();
+  let added = 0;
+  for (const name of state.lockPicked) {
+    try {
+      toast(`Capturing scene "${name}"...`);
+      const raw = await host.call<Omit<Capture, "source">>("captureScene", { scene: name, size: state.settings.captureSize, linePass: false, mask: false, ratio: frame.ratio });
+      const view = raw.frame ? await cropImage(raw.view, raw.frame) : raw.view;
+      const size = await imageSize(view);
+      queue.push({
+        id: Math.random().toString(36).slice(2, 9),
+        label: name,
+        preset: lockPreset(name),
+        prompt: buildSceneLockPrompt(lock, raw.facts, state.notes),
+        images: [view, lock.master!],
+        aspect: nearestAspectRatio(size.width, size.height),
+        status: "waiting",
+        cost,
+        setup: { ...currentSetup(), preset: lockPreset(name) },
+      });
+      added++;
+    } catch (e) {
+      toast(`Scene "${name}": ${(e as Error).message}`, "error");
+    }
+  }
+  render();
+  if (added) startQueue();
 }
 
 // ---------- Plan mode: 3D floor plan from a 2D plan ----------
@@ -2507,6 +2739,7 @@ async function addToQueue(): Promise<void> {
   if (cost !== null && state.kieCredits !== null && queueCost() + cost > state.kieCredits) {
     return toast(`Not enough Kie credits: the queue needs ${queueCost() + cost}, you have ${Math.floor(state.kieCredits)}`, "error");
   }
+  if (!lockReady()) return;
   if (!(await ensureAutoScan())) return;
   const size = await imageSize(cap.view);
   const label = cap.facts?.sceneName || `View ${queue.length + 1}`;
@@ -2655,7 +2888,7 @@ function renderTab(main: HTMLElement): void {
   main.append(pictureCol, body);
   // Wide screens: the model list and the Render button share the left panel.
   if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection(), renderBar()));
-  if (state.settings.simple || state.settings.planMode) {
+  if (state.settings.simple || state.settings.planMode || state.settings.sceneLockMode) {
     quickTab(body);
     return;
   }
@@ -2797,7 +3030,6 @@ function renderTab(main: HTMLElement): void {
 const quickTemplates = (): { label: string; text: string }[] => [
   { label: "Cambodian plates", text: `Give every vehicle ${platePhrase(state.settings.dynamic.vehicles?.plate)}.` },
   { label: "Ground mist", text: "Add a thin, low ground mist that softens the base of the trees and the distance." },
-  { label: "Green to glass", text: "Turn the transparent green-coloured surfaces into real glass material." },
   { label: "Orange to LED", text: "Turn the orange and yellow lines on the ceiling into glowing warm-white LED strips." },
   { label: "Blue to water", text: "Turn the flat blue-coloured areas into real clear water with ripples and reflections." },
   { label: "Clean site", text: "Remove any construction clutter; the site is finished, clean and tidy." },
@@ -2823,7 +3055,55 @@ function notesField(): HTMLElement {
         }, undefined, q.text),
       ),
     ),
+    glassButton(),
     plateInNotes(),
+  );
+}
+
+// ---------- "Turn [colour] to glass" ----------
+
+const GLASS_COLOURS = ["green", "blue", "cyan", "yellow", "orange", "red", "purple", "magenta"];
+
+function glassText(colour: string): string {
+  return `Turn the flat bright ${colour} surfaces into real clear glass.`;
+}
+
+/** The glass sentence for any colour, if the notes have one. */
+function glassInNotes(): string | null {
+  return GLASS_COLOURS.map(glassText).find((x) => state.notes.includes(x)) ?? null;
+}
+
+function addNote(text: string): void {
+  const n = state.notes.trim();
+  state.notes = `${n}${n && !/[.!?។]$/.test(n) ? "." : ""} ${text}`.trim();
+}
+
+function removeNote(text: string): void {
+  state.notes = state.notes.replace(text, "").replace(/\s{2,}/g, " ").trim();
+}
+
+/** A quick button that adds "turn [colour] to glass" to the notes; the colour is picked beside it. */
+function glassButton(): HTMLElement {
+  const colour = state.settings.glassColour ?? "green";
+  const on = glassInNotes();
+  const sel = h("select", { class: "glass-colour", "aria-label": "Glass colour in the model" }, GLASS_COLOURS.map((c) => h("option", { value: c, selected: c === colour }, c))) as HTMLSelectElement;
+  sel.addEventListener("change", async () => {
+    state.settings.glassColour = sel.value;
+    const was = glassInNotes();
+    if (was) state.notes = state.notes.replace(was, glassText(sel.value));
+    await persist();
+    render();
+  });
+  return h(
+    "div",
+    { class: "glass-row" },
+    chip(`Turn ${colour} to glass`, Boolean(on), () => {
+      if (on) removeNote(on);
+      else addNote(glassText(colour));
+      state.promptEdit = null;
+      render();
+    }, icon("swap", 14), "Adds a note telling the AI which colour in your model is glass"),
+    sel,
   );
 }
 
@@ -2970,6 +3250,7 @@ function renderBar(): HTMLElement {
  */
 function currentRenderPrompt(): string {
   const st = state.settings;
+  if (st.sceneLockMode) return buildSceneLockPrompt(lockState(), state.capture?.facts, state.notes);
   if (st.planMode) return buildFloorplanPrompt({ ...planOptions(), notes: state.notes });
   if (state.preset.id === "auto") {
     const scan = autoScanFor(state.capture);
@@ -3003,6 +3284,10 @@ function currentRenderPrompt(): string {
 
 /** Images a render sends: the view, its line pass and the reference. A plan sends the plan alone. */
 function renderImages(cap: Capture): ImageData64[] {
+  if (state.settings.sceneLockMode) {
+    const master = lockState().master;
+    return master ? [cap.view, master] : [cap.view];
+  }
   if (state.settings.planMode) return [cap.view];
   const ref = activeReference();
   return [cap.view, ...(cap.lines ? [cap.lines] : []), ...(ref ? [ref] : [])];
@@ -3017,7 +3302,7 @@ function activeReference(): ImageData64 | null {
 
 /** The prompt the next render sends: the user's own edit, or the built one. */
 function renderPrompt(): string {
-  return (!state.settings.simple && state.promptEdit) || currentRenderPrompt();
+  return ((!state.settings.simple || state.settings.sceneLockMode) && state.promptEdit) || currentRenderPrompt();
 }
 
 function promptEditor(): HTMLElement {
@@ -3395,6 +3680,7 @@ const historyIds = new WeakMap<ImageData64, string>();
 /** Everything a render was made with, for History's "Use this setup". */
 /** What a render is filed under: the style preset, or the plan preset in Plan mode. */
 function renderPreset(): Preset {
+  if (state.settings.sceneLockMode) return lockPreset(state.capture?.facts?.sceneName);
   if (!state.settings.planMode) return { ...state.preset };
   const o = planOptions();
   const p = PLAN_PRESETS.find((x) => x.id === o.preset) ?? PLAN_PRESETS[0];
@@ -3426,8 +3712,9 @@ async function useSetup(setup: RenderSetup): Promise<void> {
   if (s.styleLock) return toast("The project look is locked. Unlock it to use another setup.", "error");
   // A plan setup turns Plan mode back on and keeps the style preset as it was.
   s.planMode = Boolean(setup.plan);
+  s.sceneLockMode = setup.preset.id === "scenelock";
   if (setup.plan) s.plan = { ...setup.plan };
-  else state.preset = { ...setup.preset };
+  else if (!s.sceneLockMode) state.preset = { ...setup.preset };
   state.notes = setup.notes;
   state.people = setup.people;
   state.dna = setup.dna.map((x) => ({ ...x }));
@@ -3488,6 +3775,7 @@ async function runRender(keep = false): Promise<void> {
     toast("Add a key in Settings to render", "error");
     return;
   }
+  if (!lockReady()) return;
   if (!(await ensureAutoScan())) return;
   const prompt = renderPrompt();
   const images = renderImages(cap);
@@ -4927,12 +5215,13 @@ function historyDetail(item: HistoryItem): HTMLElement {
   const ratio = item.after.width && item.after.height ? item.after.width / item.after.height : 16 / 9;
   return section(
     `${toolLabel(item.tool)}${item.presetName ? ` · ${item.presetName}` : ""}`,
-    h("p", { class: "hint" }, `${new Date(item.createdAt).toLocaleString()} · ${item.provider} · ${item.model}${item.credits !== undefined ? ` · ${item.credits} credits` : ""}${item.project ? ` · ${item.project}` : ""}`),
+    h("p", { class: "hint" }, [new Date(item.createdAt).toLocaleString(), item.provider, item.model, item.credits !== undefined ? `${item.credits} credits` : "", item.project ?? ""].filter(Boolean).join(" · ")),
     item.pending ? h("p", { class: "notice" }, icon("info", 16), h("span", {}, "Still finishing on Kie.ai. It appears here when done, even after a restart.")) : null,
     moveToProject(item),
     // Fits the window: never taller than the screen, whatever the picture's shape.
     h("div", { class: "stage-frame history-frame", style: `max-width:min(100%, calc((100vh - 240px) * ${ratio.toFixed(4)}))` }, compareSlider(item.before, item.after)),
     resultActions(item.after, item.tool),
+    h("div", { class: "row" }, button("New view of this", "capture", () => void newViewOf(item), "ghost small")),
     item.setup ? setupBox(item.setup) : item.tool === "render" ? h("p", { class: "hint" }, "Made before History saved setups, so only the prompt is kept.") : null,
     h("details", {}, h("summary", {}, "Prompt used"), h("pre", {}, item.prompt)),
     item.analysis ? h("details", {}, h("summary", {}, "What Auto read"), h("pre", {}, prettyJson(item.analysis))) : null,

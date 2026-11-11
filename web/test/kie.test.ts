@@ -54,6 +54,19 @@ test("kie passes each model's own field names", async () => {
   assert.equal(job.input.aspect_ratio, "4:3"); // 5:4 is not offered, nearest is 4:3
 });
 
+test("seedream 5.5 sends size, png and an opaque background", async () => {
+  const { t, calls } = fakeTransport(["success"]);
+  const p = new KieProvider("k", "seedream/5-5-image-to-image", "4K", t);
+  p.pollMs = 1;
+  await p.render({ prompt: "x", images: [img], aspectRatio: "16:9" });
+  const job = calls.find((c) => c.url.endsWith("/jobs/createTask"))!.body as { model: string; input: Record<string, unknown> };
+  assert.equal(job.model, "seedream/5-5-image-to-image");
+  assert.deepEqual(job.input.image_urls, ["https://tempfile.example/a.png"]);
+  assert.equal(job.input.size, "2K"); // 4K is not offered, falls back to 2K
+  assert.equal(job.input.background, "opaque");
+  assert.equal(creditsFor(findKieModel("seedream/5-5-image-to-image"), "1K"), 3.6);
+});
+
 test("kie failures and bad keys read as plain messages", async () => {
   const { t } = fakeTransport(["fail"]);
   const p = new KieProvider("k", "gpt-image-2-image-to-image", "2K", t);
