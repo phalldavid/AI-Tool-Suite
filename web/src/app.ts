@@ -2054,7 +2054,8 @@ function briefBody(body: HTMLElement): void {
       textarea(state.notes, "e.g. modern style at night, warm glow", 2, (v) => {
         state.notes = v;
         const st = document.getElementById("master-state");
-        if (st && masterFor(state.capture)) st.textContent = masterFresh() ? "" : "The brief changed. Render writes a new master prompt first.";
+        const cur = masterFor(state.capture);
+        if (st && cur && !cur.edited) st.textContent = masterFresh() ? (cur.byAi ? "Written by the AI from your picture and brief. Change anything you like." : "Standard master prompt (no key for the AI writer).") : "The brief changed. Render writes a new master prompt first.";
       }),
       glassButton(),
       fold(
@@ -3265,7 +3266,12 @@ function addNote(text: string): void {
 }
 
 function removeNote(text: string): void {
-  state.notes = state.notes.replace(text, "").replace(/\s{2,}/g, " ").trim();
+  state.notes = state.notes
+    .replace(text, "")
+    .replace(/\s*,\s*,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .trim();
 }
 
 /** A quick button that adds "turn [colour] to glass" to the notes; the colour is picked beside it. */
