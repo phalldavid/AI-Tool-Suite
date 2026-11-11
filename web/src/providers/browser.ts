@@ -22,7 +22,7 @@ export class BrowserProvider implements Provider {
 
   async render(req: RenderRequest, signal?: AbortSignal): Promise<RenderResult> {
     if (this.host.kind !== "sketchup") {
-      throw new ProviderError("Rendering with your own account works inside the SketchUp plugin. In the web app, use a Gemini API key.");
+      throw new ProviderError("In the web app, your own account works for Render only (copy and paste). For edits and lighting, use a Kie.ai key.");
     }
     const onAbort = () => this.host.call("browserCancel").catch(() => undefined);
     signal?.addEventListener("abort", onAbort);
