@@ -1953,6 +1953,7 @@ function quickTab(body: HTMLElement): void {
       textarea(state.notes, "e.g. add a parked Honda Dream by the gate", 2, (v) => {
         state.notes = v;
       }),
+      glassButton(),
       h("p", { class: "hint" }, "Lighting, people, cars, material lists and the prompt itself are under All controls. In Quick they are not sent."),
     ),
   );
@@ -2103,6 +2104,7 @@ function sceneLockBody(body: HTMLElement): void {
           updatePromptPreview();
         }),
       ),
+      glassButton(),
       promptEditor(),
     ),
   );
@@ -3019,7 +3021,6 @@ function renderTab(main: HTMLElement): void {
 const quickTemplates = (): { label: string; text: string }[] => [
   { label: "Cambodian plates", text: `Give every vehicle ${platePhrase(state.settings.dynamic.vehicles?.plate)}.` },
   { label: "Ground mist", text: "Add a thin, low ground mist that softens the base of the trees and the distance." },
-  { label: "Green to glass", text: "Turn the transparent green-coloured surfaces into real glass material." },
   { label: "Orange to LED", text: "Turn the orange and yellow lines on the ceiling into glowing warm-white LED strips." },
   { label: "Blue to water", text: "Turn the flat blue-coloured areas into real clear water with ripples and reflections." },
   { label: "Clean site", text: "Remove any construction clutter; the site is finished, clean and tidy." },
@@ -3045,7 +3046,55 @@ function notesField(): HTMLElement {
         }, undefined, q.text),
       ),
     ),
+    glassButton(),
     plateInNotes(),
+  );
+}
+
+// ---------- "Turn [colour] to glass" ----------
+
+const GLASS_COLOURS = ["green", "blue", "cyan", "yellow", "orange", "red", "purple", "magenta"];
+
+function glassText(colour: string): string {
+  return `Turn the flat bright ${colour} surfaces into real clear glass.`;
+}
+
+/** The glass sentence for any colour, if the notes have one. */
+function glassInNotes(): string | null {
+  return GLASS_COLOURS.map(glassText).find((x) => state.notes.includes(x)) ?? null;
+}
+
+function addNote(text: string): void {
+  const n = state.notes.trim();
+  state.notes = `${n}${n && !/[.!?។]$/.test(n) ? "." : ""} ${text}`.trim();
+}
+
+function removeNote(text: string): void {
+  state.notes = state.notes.replace(text, "").replace(/\s{2,}/g, " ").trim();
+}
+
+/** A quick button that adds "turn [colour] to glass" to the notes; the colour is picked beside it. */
+function glassButton(): HTMLElement {
+  const colour = state.settings.glassColour ?? "green";
+  const on = glassInNotes();
+  const sel = h("select", { class: "glass-colour", "aria-label": "Glass colour in the model" }, GLASS_COLOURS.map((c) => h("option", { value: c, selected: c === colour }, c))) as HTMLSelectElement;
+  sel.addEventListener("change", async () => {
+    state.settings.glassColour = sel.value;
+    const was = glassInNotes();
+    if (was) state.notes = state.notes.replace(was, glassText(sel.value));
+    await persist();
+    render();
+  });
+  return h(
+    "div",
+    { class: "glass-row" },
+    chip(`Turn ${colour} to glass`, Boolean(on), () => {
+      if (on) removeNote(on);
+      else addNote(glassText(colour));
+      state.promptEdit = null;
+      render();
+    }, icon("swap", 14), "Adds a note telling the AI which colour in your model is glass"),
+    sel,
   );
 }
 

@@ -80,6 +80,8 @@ export interface Settings {
   /** SceneLock mode: a new view rendered with a master render's look. */
   sceneLockMode?: boolean;
   sceneLock?: SceneLock;
+  /** Colour the "Turn … to glass" button names (David models glass in a bright colour). */
+  glassColour?: string;
 }
 
 export interface SceneSetup {

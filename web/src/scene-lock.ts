@@ -148,7 +148,7 @@ export function buildSceneLockPrompt(lock: SceneLock, facts?: SceneFacts, notes 
     LOCK_IMAGE_1,
     "Render Image 1 as a photorealistic architectural photograph with exactly the same look as Image 2.",
     "Image 1 is a raw SketchUp view. Its flat greys, default textures and placeholder colours are not final: Image 2 decides those materials. Real textures in Image 1 only help match each surface to the same surface in Image 2.",
-    "Remove all black SketchUp edge lines. Bright green surfaces are placeholders for clear glass: render them as real glass, whatever Image 2 shows there. Thick dark bands or cut walls at the frame edges are the section cut, not part of the space: show the real wall, floor or ceiling continuing out of frame there.",
+    "Remove all black SketchUp edge lines. Thick dark bands or cut walls at the frame edges are the section cut, not part of the space: show the real wall, floor or ceiling continuing out of frame there.",
   ];
   if (lock.kind === "exterior") lines.push("Replace the flat green ground plane and plain background with the real ground, planting and sky of Image 2.");
   else lines.push("Keep every light fitting modelled in Image 1 where it is; switch them on or off as in Image 2.");
