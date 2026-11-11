@@ -22,6 +22,8 @@ module AIRenderSuite
     def self.dispatch(action, payload, id = nil)
       case action
       when 'capture' then Capture.run(payload)
+      when 'listScenes' then Capture.scene_names
+      when 'captureScene' then Capture.run_scene(payload)
       when 'save' then save(payload)
       when 'getSetting' then Store.get(payload['key'])
       when 'setSetting' then Store.set(payload['key'], payload['value']) && nil

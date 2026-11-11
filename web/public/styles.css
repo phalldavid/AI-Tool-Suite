@@ -1071,3 +1071,11 @@ html { overflow-x: hidden; }
 .swatches.auto { color: var(--accent); }
 .seg.scene-seg button { flex-direction: column; gap: 2px; padding: 6px 2px; font-size: 11px; min-width: 0; }
 .seg.scene-seg button span { overflow: visible; text-overflow: clip; }
+
+/* SceneLock: named look slots */
+.lock-slots { display: grid; grid-template-columns: minmax(90px, 120px) 1fr; gap: 6px 12px; align-items: center; margin: 12px 0 8px; }
+.lock-slots dt { color: var(--muted); font-size: 12px; }
+.lock-slots dd { margin: 0; min-width: 0; }
+.lock-slots input { width: 100%; }
+.match-add.static { cursor: default; }
+@media (max-width: 420px) { .lock-slots { grid-template-columns: 1fr; } .lock-slots dt { margin-top: 4px; } }

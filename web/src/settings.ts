@@ -12,6 +12,7 @@ import { DEFAULT_KIE_MODEL, type KieResolution } from "./providers/kie-models";
 import type { Provider } from "./providers/types";
 import { MockProvider } from "./providers/mock";
 import type { PlanOptions } from "./floorplan";
+import type { SceneLock } from "./scene-lock";
 
 export interface Settings {
   /** "browser" renders through the user's own signed-in chat site, no API key. */
@@ -76,6 +77,9 @@ export interface Settings {
   /** Render tab makes a 3D floor plan from a 2D plan instead of a normal render. */
   planMode?: boolean;
   plan?: PlanOptions;
+  /** SceneLock mode: a new view rendered with a master render's look. */
+  sceneLockMode?: boolean;
+  sceneLock?: SceneLock;
 }
 
 export interface SceneSetup {
