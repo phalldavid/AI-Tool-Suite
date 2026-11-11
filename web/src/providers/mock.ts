@@ -67,6 +67,10 @@ async function stamp(img: ImageData64, prompt: string): Promise<ImageData64> {
 /** Canned analysis replies, shaped like the real ones. */
 export function mockAnalysis(prompt: string): string {
   if (/style reference/i.test(prompt)) return "Style: tropical modern (test)\nMood and light: late afternoon, warm 3000K, soft shadows\nMaterial palette: teak, white render, grey terrazzo";
+  if (/write ONE master prompt/i.test(prompt)) {
+    const brief = /Client brief: "([^"]*)"/.exec(prompt)?.[1] ?? "";
+    return `**MASTER PROMPT: ${brief} | test mode**\nTASK: Turn this image into a photorealistic photograph (test mode sample).\n1. DESIGN INTENT: ${brief}.\n2. STRICT GEOMETRY AND DESIGN PRESERVATION: keep the gable roof, the box below it and every opening.\n3. MATERIALS: WALLS: white render. ROOF: dark grey metal.\n4. LIGHTING: as the brief asks.\n8. PRIORITY: Priority if anything conflicts: architectural accuracy first, then the brief's materials and lighting, then styling.`;
+  }
   if (/same look can be repeated/i.test(prompt))
     return /"vanity"/.test(prompt)
       ? '{"floor":"grey terrazzo in the dry zone, small grey mosaic in the shower","walls":"white zellige tiles to ceiling","ceiling":"white with a shadow-gap cornice","vanity":"walnut veneer, flat doors","worktop":"black marble","basin":"white ceramic oval","metal":"brushed brass taps, sconce and mirror frame","glass":"clear glass, thin brass frame","bath":"none","curtain":"white linen roller blind","grille":"black steel grille","lamps":"warm 3000K downlights and sconce, on"}'

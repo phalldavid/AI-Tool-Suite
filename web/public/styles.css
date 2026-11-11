@@ -1094,3 +1094,12 @@ html { overflow-x: hidden; }
 .handoff-imgs figcaption { font-size: 12px; color: var(--muted); }
 .handoff-drop { display: flex; gap: 10px; align-items: center; padding: 14px; border: 1px dashed var(--line-2); border-radius: 10px; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
 .model-fam.account .model-badge { background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- Brief flow ---------- */
+.master-edit { width: 100%; min-height: 220px; font-size: 12.5px; line-height: 1.5; }
+.reply-box { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+.reply-input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line, #ccc); background: var(--field, transparent); color: inherit; font: inherit; }
+.reply-input:focus { outline: 2px solid var(--accent, #4a7); outline-offset: 1px; }
+.reply-box > .btn, .reply-box > button { flex: none; width: auto; margin: 0; }
+.picture-col .reply-box { display: flex !important; flex-wrap: nowrap !important; flex-direction: row !important; }
+.picture-col .reply-box > .reply-input { flex: 1 1 auto; width: auto; font-size: 16px; }

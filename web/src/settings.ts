@@ -82,6 +82,10 @@ export interface Settings {
   sceneLock?: SceneLock;
   /** Colour the "Turn … to glass" button names (David models glass in a bright colour). */
   glassColour?: string;
+  /** Brief → master prompt → render → reply: the main Render flow. */
+  briefMode?: boolean;
+  /** Set once the brief flow's defaults (mode on, Nano Banana Pro) were applied. */
+  briefDefaults?: boolean;
 }
 
 export interface SceneSetup {
@@ -118,7 +122,7 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiKey: "",
   geminiModel: DEFAULT_GEMINI_MODEL,
   kieKey: "",
-  kieModel: DEFAULT_KIE_MODEL,
+  kieModel: "nano-banana-pro",
   kieResolution: "2K",
   comfyUrl: "http://127.0.0.1:8188",
   comfyWorkflow: "",
