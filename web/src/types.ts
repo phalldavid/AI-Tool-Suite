@@ -18,6 +18,10 @@ export interface SceneFacts {
   /** Shadow time as ISO string, local to the model's location. */
   shadowTime?: string;
   northAngleDeg?: number;
+  /** Sun direction seen from the camera: 0 ahead, 90 right, -90 left, 180 behind. */
+  sunToCameraDeg?: number;
+  /** Sun height above the horizon; negative at night. */
+  sunElevationDeg?: number;
   location?: string;
   modelName?: string;
   sceneName?: string;

@@ -114,7 +114,53 @@ module AIRenderSuite
       place = [si['City'], si['Country']].compact.map(&:to_s).reject(&:empty?)
       out['location'] = place.join(', ') unless place.empty?
       out['lights'] = Lights.summary(model) if defined?(Lights)
+      out.merge!(sun_from_camera(si, cam))
       out
+    end
+
+    # Where the sun sits relative to the camera, for SceneLock's sun line:
+    # 0 deg = straight ahead of the camera, 90 = right, -90 = left, 180 = behind.
+    def self.sun_from_camera(si, cam)
+      sun = si['SunDirection']
+      return {} unless sun.respond_to?(:z) && sun.length > 0
+      s = sun.normalize
+      fx = cam.direction.x
+      fy = cam.direction.y
+      len = Math.sqrt(fx * fx + fy * fy)
+      sxy = Math.sqrt(s.x * s.x + s.y * s.y)
+      out = { 'sunElevationDeg' => (Math.asin([[s.z, 1.0].min, -1.0].max) * 180 / Math::PI).round(1) }
+      # Looking straight down or the sun straight overhead: no side to give.
+      return out if len < 1e-6 || sxy < 1e-6
+      fx /= len
+      fy /= len
+      ahead = fx * s.x + fy * s.y
+      right = fy * s.x - fx * s.y
+      out['sunToCameraDeg'] = (Math.atan2(right, ahead) * 180 / Math::PI).round(1)
+      out
+    rescue StandardError
+      {}
+    end
+
+    def self.scene_names
+      model = Sketchup.active_model
+      model ? model.pages.map(&:name) : []
+    end
+
+    # Switches to a scene without the animated transition, then captures it.
+    def self.run_scene(opts)
+      model = Sketchup.active_model
+      raise 'Open a model first.' unless model
+      page = model.pages[opts['scene'].to_s]
+      raise "Scene \"#{opts['scene']}\" is not in this model." unless page
+      po = model.options['PageOptions']
+      old = po['ShowTransition']
+      po['ShowTransition'] = false
+      model.pages.selected_page = page
+      model.active_view.camera = page.camera if page.use_camera?
+      model.active_view.refresh
+      run(opts)
+    ensure
+      po['ShowTransition'] = old if po && !old.nil?
     end
 
     # 35 mm full-frame equivalent focal length, from SketchUp's field of view.
