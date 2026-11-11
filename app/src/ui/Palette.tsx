@@ -43,10 +43,12 @@ export function Palette() {
       { group: "Actions", label: "Paste image", sub: "From the clipboard", key: "Ctrl V", run: go(() => void pasteFromClipboard()) },
       { group: "Actions", label: "Clear image", sub: "Start again with an empty view", run: go(clearView) },
       { group: "Actions", label: "Sun direction", sub: "Set the exact sun angle and height", run: go(() => setState({ tab: "sun" })) },
-      { group: "Actions", label: "New view, same look", sub: "Orbit the camera around the building", run: go(() => setState({ tab: "camera" })) },
+      { group: "Actions", label: "New view, same look", sub: "Edit tab: your screenshot or a new camera", run: go(() => setState((s) => ({ tab: "edit", editMode: "view", lookIndex: s.activeVersion }))) },
+      { group: "Actions", label: "Browse all styles", sub: "The full style library", run: go(() => setState({ libOpen: "look" })) },
+      { group: "Actions", label: "Browse environments", sub: "Street, river, rice fields and more", run: go(() => setState({ libOpen: "env" })) },
       { group: "Actions", label: "History", sub: "Every render with its prompt", run: go(() => setState({ tab: "history" })) },
       { group: "Actions", label: isLight() ? "Night mode" : "Day mode", sub: "Switch the theme", run: go(() => setPrefs({ theme: isLight() ? "dark" : "light" })) },
-      { group: "Actions", label: "Settings", sub: "Keys, models, free copy-paste", run: go(() => setState({ dialog: "settings" })) },
+      { group: "Actions", label: "Settings", sub: "Keys, models, Prompt Copy", run: go(() => setState({ dialog: "settings" })) },
     ];
     const light: Item[] = LIGHTING.map((o) => ({
       group: "Lighting",

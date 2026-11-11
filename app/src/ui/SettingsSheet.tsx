@@ -11,7 +11,7 @@ import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 
 const BACKENDS: { id: Settings["backend"] | "test"; label: string; sub: string }[] = [
-  { id: "browser", label: "Free · copy-paste", sub: "Gemini, ChatGPT or Flow with your own login. No key." },
+  { id: "browser", label: "Prompt Copy · free", sub: "Get the prompt and render in Gemini, ChatGPT or Flow with your own login. No key." },
   { id: "kie", label: "Kie.ai key", sub: "Nano Banana, GPT Image, Seedream. Paid per image." },
   { id: "gemini", label: "Gemini API key", sub: "Google AI Studio key, billed by Google." },
   { id: "comfyui", label: "ComfyUI (local)", sub: "Your own PC and models." },

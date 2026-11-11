@@ -1,23 +1,15 @@
-// New view, same look: orbit, tilt, lens and distance around the building.
+// Move camera (Edit tab, New view): orbit, tilt, lens and distance around the building.
 
 import { useMemo, useRef } from "react";
-import { getState, setState, useApp } from "../store";
-import { activeImage, openReview } from "../actions";
+import { setState, useApp } from "../store";
 import type { CameraMove } from "../lib/camera";
-import { cameraHeight, cameraPromptLine, fieldOfView, tiltWord } from "../lib/camera";
-import { renderCost } from "../lib/cost";
-import { toDataUrl } from "../core/images";
-import { Panels } from "../ui/Panels";
-import { Icon } from "../ui/Icon";
+import { cameraHeight, fieldOfView, tiltWord } from "../lib/camera";
 
 const CX = 160;
 const CY = 160;
 const R = 120;
 const rad = Math.PI / 180;
 
-export function CameraScreen() {
-  return <Panels label="camera" work={<CameraWork />} side={<CameraSide />} />;
-}
 
 function wire(m: CameraMove) {
   const p = m.tilt * rad;
@@ -55,44 +47,23 @@ function wire(m: CameraMove) {
   return { edges: E.map(([a, b]) => seg(v[a], v[b])).join(""), front: poly([v[3], v[2], v[6], v[7]]), grid };
 }
 
-function CameraWork() {
+/** Wireframe of the building from the new camera. */
+export function CameraPreview() {
   const cam = useApp((s) => s.camera);
-  const versions = useApp((s) => s.versions);
-  const master = activeImage();
-  const src = useMemo(() => (master ? toDataUrl(master) : ""), [master]);
   const w = useMemo(() => wire(cam), [cam]);
   return (
-    <>
-      <div className="pairs">
-        <figure className="rise">
-          {src ? <img src={src} alt="Master render" /> : <div className="empty" style={{ position: "absolute", inset: 0, justifyContent: "center" }}>Render a master view first.</div>}
-          <figcaption className="chip-img" style={{ position: "absolute", left: 12, top: 12 }}>Master · v{versions.length ? getState().activeVersion + 1 : 0}</figcaption>
-        </figure>
-        <figure className="rise" style={{ boxShadow: "inset 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent)" }}>
-          <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Wireframe from the new camera: ${tiltWord(cam.tilt)}`}>
-            <rect width="400" height="300" style={{ fill: "var(--field)" }} />
-            <path d={w.grid} stroke="rgba(160,150,140,0.18)" strokeWidth="1" />
-            <path d={w.edges} fill="none" style={{ stroke: "var(--soft)" }} strokeWidth="1.6" strokeLinejoin="round" />
-            <path d={w.front} style={{ fill: "color-mix(in srgb, var(--accent) 14%, transparent)", stroke: "var(--accent)" }} strokeWidth="2" strokeLinejoin="round" />
-          </svg>
-          <figcaption className="chip-img" style={{ position: "absolute", left: 12, top: 12 }}>New camera</figcaption>
-          <span className="chip-img lbl-sm" style={{ position: "absolute", right: 12, bottom: 12 }}>Orange = front of the building</span>
-        </figure>
-      </div>
-      <div className="prompt-box glass">
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <h2 style={{ fontSize: 14 }}>Added to your prompt</h2>
-        </div>
-        <p className="mono num">{cameraPromptLine(cam)}</p>
-      </div>
-    </>
+    <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Wireframe from the new camera: ${tiltWord(cam.tilt)}`}>
+      <rect width="400" height="300" style={{ fill: "var(--field)" }} />
+      <path d={w.grid} stroke="rgba(160,150,140,0.18)" strokeWidth="1" />
+      <path d={w.edges} fill="none" style={{ stroke: "var(--soft)" }} strokeWidth="1.6" strokeLinejoin="round" />
+      <path d={w.front} style={{ fill: "color-mix(in srgb, var(--accent) 14%, transparent)", stroke: "var(--accent)" }} strokeWidth="2" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-function CameraSide() {
+/** Orbit ring, tilt arc, lens and distance. */
+export function CameraControls() {
   const cam = useApp((s) => s.camera);
-  const s = useApp((x) => x.settings);
-  const busy = useApp((x) => x.busy);
   const drag = useRef<null | "ring" | "arc">(null);
   const raf = useRef(0);
   const alpha = 180 - cam.orbit;
@@ -136,13 +107,7 @@ function CameraSide() {
   const tiltShort = cam.tilt <= 5 ? "Eye level" : cam.tilt < 20 ? "Slightly up" : cam.tilt < 45 ? "Three-quarter" : cam.tilt < 75 ? "Aerial" : "Top-down";
   return (
     <>
-      <div style={{ flex: "none", padding: "18px 20px 0", display: "flex", alignItems: "center", gap: 10 }}>
-        <button type="button" className="icon-btn" aria-label="Back to result" onClick={() => setState({ tab: getState().versions.length ? "result" : "render" })}>
-          <Icon name="back" />
-        </button>
-        <h1 style={{ fontSize: 22 }}>New view, same look</h1>
-      </div>
-      <div className="side-scroll thin" style={{ gap: 18 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         <section className="step">
           <div style={{ display: "flex", alignItems: "baseline" }}>
             <h2 style={{ fontSize: 16 }}>Orbit</h2>
@@ -272,11 +237,6 @@ function CameraSide() {
           <div><small>Lens</small><b className="num">{cam.lensMm} mm · {Math.round(hfov)}° view</b></div>
           <div><small>Camera height</small><b className="num">about {h < 10 ? h.toFixed(1) : Math.round(h)} m</b></div>
         </div>
-      </div>
-      <div className="side-foot">
-        <button type="button" className="cta sheen" disabled={Boolean(busy) || !activeImage()} onClick={() => void openReview("view")}>
-          Render this view · {renderCost(s).label}
-        </button>
       </div>
     </>
   );

@@ -9,13 +9,17 @@ import { LIGHTING, findOption, parseDialTime } from "../core/prompt";
 import { contextLabel, parseContexts, joinContexts } from "../core/context";
 import type { ProjectType } from "../core/types";
 import { renderCost } from "../lib/cost";
-import { findKieModel } from "../core/providers/kie-models";
 import { splitTypology } from "../lib/typology";
 import { resetSize, setSizes, useSizes } from "../layout";
 import { Panels } from "../ui/Panels";
 import { Splitter } from "../ui/Splitter";
 import { Icon } from "../ui/Icon";
 import { SunDial, fmtHour } from "./SunDial";
+import { ModelPicker } from "../ui/ModelPicker";
+import { DYN_ICONS } from "../ui/DynamicSheet";
+import { GENERATORS, countSet } from "../core/dynamic";
+import { BUILT_IN_NOTES, GLASS_COLOURS, labelFor, loadCustomNotes, saveCustomNotes } from "../lib/notes";
+import type { NotePreset } from "../lib/notes";
 
 const STARTERS: Record<ProjectType, string[]> = {
   exterior: ["ext-mansion-tropical", "ext-mansion-new-khmer", "ext-link-house-modern", "ext-hotel-tropical", "ext-mansion-minimal", "ext-link-house-indochine"],
@@ -248,27 +252,22 @@ function FrameRow() {
   );
 }
 
-function Progress() {
+export function Progress() {
   const busy = useApp((s) => s.busy)!;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(t);
   }, []);
-  const el = (now - busy.since) / 1000;
-  const typical = busy.typical / 1000;
-  const pct = Math.min(95, (el / Math.max(typical, 1)) * 90);
-  const left = Math.max(0, Math.round(typical - el));
+  const el = Math.max(0, Math.floor((now - busy.since) / 1000));
+  const left = Math.max(0, Math.round(busy.typical / 1000 - el));
   return (
-    <div className="progress" role="status" aria-live="polite">
-      <Icon name="aperture" className="spin-slow" />
-      <span className="num" style={{ whiteSpace: "nowrap" }}>
-        {busy.label} · {left > 0 ? `about ${left} s left` : "almost done"}
-      </span>
-      <div className="bar" aria-hidden="true">
-        <i style={{ width: `${pct}%` }} />
-      </div>
-      <button type="button" className="chip-img" onClick={() => void import("../actions").then((a) => a.cancelRender())}>Cancel</button>
+    <div className="busy-chip" role="status" aria-live="polite" title={left > 0 ? `About ${left} s left` : "Almost done"}>
+      <Icon name="aperture" className="spin-slow" size={15} />
+      <span className="num">{busy.label} · {Math.floor(el / 60)}:{String(el % 60).padStart(2, "0")}</span>
+      <button type="button" aria-label="Cancel render" title="Cancel" onClick={() => void import("../actions").then((a) => a.cancelRender())}>
+        <Icon name="close" size={13} />
+      </button>
     </div>
   );
 }
@@ -280,22 +279,15 @@ function RenderSide() {
   const preset = useApp((x) => x.preset);
   const busy = useApp((x) => x.busy);
   const cap = useApp((x) => x.capture);
-  const more = useApp((x) => x.moreOpen);
   const cost = renderCost(s);
+  const promptOnly = s.backend === "browser" && !s.testMode;
   return (
     <>
-      <div style={{ flex: "none", padding: "18px 20px 0", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="side-scroll thin">
         <div>
           <h1 className="hero">Make it real.</h1>
           <p className="sub">Pick a look. Your design stays exactly as modelled.</p>
         </div>
-        <div className="tabs3" role="tablist" aria-label="Panel mode">
-          <button type="button" role="tab" aria-selected={!more} onClick={() => setState({ moreOpen: false })}>Quick</button>
-          <button type="button" role="tab" aria-selected={more} onClick={() => setState({ moreOpen: true })}>Full controls</button>
-          <button type="button" role="tab" aria-selected={false} onClick={() => setState({ tab: "camera" })}>New view</button>
-        </div>
-      </div>
-      <div className="side-scroll thin">
         <section className="step">
           <div className="step-head">
             <span className="n">1</span>
@@ -322,33 +314,17 @@ function RenderSide() {
         </section>
         <Looks />
         <Light />
-        <Setting />
-        {more ? <MoreControls /> : (
-          <button type="button" className="more" onClick={() => setState({ moreOpen: true })}>
-            <Icon name="plus" size={14} />
-            More controls · notes, sun direction, avoid list, locks
-          </button>
-        )}
+        <Environment />
+        <AdditionalNotes />
+        <Advanced />
       </div>
       <div className="side-foot">
-        <div className="model-row">
-          <span style={{ color: "var(--muted)" }}>AI</span>
-          <button type="button" className="chip" style={{ padding: "6px 12px" }} onClick={() => setState({ dialog: "settings" })}>
-            {s.testMode ? "Test mode" : s.backend === "kie" ? `${findKieModel(s.kieModel).label} · ${s.kieResolution}` : s.backend === "browser" ? "Free copy-paste" : s.backend === "gemini" ? "Gemini API" : "ComfyUI"}
-            <Icon name="chevron" size={14} style={{ marginLeft: 4 }} />
-          </button>
-        </div>
-        <button type="button" className="cta sheen" disabled={!cap || Boolean(busy)} onClick={() => void openReview()}>
-          <Icon name="aperture" size={18} className="spin-slow" />
-          {busy ? "Rendering…" : s.backend === "browser" && !s.testMode ? "Render · free" : `Render · ${cost.label}`}
+        <ModelPicker />
+        <button type="button" className="cta sheen" disabled={(!cap && !promptOnly) || Boolean(busy)} onClick={() => void openReview()}>
+          <Icon name={promptOnly ? "clipboard" : "aperture"} size={18} className={promptOnly ? undefined : "spin-slow"} />
+          {busy ? "Rendering…" : promptOnly ? "Get prompt · free" : `Render · ${cost.label}`}
           <span className="kbd">R</span>
         </button>
-        <div className="foot-note">
-          <span>{cap ? "You'll review the prompt and cost first" : "Add a view to start"}</span>
-          {s.backend !== "browser" ? (
-            <button type="button" className="linkish" onClick={() => void updateSettings({ backend: "browser", testMode: false })}>Use free copy-paste</button>
-          ) : null}
-        </div>
       </div>
     </>
   );
@@ -366,7 +342,7 @@ function Looks() {
       <div className="step-head">
         <span className="n">2</span>
         <h2>Look</h2>
-        <button type="button" className="linkish end" onClick={() => setState({ dialog: "palette" })}>Browse all 932</button>
+        <button type="button" className="linkish end" onClick={() => setState({ libOpen: "look" })}>Browse all</button>
       </div>
       <div className="looks">
         {ids.slice(0, 6).map((id) => {
@@ -491,7 +467,7 @@ function Light() {
   );
 }
 
-function Setting() {
+function Environment() {
   const preset = useApp((s) => s.preset);
   const picks = parseContexts(preset.environment);
   const opts = [...PLACES[preset.projectType], ...picks.filter((p) => !PLACES[preset.projectType].includes(p))];
@@ -503,8 +479,8 @@ function Setting() {
     <section className="step">
       <div className="step-head">
         <span className="n">4</span>
-        <h2>Setting</h2>
-        <button type="button" className="linkish end" onClick={() => setState({ dialog: "palette" })}>More places</button>
+        <h2>Environment</h2>
+        <button type="button" className="linkish end" onClick={() => setState({ libOpen: "env" })}>Browse all</button>
       </div>
       <div className="chips-row">
         {opts.map((id) => (
@@ -520,33 +496,127 @@ function Setting() {
   );
 }
 
-function MoreControls() {
+function AdditionalNotes() {
   const notes = useApp((s) => s.notes);
-  const s = useApp((x) => x.settings);
-  const exact = useApp((x) => x.sun.exact);
+  const picked = useApp((s) => s.noteChips);
+  const colour = useApp((s) => s.glassColour);
+  const [custom, setCustom] = useState<NotePreset[]>(() => loadCustomNotes());
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState("");
+  const [label, setLabel] = useState("");
+  const toggle = (id: string) => setState((s) => ({ noteChips: s.noteChips.includes(id) ? s.noteChips.filter((x) => x !== id) : [...s.noteChips, id] }));
+  const add = () => {
+    const t = text.trim();
+    if (!t) return;
+    const n: NotePreset = { id: `my-${Date.now().toString(36)}`, label: label.trim() || labelFor(t), text: /[.!?]$/.test(t) ? t : `${t}.`, custom: true };
+    const next = [...custom, n];
+    setCustom(next);
+    saveCustomNotes(next);
+    setState((s) => ({ noteChips: [...s.noteChips, n.id] }));
+    setText("");
+    setLabel("");
+    setAdding(false);
+  };
+  const remove = (id: string) => {
+    const next = custom.filter((x) => x.id !== id);
+    setCustom(next);
+    saveCustomNotes(next);
+    setState((s) => ({ noteChips: s.noteChips.filter((x) => x !== id) }));
+  };
   return (
     <section className="step">
       <div className="step-head">
         <span className="n">5</span>
-        <h2>More</h2>
-        <button type="button" className="linkish end" onClick={() => setState({ moreOpen: false })}>Hide</button>
+        <h2>Additional Notes</h2>
       </div>
-      <div className="field">
-        <label htmlFor="notes">Notes (English or Khmer)</label>
-        <textarea id="notes" className="input" rows={3} value={notes} placeholder="e.g. number plate reads D4VID, add two motorbikes by the gate" onChange={(e) => setState({ notes: e.target.value })} />
+      <div className="chips-row">
+        {BUILT_IN_NOTES.map((n) =>
+          n.id === "glass" ? (
+            <span key={n.id} className="chip split" aria-pressed={picked.includes(n.id)}>
+              <button type="button" aria-pressed={picked.includes(n.id)} onClick={() => toggle(n.id)} title={n.text.split("{colour}").join(colour)}>
+                Change
+              </button>
+              <select aria-label="Colour to turn into glass" value={colour} onChange={(e) => setState((s) => ({ glassColour: e.target.value, noteChips: s.noteChips.includes("glass") ? s.noteChips : [...s.noteChips, "glass"] }))}>
+                {GLASS_COLOURS.map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <button type="button" aria-pressed={picked.includes(n.id)} onClick={() => toggle(n.id)} tabIndex={-1}>to glass</button>
+            </span>
+          ) : (
+            <button key={n.id} type="button" className="chip" aria-pressed={picked.includes(n.id)} title={n.text} onClick={() => toggle(n.id)}>
+              {n.label}
+            </button>
+          ),
+        )}
+        {custom.map((n) => (
+          <span key={n.id} className="chip mine" aria-pressed={picked.includes(n.id)}>
+            <button type="button" aria-pressed={picked.includes(n.id)} title={n.text} onClick={() => toggle(n.id)}>{n.label}</button>
+            <button type="button" className="x" aria-label={`Delete ${n.label}`} title="Delete" onClick={() => remove(n.id)}>
+              <Icon name="close" size={12} />
+            </button>
+          </span>
+        ))}
+        <button type="button" className="chip add" aria-label="Add your own note preset" aria-expanded={adding} title="Add your own" onClick={() => setAdding(!adding)}>
+          <Icon name="plus" size={14} />
+        </button>
       </div>
-      <label className="fontopt" style={{ cursor: "pointer" }}>
-        <input type="checkbox" checked={exact} onChange={(e) => setState((x) => ({ sun: { ...x.sun, exact: e.target.checked } }))} style={{ accentColor: "var(--accent)" }} />
-        <span style={{ flex: 1, textAlign: "left" }}>Use the exact sun direction from the Sun screen</span>
-      </label>
-      <div className="tabs2" role="radiogroup" aria-label="Look">
-        <button type="button" role="radio" aria-checked={s.look === "photo"} onClick={() => void updateSettings({ look: "photo" })}>Photo</button>
-        <button type="button" role="radio" aria-checked={s.look === "cgi"} onClick={() => void updateSettings({ look: "cgi" })}>3D render</button>
-      </div>
-      <div className="field">
-        <label htmlFor="avoid2">Avoid</label>
-        <textarea id="avoid2" className="input" rows={2} value={s.avoid} onChange={(e) => void updateSettings({ avoid: e.target.value })} />
-      </div>
+      {adding ? (
+        <div className="addnote">
+          <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Button name, e.g. Red to brick" aria-label="Button name" />
+          <textarea className="input" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Sentence for the prompt, e.g. Turn the red solid colors into red clay brick." aria-label="Prompt sentence" />
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button type="button" className="btn ghost" onClick={() => setAdding(false)}>Cancel</button>
+            <button type="button" className="btn primary" disabled={!text.trim()} onClick={add}>Save button</button>
+          </div>
+        </div>
+      ) : null}
+      <textarea id="notes" className="input" rows={2} aria-label="Anything else" value={notes} placeholder="Anything else, in English or Khmer, e.g. two motorbikes by the gate" onChange={(e) => setState({ notes: e.target.value })} />
+    </section>
+  );
+}
+
+function Advanced() {
+  const open = useApp((s) => s.advancedOpen);
+  const s = useApp((x) => x.settings);
+  const exact = useApp((x) => x.sun.exact);
+  const on = GENERATORS.filter((g) => countSet(s.dynamic[g.id]) > 0).length + (exact ? 1 : 0) + (s.look === "cgi" ? 1 : 0);
+  return (
+    <section className={`adv${open ? " open" : ""}`}>
+      <button type="button" className="adv-head" aria-expanded={open} onClick={() => setState({ advancedOpen: !open })}>
+        <span className="adv-ic"><Icon name="sliders" size={18} /></span>
+        <span style={{ flex: 1, textAlign: "left" }}>
+          <b>Advanced</b>
+          <small>{GENERATORS.length} dynamic prompts, sun direction, photo or 3D look</small>
+        </span>
+        {on ? <span className="adv-count num">{on} on</span> : null}
+        <Icon name="chevron" size={16} style={{ transition: "transform 200ms var(--ease)", transform: open ? "rotate(180deg)" : "none" }} />
+      </button>
+      {open ? (
+        <div className="adv-body">
+          <div className="dyn-grid">
+            {GENERATORS.map((g) => {
+              const n = countSet(s.dynamic[g.id]);
+              return (
+                <button key={g.id} type="button" className="dyn-card lift" aria-pressed={n > 0} onClick={() => setState({ dynOpen: g.id })}>
+                  <Icon name={DYN_ICONS[g.id] ?? "sliders"} size={18} />
+                  <b>{g.name}</b>
+                  <small>{n ? `${n} set` : g.blurb}</small>
+                </button>
+              );
+            })}
+          </div>
+          {GENERATORS.some((g) => countSet(s.dynamic[g.id]) > 0) ? (
+            <button type="button" className="linkish" style={{ alignSelf: "flex-start" }} onClick={() => void updateSettings({ dynamic: {} })}>Clear all dynamic prompts</button>
+          ) : null}
+          <label className="fontopt" style={{ cursor: "pointer" }}>
+            <input type="checkbox" checked={exact} onChange={(e) => setState((x) => ({ sun: { ...x.sun, exact: e.target.checked } }))} style={{ accentColor: "var(--accent)" }} />
+            <span style={{ flex: 1, textAlign: "left" }}>Use the exact sun direction from the Sun screen</span>
+          </label>
+          <div className="tabs2" role="radiogroup" aria-label="Output look">
+            <button type="button" role="radio" aria-checked={s.look === "photo"} onClick={() => void updateSettings({ look: "photo" })}>Photo</button>
+            <button type="button" role="radio" aria-checked={s.look === "cgi"} onClick={() => void updateSettings({ look: "cgi" })}>3D render</button>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
