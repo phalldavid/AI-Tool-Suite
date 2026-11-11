@@ -68,7 +68,9 @@ async function stamp(img: ImageData64, prompt: string): Promise<ImageData64> {
 export function mockAnalysis(prompt: string): string {
   if (/style reference/i.test(prompt)) return "Style: tropical modern (test)\nMood and light: late afternoon, warm 3000K, soft shadows\nMaterial palette: teak, white render, grey terrazzo";
   if (/same look can be repeated/i.test(prompt))
-    return /interior/.test(prompt)
+    return /"vanity"/.test(prompt)
+      ? '{"floor":"grey terrazzo in the dry zone, small grey mosaic in the shower","walls":"white zellige tiles to ceiling","ceiling":"white with a shadow-gap cornice","vanity":"walnut veneer, flat doors","worktop":"black marble","basin":"white ceramic oval","metal":"brushed brass taps, sconce and mirror frame","glass":"clear glass, thin brass frame","bath":"none","curtain":"white linen roller blind","grille":"black steel grille","lamps":"warm 3000K downlights and sconce, on"}'
+      : /interior/.test(prompt)
       ? '{"floor":"light oak planks","walls":"warm white lime plaster","ceiling":"white with a cove","joinery":"teak veneer","worktops":"grey terrazzo","fabrics":"natural linen","lamps":"warm 3000K downlights, on","time":"soft late afternoon daylight","outside":"tropical garden"}'
       : '{"facade":"board-formed concrete, warm grey","screens":"vertical teak louvers, 50 mm fins","roof":"dark grey standing-seam metal","glazing":"low-iron glass, black frames","ground":"light grey granite paving","time":"late afternoon, warm low sun","sky":"clear tropical sky, light cumulus","planting":"frangipani and palms","people":"two pedestrians, no cars"}';
   if (/exported from SketchUp/i.test(prompt))
