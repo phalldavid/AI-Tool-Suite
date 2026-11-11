@@ -2197,6 +2197,7 @@ async function setMaster(img: ImageData64, from?: HistoryItem): Promise<void> {
 async function readMaster(): Promise<void> {
   const lock = lockState();
   if (!lock.master) return;
+  if (!canAnalyse()) return toast("Master saved. Type the look into the slots yourself, or add a Kie or Gemini key in Settings to read it from the picture.");
   const raw = await analyse(slotReadPrompt(lock.kind), lock.master);
   if (!raw) return;
   const slots = parseSlots(raw, lock.kind);
