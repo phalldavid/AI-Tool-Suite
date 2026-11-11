@@ -83,8 +83,9 @@ import { hostTransport } from "./providers/kie";
 import { mockAnalysis } from "./providers/mock";
 import { buildStyleMatchPrompt, MATCH_STRENGTHS, TRANSFER_PARTS, type MatchStrength, type TransferPart } from "./style-match";
 import { buildFloorplanPrompt, DEFAULT_PLAN, PLAN_PRESETS, type CutHeight, type PlanOptions } from "./floorplan";
-import { copyImage as clipImage, copyText as clipText, imageFromTransfer, readClipboardImage } from "./handoff";
 import { buildSceneLockPrompt, EMPTY_LOCK, LOCK_KINDS, parseSlots, SCENE_LOCK_NAME, slotReadPrompt, slotsFor, sunLine, type LockKind, type SceneLock } from "./scene-lock";
+import { cleanMaster, localMaster, masterWriterPrompt, replyPrompt, STYLE_IDEAS } from "./master-prompt";
+import { copyImage as clipImage, copyText as clipText, imageFromTransfer, readClipboardImage } from "./handoff";
 import { AUTO_ANALYSE_PROMPT, buildAutoPrompt, parseAutoScan, type AutoScan } from "./auto-render";
 import type { Capture, HistoryItem, ImageData64, LightSummary, Preset, ProjectType, RenderSetup, ToolId } from "./types";
 
@@ -187,6 +188,12 @@ interface State {
   editMode: "spot" | "relight" | "match";
   /** A render handed to the user's own Gemini/ChatGPT tab (web app), waiting for its result. */
   handoff: { prompt: string; images: ImageData64[]; before: ImageData64 } | null;
+  /** Brief flow: the master prompt for one image and brief. edited = the user changed it. */
+  master: { for: ImageData64; brief: string; text: string; edited: boolean; byAi: boolean } | null;
+  /** Earlier results the reply box can go back to. */
+  replyUndo: ImageData64[];
+  /** The prompt that made the result on screen. */
+  lastPrompt: string;
   handoffOpen: boolean;
   /** Auto card: the JSON read from one capture, reused until the view changes. */
   autoScan: { for: ImageData64; scan: AutoScan; raw: string } | null;
@@ -231,6 +238,14 @@ export async function start(el: HTMLElement): Promise<void> {
   root = el;
   host = detectHost();
   const settings = await loadSettings(host);
+  // The brief flow became the main flow on 2026-11-11: switch it on once, with Nano Banana Pro.
+  if (!settings.briefDefaults) {
+    settings.briefDefaults = true;
+    settings.briefMode = true;
+    settings.sceneLockMode = false;
+    settings.kieModel = "nano-banana-pro";
+    await saveSettings(host, settings).catch(() => undefined);
+  }
   state = {
     tab: "render",
     settingsOpen: false,
@@ -253,7 +268,8 @@ export async function start(el: HTMLElement): Promise<void> {
     frameId: settings.frameId ?? "16:9",
     capturedFrameId: "",
     showFrame: true,
-    preset: settings.styleLock ? { ...settings.styleLock.preset } : { ...BUILT_IN_PRESETS[0] },
+    // No made-up look by default: the model's own design, until a style is picked.
+    preset: settings.styleLock ? { ...settings.styleLock.preset } : nonePreset("exterior"),
     notes: "",
     promptEdit: null,
     people: "",
@@ -286,6 +302,9 @@ export async function start(el: HTMLElement): Promise<void> {
     autoScan: null,
     handoff: null,
     handoffOpen: false,
+    master: null,
+    replyUndo: [],
+    lastPrompt: "",
     matchRef: null,
     matchParts: TRANSFER_PARTS.map((x) => x.id),
     matchStrength: "balanced",
@@ -1435,7 +1454,9 @@ function cropUpload(img: ImageData64, natural: { width: number; height: number }
 async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
   let img = await fileToImage(file);
   const natural = await imageSize(img);
-  const choice = await cropUpload(img, natural);
+  // The brief flow takes the picture as it is; crop only when asked to.
+  const noCrop = target === "render" && state.settings.briefMode && !state.settings.sceneLockMode;
+  const choice = noCrop ? null : await cropUpload(img, natural);
   if (choice) {
     img = await cropImage(img, choice.rect);
     if (target === "render") state.frameId = choice.frameId;
@@ -1448,7 +1469,7 @@ async function useUpload(file: File, target: "render" | "edit"): Promise<void> {
     return;
   }
   state.original = img;
-  const view = choice ? img : await cropToRatio(img, findFrame(state.frameId).ratio);
+  const view = choice || noCrop ? img : await cropToRatio(img, findFrame(state.frameId).ratio);
   state.capture = { view, source: "upload" };
   state.capturedFrameId = state.frameId;
   state.result = null;
@@ -1819,14 +1840,15 @@ function modeSwitch(): HTMLElement {
     { class: "mode-row" },
     segmented(
       [
-        { id: "quick", label: "Quick" },
+        { id: "brief", label: "Brief" },
         { id: "all", label: "All controls" },
         { id: "lock", label: SCENE_LOCK_NAME },
       ],
-      state.settings.sceneLockMode ? "lock" : state.settings.simple ? "quick" : "all",
+      state.settings.sceneLockMode ? "lock" : state.settings.briefMode ? "brief" : "all",
       async (v) => {
         state.settings.sceneLockMode = v === "lock";
-        if (v !== "lock") state.settings.simple = v === "quick";
+        state.settings.briefMode = v === "brief";
+        if (v === "all") state.settings.simple = false;
         state.promptEdit = null;
         await persist();
         render();
@@ -1930,6 +1952,7 @@ async function ensureAutoScan(): Promise<boolean> {
 
 function quickTab(body: HTMLElement): void {
   if (state.settings.sceneLockMode) return sceneLockBody(body);
+  if (state.settings.briefMode) return briefBody(body);
   if (state.settings.planMode) return planBody(body);
   const lock = state.settings.styleLock;
   body.append(modeSwitch());
@@ -1965,6 +1988,169 @@ function quickTab(body: HTMLElement): void {
       h("p", { class: "hint" }, "Lighting, people, cars, material lists and the prompt itself are under All controls. In Quick they are not sent."),
     ),
   );
+}
+
+// ---------- Brief → master prompt → render → reply (main flow) ----------
+
+/** The master prompt for this picture, if one was written for it. */
+function masterFor(cap: Capture | null): NonNullable<State["master"]> | null {
+  return cap && state.master?.for === cap.view ? state.master : null;
+}
+
+function masterFresh(): boolean {
+  const m = masterFor(state.capture);
+  return Boolean(m && (m.edited || m.brief === state.notes.trim()));
+}
+
+function briefTitle(): string {
+  const b = state.notes.trim().replace(/\s+/g, " ");
+  return b ? `Brief: ${b.length > 40 ? `${b.slice(0, 40)}…` : b}` : "Brief";
+}
+
+function canAnalyse(): boolean {
+  const s = state.settings;
+  return s.testMode || Boolean(s.kieKey.trim() || s.geminiKey.trim());
+}
+
+/** Reads the image with the brief and writes the master prompt. Without a key, the fixed template. */
+async function writeMaster(): Promise<boolean> {
+  const cap = state.capture;
+  if (!cap) {
+    toast("Paste, drop or upload an image first.", "error");
+    return false;
+  }
+  const brief = state.notes.trim();
+  if (!canAnalyse()) {
+    state.master = { for: cap.view, brief, text: localMaster(brief), edited: false, byAi: false };
+    render();
+    toast("No key for the AI writer, so a standard master prompt was used. Add a Kie or Gemini key to have it written from your image.");
+    return true;
+  }
+  const raw = await analyse(masterWriterPrompt(brief), cap.view);
+  if (!raw) return false;
+  state.master = { for: cap.view, brief, text: cleanMaster(raw), edited: false, byAi: true };
+  render();
+  toast("Master prompt written. Read it, change anything, then press Render.", "ok");
+  return true;
+}
+
+/** Brief flow: a master prompt that matches the image and brief, written first if needed. */
+async function ensureMaster(): Promise<boolean> {
+  if (!state.settings.briefMode || state.settings.sceneLockMode) return true;
+  if (masterFresh()) return true;
+  return writeMaster();
+}
+
+function briefBody(body: HTMLElement): void {
+  const m = masterFor(state.capture);
+  const fresh = masterFresh();
+  body.append(modeSwitch());
+  body.append(
+    section(
+      "Brief",
+      h("p", { class: "hint" }, host.kind === "sketchup"
+        ? "Capture the view (or paste or drop a picture), then say what you want in one line, in English or Khmer."
+        : "Paste (Ctrl+V), drop or upload a picture, then say what you want in one line, in English or Khmer."),
+      textarea(state.notes, "e.g. modern style at night, warm glow", 2, (v) => {
+        state.notes = v;
+        const st = document.getElementById("master-state");
+        const cur = masterFor(state.capture);
+        if (st && cur && !cur.edited) st.textContent = masterFresh() ? (cur.byAi ? "Written by the AI from your picture and brief. Change anything you like." : "Standard master prompt (no key for the AI writer).") : "The brief changed. Render writes a new master prompt first.";
+      }),
+      glassButton(),
+      fold(
+        section(
+          "Style ideas",
+          h("p", { class: "hint" }, "Each adds a few words to your brief."),
+          h("div", { class: "chips" },
+            STYLE_IDEAS.map((x) => chip(`+ ${x.label}`, state.notes.includes(x.text), () => {
+              if (state.notes.includes(x.text)) removeNote(x.text);
+              else state.notes = state.notes.trim() ? `${state.notes.trim().replace(/[.,;]$/, "")}, ${x.text}` : x.text;
+              render();
+            }, undefined, x.text)),
+            quickLooks(state.preset.projectType).map((p) => {
+              const text = `${p.name.toLowerCase()} look`;
+              return chip(`+ ${p.name}`, state.notes.includes(text), () => {
+                if (state.notes.includes(text)) removeNote(text);
+                else state.notes = state.notes.trim() ? `${state.notes.trim().replace(/[.,;]$/, "")}, ${text}` : text;
+                render();
+              });
+            }),
+          ),
+        ),
+        "brief-ideas",
+        "Night, golden hour, styles…",
+        false,
+      ),
+      h("div", { class: "row" },
+        button(m ? "Rewrite master prompt" : "Write master prompt", "wand", () => void writeMaster(), m ? "ghost" : "primary"),
+      ),
+    ),
+  );
+  const ta = h("textarea", { rows: 14, class: "prompt-edit master-edit", "aria-label": "Master prompt" }, m?.text ?? "") as HTMLTextAreaElement;
+  ta.addEventListener("input", () => {
+    const cur = masterFor(state.capture);
+    if (!cur) return;
+    cur.text = ta.value;
+    cur.edited = true;
+    const st = document.getElementById("master-state");
+    if (st) st.textContent = "Your edits are used as they are.";
+  });
+  body.append(
+    section(
+      "Master prompt",
+      m
+        ? h("div", {},
+            ta,
+            h("p", { id: "master-state", class: "hint" }, !fresh ? "The brief changed. Render writes a new master prompt first." : m.edited ? "Your edits are used as they are." : m.byAi ? "Written by the AI from your picture and brief. Change anything you like." : "Standard master prompt (no key for the AI writer)."),
+          )
+        : h("p", { class: "hint" }, "Press Write master prompt to read it before rendering, or just press Render: it is written first, then the image is made. It is saved with the render in History."),
+    ),
+  );
+}
+
+/** One line under the result to change something, with the same model. */
+function replyBox(): HTMLElement | null {
+  if (!state.result || !state.capture || state.settings.sceneLockMode) return null;
+  const input = h("input", { type: "text", class: "reply-input", placeholder: "Change something… e.g. lighter floor, turn the lamps off", "aria-label": "Change something" }) as HTMLInputElement;
+  const send = () => {
+    const v = input.value.trim();
+    if (v) void runReply(v);
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") send();
+  });
+  return h(
+    "div",
+    { class: "reply-box" },
+    input,
+    primaryButton("Change", "send", send, state.busy),
+    state.replyUndo.length ? iconButton("undo", "Undo the last change", () => {
+      const prev = state.replyUndo.pop()!;
+      state.result = prev;
+      state.results = [prev];
+      render();
+    }) : null,
+  );
+}
+
+async function runReply(change: string): Promise<void> {
+  const cap = state.capture;
+  const current = state.result;
+  if (!cap || !current) return;
+  const base = masterFor(cap)?.text ?? state.lastPrompt ?? "";
+  const prompt = replyPrompt(base, change);
+  if (handoffMode()) return openHandoff(prompt, [current], cap.view);
+  if (!isConnected()) {
+    openSettings();
+    return toast("Add a key in Settings to render", "error");
+  }
+  lastAction = () => runReply(change);
+  const size = await imageSize(current);
+  const raws = await runProviderMany(prompt, [current], nearestAspectRatio(size.width, size.height), 1);
+  if (!raws.length) return;
+  state.replyUndo.push(current);
+  await showRenders(raws, prompt, cap.view);
 }
 
 // ---------- Multi-View (scene lock): same look, new view ----------
@@ -2741,6 +2927,7 @@ async function addToQueue(): Promise<void> {
   }
   if (!lockReady()) return;
   if (!(await ensureAutoScan())) return;
+  if (!(await ensureMaster())) return;
   const size = await imageSize(cap.view);
   const label = cap.facts?.sceneName || `View ${queue.length + 1}`;
   queue.push({
@@ -2883,12 +3070,12 @@ function renderTab(main: HTMLElement): void {
   // Picture column and controls column. Stacked on phones and in the
   // SketchUp panel, side by side on a wide screen (see styles.css).
   main.classList.add("render-layout");
-  const pictureCol = h("div", { class: "picture-col" }, frameBar(), stage(), queue.length ? queueSection() : null);
+  const pictureCol = h("div", { class: "picture-col" }, frameBar(), stage(), replyBox(), queue.length ? queueSection() : null);
   const body = h("div", { class: "controls-col" });
   main.append(pictureCol, body);
   // Wide screens: the model list and the Render button share the left panel.
   if (WIDE.matches) main.prepend(h("div", { class: "model-col" }, modelSection(), renderBar()));
-  if (state.settings.simple || state.settings.planMode || state.settings.sceneLockMode) {
+  if (state.settings.simple || state.settings.planMode || state.settings.sceneLockMode || state.settings.briefMode) {
     quickTab(body);
     return;
   }
@@ -3079,7 +3266,12 @@ function addNote(text: string): void {
 }
 
 function removeNote(text: string): void {
-  state.notes = state.notes.replace(text, "").replace(/\s{2,}/g, " ").trim();
+  state.notes = state.notes
+    .replace(text, "")
+    .replace(/\s*,\s*,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .trim();
 }
 
 /** A quick button that adds "turn [colour] to glass" to the notes; the colour is picked beside it. */
@@ -3251,6 +3443,7 @@ function renderBar(): HTMLElement {
 function currentRenderPrompt(): string {
   const st = state.settings;
   if (st.sceneLockMode) return buildSceneLockPrompt(lockState(), state.capture?.facts, state.notes);
+  if (st.briefMode) return masterFor(state.capture)?.text ?? localMaster(state.notes);
   if (st.planMode) return buildFloorplanPrompt({ ...planOptions(), notes: state.notes });
   if (state.preset.id === "auto") {
     const scan = autoScanFor(state.capture);
@@ -3284,6 +3477,7 @@ function currentRenderPrompt(): string {
 
 /** Images a render sends: the view, its line pass and the reference. A plan sends the plan alone. */
 function renderImages(cap: Capture): ImageData64[] {
+  if (state.settings.briefMode && !state.settings.sceneLockMode) return [cap.view];
   if (state.settings.sceneLockMode) {
     const master = lockState().master;
     return master ? [cap.view, master] : [cap.view];
@@ -3302,6 +3496,7 @@ function activeReference(): ImageData64 | null {
 
 /** The prompt the next render sends: the user's own edit, or the built one. */
 function renderPrompt(): string {
+  if (state.settings.briefMode && !state.settings.sceneLockMode) return currentRenderPrompt();
   return ((!state.settings.simple || state.settings.sceneLockMode) && state.promptEdit) || currentRenderPrompt();
 }
 
@@ -3680,6 +3875,7 @@ const historyIds = new WeakMap<ImageData64, string>();
 /** Everything a render was made with, for History's "Use this setup". */
 /** What a render is filed under: the style preset, or the plan preset in Plan mode. */
 function renderPreset(): Preset {
+  if (state.settings.briefMode && !state.settings.sceneLockMode) return { ...nonePreset(state.preset.projectType), id: "brief", name: briefTitle() };
   if (state.settings.sceneLockMode) return lockPreset(state.capture?.facts?.sceneName);
   if (!state.settings.planMode) return { ...state.preset };
   const o = planOptions();
@@ -3777,6 +3973,7 @@ async function runRender(keep = false): Promise<void> {
   }
   if (!lockReady()) return;
   if (!(await ensureAutoScan())) return;
+  if (!(await ensureMaster())) return;
   const prompt = renderPrompt();
   const images = renderImages(cap);
   if (handoffMode()) return openHandoff(prompt, images, cap.view);
@@ -3993,23 +4190,46 @@ function takesResults(): boolean {
   return (state.handoffOpen && Boolean(state.handoff)) || state.tab === "history";
 }
 
+// On the Render tab (no sheet open), a pasted or dropped picture becomes the view to render.
+function takesView(): boolean {
+  return state.tab === "render" && !state.handoffOpen && !anySheetOpen() && !state.busy;
+}
+
+function imageFile(dt: DataTransfer | null): File | null {
+  return [...(dt?.files ?? [])].find((f) => f.type.startsWith("image/")) ?? null;
+}
+
 document.addEventListener("paste", async (e) => {
-  if (!takesResults() || typingIn(e.target)) return;
-  const img = await imageFromTransfer(e.clipboardData);
-  if (!img) return;
-  e.preventDefault();
-  await importResult(img);
+  if (typingIn(e.target)) return;
+  if (takesResults()) {
+    const img = await imageFromTransfer(e.clipboardData);
+    if (!img) return;
+    e.preventDefault();
+    await importResult(img);
+  } else if (takesView()) {
+    const f = imageFile(e.clipboardData);
+    if (!f) return;
+    e.preventDefault();
+    await useUpload(f, "render");
+    toast("Image pasted. Write your brief and press Render.", "ok");
+  }
 });
 
 document.addEventListener("dragover", (e) => {
-  if (takesResults() && [...(e.dataTransfer?.types ?? [])].includes("Files")) e.preventDefault();
+  if ((takesResults() || takesView()) && [...(e.dataTransfer?.types ?? [])].includes("Files")) e.preventDefault();
 });
 
 document.addEventListener("drop", async (e) => {
-  if (!takesResults()) return;
+  if (!takesResults() && !takesView()) return;
   e.preventDefault();
-  const img = await imageFromTransfer(e.dataTransfer);
-  if (img) await importResult(img);
+  if (takesResults()) {
+    const img = await imageFromTransfer(e.dataTransfer);
+    if (img) await importResult(img);
+    else toast("Drop an image file (PNG or JPG).", "error");
+    return;
+  }
+  const f = imageFile(e.dataTransfer);
+  if (f) await useUpload(f, "render");
   else toast("Drop an image file (PNG or JPG).", "error");
 });
 
@@ -4021,6 +4241,7 @@ async function showRenders(raws: ImageData64[], prompt: string, before: ImageDat
   const outs: ImageData64[] = [];
   for (const raw of raws) outs.push(frame.ratio && !isListed(frame.id) ? await cropToRatio(raw, frame.ratio) : raw);
   if (outs.length) {
+    state.lastPrompt = prompt;
     state.results = keep ? [...state.results, ...outs] : outs;
     state.result = outs[0];
     const analysis = state.preset.id === "auto" && !state.settings.planMode ? state.autoScan?.raw : undefined;
