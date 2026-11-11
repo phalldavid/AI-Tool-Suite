@@ -1,0 +1,109 @@
+// One small store for the whole app. Components read slices with useApp().
+
+import { useSyncExternalStore } from "react";
+import type { Capture, HistoryItem, ImageData64, Preset } from "./core/types";
+import type { Settings } from "./core/settings";
+import { DEFAULT_SETTINGS } from "./core/settings";
+import type { Host } from "./core/host";
+import type { KeyCheck } from "./lib/status";
+import type { CameraMove } from "./lib/camera";
+import type { LintResult } from "./lib/lint";
+
+export type Tab = "render" | "result" | "history" | "sun" | "camera";
+
+export interface SunState {
+  mode: "time" | "free" | "sketchup";
+  /** Light direction relative to the camera, 0..359 (Free mode). */
+  toCamera: number;
+  elevation: number;
+  /** Where north sits on the ring, 0..359, set once per view. */
+  north: number;
+  dayOfYear: number;
+  /** Use the ring's exact direction in the prompt (else the dial's time words). */
+  exact: boolean;
+}
+
+export interface Version {
+  image: ImageData64;
+  label: string;
+  prompt: string;
+  historyId?: string;
+}
+
+export interface Busy {
+  label: string;
+  since: number;
+  typical: number;
+}
+
+export interface ReviewState {
+  prompt: string;
+  lint: LintResult;
+  images: ImageData64[];
+  aspectRatio: string;
+  kind: "render" | "edit" | "view";
+}
+
+export interface AppState {
+  host: Host;
+  settings: Settings;
+  ready: boolean;
+  tab: Tab;
+  capture: Capture | null;
+  captureName: string;
+  preset: Preset;
+  /** Building-type words removed from the preset this time, shown in Review. */
+  frameId: string;
+  portrait: boolean;
+  /** Sun dial clock time, 5.5..19.5 */
+  hour: number;
+  /** Lighting card picked; "time" = the dial drives it. */
+  lighting: string;
+  sun: SunState;
+  camera: CameraMove;
+  notes: string;
+  moreOpen: boolean;
+  keyCheck: KeyCheck;
+  kieCredits: number | null;
+  busy: Busy | null;
+  before: ImageData64 | null;
+  versions: Version[];
+  activeVersion: number;
+  history: HistoryItem[];
+  review: ReviewState | null;
+  handoff: { prompt: string; images: ImageData64[]; before: ImageData64 } | null;
+  dialog: null | "settings" | "palette" | "confirm-cost" | "import";
+  customiseOpen: boolean;
+  dragging: boolean;
+  /** Bumped whenever a spot-edit selection changes. */
+  paintRev: number;
+}
+
+type Listener = () => void;
+let state: AppState;
+const listeners = new Set<Listener>();
+
+export function initStore(initial: AppState): void {
+  state = initial;
+}
+
+export function getState(): AppState {
+  return state;
+}
+
+export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)): void {
+  const next = typeof patch === "function" ? patch(state) : patch;
+  state = { ...state, ...next };
+  for (const l of listeners) l();
+}
+
+export function subscribe(l: Listener): () => void {
+  listeners.add(l);
+  return () => listeners.delete(l);
+}
+
+export function useApp<T>(select: (s: AppState) => T): T {
+  return useSyncExternalStore(subscribe, () => select(state), () => select(state));
+}
+
+export const EMPTY_SETTINGS = DEFAULT_SETTINGS;

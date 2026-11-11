@@ -1,0 +1,194 @@
+// User settings, stored through the host.
+
+import type { Host } from "./host";
+import type { DynValues } from "./dynamic";
+import { DEFAULT_AVOID, type FixtureSettings, type RenderLook } from "./prompt";
+import type { ImageData64, Preset, ProjectType } from "./types";
+import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "./providers/gemini";
+import { ComfyProvider } from "./providers/comfyui";
+import { BrowserProvider } from "./providers/browser";
+import { fetchTransport, hostTransport, KieProvider } from "./providers/kie";
+import { DEFAULT_KIE_MODEL, type KieResolution } from "./providers/kie-models";
+import type { Provider } from "./providers/types";
+import { MockProvider } from "./providers/mock";
+import type { PlanOptions } from "./floorplan";
+import type { SceneLock } from "./scene-lock";
+
+export interface Settings {
+  /** "browser" renders through the user's own signed-in chat site, no API key. */
+  /** "kie" renders through the user's own Kie.ai key (Nano Banana, GPT Image, Seedream). */
+  backend: "gemini" | "comfyui" | "browser" | "kie";
+  browserSite: BrowserSite;
+  geminiKey: string;
+  geminiModel: string;
+  /** The user's own Kie.ai key. Kept in settings on this computer only, never in history or presets. */
+  kieKey: string;
+  kieModel: string;
+  kieResolution: KieResolution;
+  comfyUrl: string;
+  comfyWorkflow: string;
+  captureSize: number;
+  linePass: boolean;
+  /** Last chosen render frame (aspect ratio) id. */
+  frameId?: string;
+  userPresets: Preset[];
+  /** Dynamic prompt generator values, by generator id. */
+  dynamic: Record<string, DynValues>;
+  /** How strictly renders follow the line drawing, 0..1. */
+  lineStrength: number;
+  theme: "dark" | "light";
+  accent: string;
+  font: string;
+  lang: "en" | "km";
+  /** Own accent colour, used when accent is "custom". */
+  accentCustom: string;
+  /** Light fixtures switched on in the scene. */
+  fixtures: FixtureSettings;
+  /** First-run setup finished. */
+  onboarded: boolean;
+  /** Spot edits send only the painted image. */
+  singleImage: boolean;
+  /** Photo or 3D render look. */
+  look: RenderLook;
+  materialLock: boolean;
+  boundaryLock: boolean;
+  /** "Avoid:" list added to the end of every render prompt. */
+  avoid: string;
+  /** Images per render, 1 to 4 (each one is billed). */
+  imageCount: number;
+  /** Quick render: starter looks and one button; everything else is under All controls. */
+  simple: boolean;
+  /** Project look reused for every view until unlocked. */
+  styleLock: StyleLock | null;
+  /** Last style, model and frame used for each scene type, restored when switching back. */
+  lastSetup: Partial<Record<ProjectType, SceneSetup>>;
+  /** Preset ids starred by the user; shown first in Quick mode. */
+  favorites: string[];
+  /** The three-step first-run tour has been shown. */
+  tourDone: boolean;
+  /** Current project (job) name; new renders are filed under it. Empty = none. */
+  project: string;
+  /** Project names the user has made, newest first. */
+  projects: string[];
+  /** Admin test mode: renders are sample images, no key or credits used. */
+  testMode?: boolean;
+  /** Kie model for the Edit tab ("" = same as Render). Cheap Seedream by default. */
+  editModel?: string;
+  /** Render tab makes a 3D floor plan from a 2D plan instead of a normal render. */
+  planMode?: boolean;
+  plan?: PlanOptions;
+  /** SceneLock mode: a new view rendered with a master render's look. */
+  sceneLockMode?: boolean;
+  sceneLock?: SceneLock;
+  /** Colour the "Turn … to glass" button names (David models glass in a bright colour). */
+  glassColour?: string;
+  /** Brief → master prompt → render → reply: the main Render flow. */
+  briefMode?: boolean;
+  /** Set once the brief flow's defaults (mode on, Nano Banana Pro) were applied. */
+  briefDefaults?: boolean;
+}
+
+export interface SceneSetup {
+  preset: Preset;
+  kieModel: string;
+  frameId: string;
+}
+
+/**
+ * One look for a whole project, so every view of it matches: the preset
+ * (materials, sky, surroundings), photo or 3D look, the material list and a
+ * reference image, usually an approved render of the project.
+ */
+export interface StyleLock {
+  preset: Preset;
+  look: RenderLook;
+  dna: string[];
+  /** Kept small (JPEG, 768 px) so settings stay light. */
+  reference: ImageData64 | null;
+  referenceIsRender: boolean;
+  savedAt: string;
+}
+
+export type BrowserSite = "gemini" | "chatgpt" | "flow";
+
+export const BROWSER_SITES: { id: BrowserSite; label: string; url: string }[] = [
+  { id: "gemini", label: "Gemini", url: "https://gemini.google.com/app" },
+  { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/" },
+  { id: "flow", label: "Google Flow", url: "https://labs.google/fx/tools/flow" },
+];
+
+export const DEFAULT_SETTINGS: Settings = {
+  backend: "gemini",
+  geminiKey: "",
+  geminiModel: DEFAULT_GEMINI_MODEL,
+  kieKey: "",
+  kieModel: "nano-banana-pro",
+  kieResolution: "2K",
+  comfyUrl: "http://127.0.0.1:8188",
+  comfyWorkflow: "",
+  captureSize: 1600,
+  linePass: true,
+  userPresets: [],
+  dynamic: {},
+  lineStrength: 0.85,
+  theme: "dark",
+  accent: "amber",
+  font: "system",
+  lang: "en",
+  accentCustom: "#e0679b",
+  fixtures: { exterior: null, led: false, strip: false, cabinet: false, kelvin: 3000 },
+  onboarded: false,
+  singleImage: true,
+  look: "photo",
+  materialLock: false,
+  boundaryLock: false,
+  avoid: DEFAULT_AVOID,
+  imageCount: 1,
+  simple: true,
+  styleLock: null,
+  lastSetup: {},
+  favorites: [],
+  tourDone: false,
+  project: "",
+  projects: [],
+  browserSite: "gemini",
+  // Edits are cheap on Seedream 5 Flash; Render keeps its own model.
+  editModel: "seedream/5-flash-image-to-image",
+};
+
+const KEY = "settings";
+const LEGACY_GEMINI_MODEL = "gemini-2.5-flash-image";
+
+export async function loadSettings(host: Host): Promise<Settings> {
+  try {
+    const raw = await host.getSetting(KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    const saved = JSON.parse(raw) as Partial<Settings>;
+    const s = { ...DEFAULT_SETTINGS, ...saved, fixtures: { ...DEFAULT_SETTINGS.fixtures, ...(saved.fixtures ?? {}) } };
+    // People who set up a backend before first-run setup existed skip it.
+    if (saved.onboarded === undefined) s.onboarded = Boolean(saved.geminiKey || saved.kieKey || (saved.backend && saved.backend !== "gemini"));
+    // The old default image model is retired; move people who never changed it.
+    if (s.geminiModel === LEGACY_GEMINI_MODEL) s.geminiModel = DEFAULT_GEMINI_MODEL;
+    return s;
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+export async function saveSettings(host: Host, s: Settings): Promise<void> {
+  await host.setSetting(KEY, JSON.stringify(s));
+}
+
+export function makeProvider(s: Settings, host?: Host): Provider & { modelName?: string } {
+  if (s.testMode) return new MockProvider();
+  if (s.backend === "browser" && host) {
+    const site = BROWSER_SITES.find((x) => x.id === s.browserSite) ?? BROWSER_SITES[0];
+    return new BrowserProvider(host, site.id, site.label);
+  }
+  if (s.backend === "kie") {
+    const transport = host && host.kind === "sketchup" ? hostTransport(host) : fetchTransport;
+    return new KieProvider(s.kieKey.trim(), s.kieModel, s.kieResolution, transport);
+  }
+  if (s.backend === "comfyui") return new ComfyProvider(s.comfyUrl, s.comfyWorkflow);
+  return new GeminiProvider(s.geminiKey.trim(), s.geminiModel.trim() || DEFAULT_GEMINI_MODEL);
+}

@@ -1,0 +1,44 @@
+const P: Record<string, string> = {
+  search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-3.5-3.5",
+  sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
+  moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
+  palette: "M12 3a9 9 0 1 0 0 18c1 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.4-4-8-9-8zM7.5 11.5h.01M10.5 7.5h.01M15.5 8.5h.01",
+  settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+  check: "M5 12l5 5L20 7",
+  lock: "M7 11V7a5 5 0 0 1 10 0v4M5 11h14v10H5z",
+  trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13",
+  camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  swap: "M7 4v16M7 4L3 8M7 4l4 4M17 20V4M17 20l-4-4M17 20l4-4",
+  image: "M3 5h18v14H3zM9 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM21 16l-5-5-9 8",
+  plus: "M12 5v14M5 12h14",
+  close: "M6 6l12 12M18 6L6 18",
+  back: "M15 18l-6-6 6-6",
+  chevron: "M6 9l6 6 6-6",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
+  undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
+  redo: "M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3",
+  compare: "M12 3v18M5 7l-3 5 3 5M19 7l3 5-3 5",
+  brush: "M18.4 2.6a2 2 0 0 1 2.9 2.9L11 15.8l-3-3zM8 12.8c-2 0-3.5 1.6-3.5 3.6 0 1.5-.8 2.6-2 3.1 1 .9 2.6 1.5 4.3 1.5 2.7 0 4.7-2 4.7-4.6",
+  rect: "M4 4h4M12 4h4M20 4v4M20 12v4M20 20h-4M12 20H8M4 20v-4M4 12V8",
+  lasso: "M7 17.5C4.3 16.3 3 14.5 3 12.5 3 8.4 7 5 12 5s9 3.4 9 7.5-4 7.5-9 7.5c-1 0-2-.1-3-.4M8 17c0 1.7-1 3-2.5 3.5",
+  eraser: "M20 20H8.5L3.6 15.1a2 2 0 0 1 0-2.8L13 2.9a2 2 0 0 1 2.8 0l4.3 4.3a2 2 0 0 1 0 2.8L11 19M7 11l6 6",
+  view: "M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  expand: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7",
+  star: "M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z",
+  aperture: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3v4M12 17v4M3 12h4M17 12h4",
+  history: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 3",
+  clipboard: "M9 4h6v3H9zM7 5H5v16h14V5h-2",
+  external: "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
+  info: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.01",
+  warn: "M12 3l10 18H2zM12 10v5M12 18v.01",
+  cube: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
+};
+
+export function Icon({ name, size = 16, stroke = 2, className, style }: { name: string; size?: number; stroke?: number; className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className} style={{ flex: "none", ...style }}>
+      <path d={P[name] ?? P.info} />
+    </svg>
+  );
+}

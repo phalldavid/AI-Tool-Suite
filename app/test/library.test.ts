@@ -1,0 +1,30 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { EXT_STYLES, EXT_TYPES, filterLibrary, INT_STYLES, libraryItems, ROOMS } from "../src/core/library";
+import { BUILT_IN_PRESETS } from "../src/core/presets";
+
+test("library ids are unique and every room has every style", () => {
+  const all = libraryItems();
+  assert.equal(new Set(all.map((x) => x.id)).size, all.length);
+  assert.equal(filterLibrary("interior", "all", "kitchen").length, INT_STYLES.length);
+  assert.equal(filterLibrary("exterior", "modern", "all").length, EXT_TYPES.length);
+  assert.ok(ROOMS.length >= 40);
+  assert.ok(all.length > BUILT_IN_PRESETS.length + EXT_STYLES.length * EXT_TYPES.length);
+});
+
+test("featured keeps the hand-written presets; search crosses tabs", () => {
+  assert.ok(filterLibrary("exterior", "featured", "all").every((x) => x.styleId === "featured"));
+  const found = filterLibrary("exterior", "all", "all", "japandi kitchen".split(" ")[1]);
+  assert.ok(found.some((x) => x.projectType === "interior"));
+  const p = libraryItems().find((x) => x.id === "int-bathroom-japandi")!;
+  assert.match(p.style, /walk-in shower/);
+  assert.match(p.style, /Japandi/);
+});
+
+test("library search matches every word in any order", () => {
+  const a = filterLibrary("exterior", "all", "all", "kitchen japandi");
+  assert.ok(a.length > 0);
+  assert.deepEqual(a.map((x) => x.id).sort(), filterLibrary("exterior", "all", "all", "japandi, kitchen").map((x) => x.id).sort());
+  assert.ok(filterLibrary("exterior", "all", "all", "bathroom scandi").length > 0);
+  assert.equal(filterLibrary("exterior", "all", "all", "kitchen zzzz").length, 0);
+});
