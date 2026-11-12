@@ -99,7 +99,7 @@ export const CONTEXT_GROUPS: ContextGroup[] = [
   },
   {
     id: "masterplan",
-    label: "Masterplan view",
+    label: "Aerial view",
     tag: "Aerial",
     colors: ["#1a2430", "#4f6b82", "#c6d3dc"],
     items: [

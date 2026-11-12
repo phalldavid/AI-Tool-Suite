@@ -558,3 +558,32 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .envsheet-strip { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; }
 .envsheet-strip img, .envsheet-strip .ph { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--raised); display: block; }
 @media (max-width: 700px) { .envsheet-strip { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+/* ---------- sliding pills: one spring for every pill group ---------- */
+.tabs2, .tabs3, .refine, .tools4 { --sl-bg: var(--accent); --sl-r: 999px; }
+.tools4 { --sl-r: 10px; }
+.seg-mini, .nav { --sl-bg: var(--text); --sl-r: 999px; }
+.seg-img { --sl-bg: var(--on-image); --sl-r: 999px; }
+.slide { position: relative; isolation: isolate; }
+.slide::before { content: ""; position: absolute; left: 0; top: 0; z-index: 0; width: var(--sl-w, 0); height: var(--sl-h, 0); transform: translate(var(--sl-x, 0), var(--sl-y, 0)); border-radius: var(--sl-r); background: var(--sl-bg); opacity: var(--sl-o, 0); pointer-events: none; }
+.slide.refine::before { box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent); }
+.slide.slide-ready::before { transition: transform 280ms cubic-bezier(0.3, 1.4, 0.5, 1), width 280ms cubic-bezier(0.3, 1.4, 0.5, 1), height 280ms cubic-bezier(0.3, 1.4, 0.5, 1), opacity 160ms; }
+.slide > * { position: relative; z-index: 1; }
+.slide > [aria-checked="true"], .slide > [aria-selected="true"], .slide > [aria-pressed="true"]:not(.swap), .slide > [aria-current="page"] { background: transparent !important; }
+.slide > button { transition: color 220ms; }
+.dragging .slide::before { transition: none; }
+
+/* ---------- sun dial: plaster arch, grows while dragging ---------- */
+.dial .arch { stroke-width: 7; transition: stroke-width 220ms var(--ease); }
+.dial .trail { stroke-width: 3; transition: stroke-width 220ms var(--ease); }
+.dial .sun { transform: scale(1); transition: transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1); }
+.dial.active .arch { stroke-width: 9; }
+.dial.active .trail { stroke-width: 6; }
+.dial.active .sun { transform: scale(1.3); }
+.dial.active { cursor: grabbing; }
+
+/* ---------- library footer ---------- */
+.lib-foot { flex-wrap: wrap; gap: 10px; }
+.lib-foot .own { flex: 1 1 260px; min-width: 0; max-width: 460px; border-radius: 999px; }
+.lib-foot .count { color: var(--muted); white-space: nowrap; }
+.btn.big { padding: 12px 26px; font-size: 15px; font-weight: 700; border-radius: 999px; }

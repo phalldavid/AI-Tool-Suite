@@ -3,6 +3,7 @@ import { App } from "./App";
 import { initStore } from "./store";
 import { checkKey, init, updateSettings } from "./actions";
 import { applyPrefs, watchPrefs } from "./prefs";
+import { initSlidingPills } from "./ui/slide";
 
 applyPrefs();
 watchPrefs();
@@ -15,6 +16,7 @@ void (async () => {
   }
   initStore(state);
   createRoot(document.getElementById("root")!).render(<App />);
+  initSlidingPills();
   void updateSettings({});
   void checkKey();
 })();

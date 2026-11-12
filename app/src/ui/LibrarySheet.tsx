@@ -12,7 +12,15 @@ import type { ProjectType } from "../core/types";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 import { useEnvTiles } from "./EnvPicturesSheet";
+import { useLookTiles } from "./EnvPicturesSheet";
 import { envMadeCount, envPicture } from "../lib/envPreviews";
+import { lookTile } from "../lib/lookPreviews";
+import { useDev } from "../lib/dev";
+
+/** A look card's picture: shipped with the app, else made on this computer. */
+function lookPic(x: LibItem): string | null {
+  return previewFile(x.id) ?? lookTile(x);
+}
 
 const CATS: { id: ProjectType; label: string }[] = [
   { id: "exterior", label: "Exterior" },
@@ -36,7 +44,7 @@ function styleName(x: LibItem): string {
 function folderPic(type: ProjectType, subject: string | null): string | null {
   for (const x of libraryItems()) {
     if (x.projectType !== type || (subject ? x.subjectId !== subject : false)) continue;
-    const p = previewFile(x.id);
+    const p = lookPic(x);
     if (p) return p;
   }
   return null;
@@ -70,24 +78,36 @@ function Card({ label, sub, pic, on, onClick, colors }: { label: string; sub?: s
 }
 
 function LookBrowser({ close }: { close: () => void }) {
+  useLookTiles();
+  const dev = useDev();
+  const [words, setWords] = useState("");
   const preset = useApp((s) => s.preset);
   const favorites = useApp((s) => s.settings.favorites);
   const [level, setLevel] = useState<Level>(() => (preset.projectType === "sketch" ? { type: "sketch", subject: "all" } : { type: preset.projectType, subject: "all" }));
   const [q, setQ] = useState("");
   const current = libraryItems().find((x) => x.id === preset.id);
-  const use = (x: LibItem) => {
-    setState((s) => ({ preset: { ...lookPreset(x.id), lighting: s.preset.lighting, environment: x.projectType === s.preset.projectType ? s.preset.environment : x.environment } }));
+  const [picked, setPicked] = useState<string>(preset.id);
+  const apply = () => {
+    const x = libraryItems().find((i) => i.id === picked);
+    const own = words.trim();
+    if (x) {
+      setState((s) => {
+        const base = lookPreset(x.id);
+        return { preset: { ...base, style: own ? `${base.style}, ${own}` : base.style, lighting: s.preset.lighting, environment: x.projectType === s.preset.projectType ? s.preset.environment : x.environment } };
+      });
+    } else if (own) setState((s) => ({ preset: { ...s.preset, style: `${s.preset.style}, ${own}` } }));
     close();
   };
+  const use = (x: LibItem) => setPicked(x.id);
   const star = (id: string) => void updateSettings({ favorites: favorites.includes(id) ? favorites.filter((x) => x !== id) : [id, ...favorites] });
 
   let title = "Browse all";
   let back: (() => void) | null = null;
   let body: React.ReactNode;
-  const words = q.trim();
-  if (words) {
-    const list = filterLibrary("exterior", "all", "all", words).slice(0, 240);
-    body = list.length ? <div className="lib-grid">{list.map((x) => <StyleCell key={x.id} x={x} on={x.id === preset.id} fav={favorites.includes(x.id)} onUse={use} onStar={star} />)}</div> : <p className="note">Nothing matches. Try a room, a building or a style, e.g. kitchen, villa, Khmer.</p>;
+  const typed = q.trim();
+  if (typed) {
+    const list = filterLibrary("exterior", "all", "all", typed).slice(0, 240);
+    body = list.length ? <div className="lib-grid">{list.map((x) => <StyleCell key={x.id} x={x} on={x.id === picked} fav={favorites.includes(x.id)} onUse={use} onStar={star} />)}</div> : <p className="note">Nothing matches. Try a room, a building or a style, e.g. kitchen, villa, Khmer.</p>;
   } else if (level.type === "home") {
     body = (
       <div className="lib-grid big">
@@ -105,12 +125,12 @@ function LookBrowser({ close }: { close: () => void }) {
       title = "Starred";
       back = () => setLevel({ type: "home" });
       const list = favorites.map((id) => libraryItems().find((x) => x.id === id)).filter((x): x is LibItem => Boolean(x));
-      body = list.length ? <div className="lib-grid">{list.map((x) => <StyleCell key={x.id} x={x} on={x.id === preset.id} fav onUse={use} onStar={star} />)}</div> : <p className="note">Nothing starred yet. Tap the star on any style to keep it here and first in the Look row.</p>;
+      body = list.length ? <div className="lib-grid">{list.map((x) => <StyleCell key={x.id} x={x} on={x.id === picked} fav onUse={use} onStar={star} />)}</div> : <p className="note">Nothing starred yet. Tap the star on any style to keep it here and first in the Look row.</p>;
     } else if (type === "sketch" || level.subject !== "all") {
       const subj = subjectsOf(type).find((s) => s.id === level.subject);
       title = type === "sketch" ? cat : `${cat} · ${subj?.label ?? ""}`;
       const list = type === "sketch" ? filterLibrary("sketch", "all", "all") : filterLibrary(type, "all", level.subject);
-      body = <div className="lib-grid">{list.map((x) => <StyleCell key={x.id} x={x} label={type === "sketch" ? undefined : styleName(x)} on={x.id === preset.id} fav={favorites.includes(x.id)} onUse={use} onStar={star} />)}</div>;
+      body = <div className="lib-grid">{list.map((x) => <StyleCell key={x.id} x={x} label={type === "sketch" ? undefined : styleName(x)} on={x.id === picked} fav={favorites.includes(x.id)} onUse={use} onStar={star} />)}</div>;
     } else {
       title = cat;
       const subjects = subjectsOf(type);
@@ -131,7 +151,7 @@ function LookBrowser({ close }: { close: () => void }) {
           {featured.length ? (
             <section className="lib-group">
               <h3>Featured</h3>
-              <div className="lib-grid">{featured.map((x) => <StyleCell key={x.id} x={x} on={x.id === preset.id} fav={favorites.includes(x.id)} onUse={use} onStar={star} />)}</div>
+              <div className="lib-grid">{featured.map((x) => <StyleCell key={x.id} x={x} on={x.id === picked} fav={favorites.includes(x.id)} onUse={use} onStar={star} />)}</div>
             </section>
           ) : null}
         </>
@@ -141,12 +161,12 @@ function LookBrowser({ close }: { close: () => void }) {
   return (
     <>
       <div className="sheet-head">
-        {back && !words ? (
+        {back && !typed ? (
           <button type="button" className="icon-btn" aria-label="Back" onClick={back}>
             <Icon name="back" />
           </button>
         ) : null}
-        <h2>{words ? "Search" : title}</h2>
+        <h2>{typed ? "Search" : title}</h2>
         <button type="button" className="icon-btn close" aria-label="Close" onClick={close}>
           <Icon name="close" />
         </button>
@@ -156,8 +176,18 @@ function LookBrowser({ close }: { close: () => void }) {
         <input type="search" className="input" placeholder="Search, e.g. kitchen, shophouse, Khmer" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search styles" autoFocus />
       </div>
       <div className="sheet-body thin">{body}</div>
-      <div className="sheet-foot">
-        <small style={{ color: "var(--muted)" }}>{level.type === "home" && !words ? "Pick a category, then a building or room, then a style." : "Tap a style to use it. The star keeps it first in the Look row."}</small>
+      <div className="sheet-foot lib-foot">
+        <input className="input own" value={words} onChange={(e) => setWords(e.target.value)} placeholder="Your own words (optional), e.g. darker timber, more glass" aria-label="Your own words for the look" />
+        {dev ? (
+          <button type="button" className="btn ghost" title="Developer: make or update the pictures" onClick={() => setState({ libOpen: "look-pics" })}>
+            <Icon name="image" /> Pictures
+          </button>
+        ) : null}
+        <div className="end">
+          <button type="button" className="btn primary big" onClick={apply}>
+            <Icon name="check" /> Use
+          </button>
+        </div>
       </div>
     </>
   );
@@ -166,7 +196,7 @@ function LookBrowser({ close }: { close: () => void }) {
 function StyleCell({ x, label, on, fav, onUse, onStar }: { x: LibItem; label?: string; on: boolean; fav: boolean; onUse: (x: LibItem) => void; onStar: (id: string) => void }) {
   return (
     <div style={{ position: "relative" }}>
-      <Card label={label ?? x.name} pic={previewFile(x.id)} colors={x.colors} on={on} onClick={() => onUse(x)} />
+      <Card label={label ?? x.name} pic={lookPic(x)} colors={x.colors} on={on} onClick={() => onUse(x)} />
       <button type="button" className={`look-star${fav ? " on" : ""}`} aria-pressed={fav} aria-label={fav ? `Unstar ${x.name}` : `Star ${x.name}`} onClick={() => onStar(x.id)}>
         <Icon name="star" size={13} />
       </button>
@@ -176,26 +206,67 @@ function StyleCell({ x, label, on, fav, onUse, onStar }: { x: LibItem; label?: s
 
 function EnvBrowser({ close }: { close: () => void }) {
   useEnvTiles();
+  const dev = useDev();
   const preset = useApp((s) => s.preset);
   const [picks, setPicks] = useState<string[]>(() => parseContexts(preset.environment));
   const [own, setOwn] = useState("");
   const [q, setQ] = useState("");
+  const [group, setGroup] = useState<string | null>(null);
   useEffect(() => setPicks(parseContexts(preset.environment)), [preset.environment]);
-  const words = q.trim().toLowerCase();
-  const groups = useMemo(
-    () => CONTEXT_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !words || `${i.label} ${i.sub} ${i.text}`.toLowerCase().includes(words)) })).filter((g) => g.items.length),
-    [words],
+  const typed = q.trim().toLowerCase();
+  const found = useMemo(
+    () => (typed ? CONTEXT_GROUPS.flatMap((g) => g.items.filter((i) => `${i.label} ${i.sub} ${i.text} ${g.label}`.toLowerCase().includes(typed)).map((i) => ({ i, g }))) : []),
+    [typed],
   );
   const toggle = (id: string) => setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  const apply = () => {
-    const all = own.trim() ? [...picks, `custom:${own.trim()}`] : picks;
+  const apply = (list: string[]) => {
+    const all = own.trim() ? [...list, `custom:${own.trim()}`] : list;
     setState((s) => ({ preset: { ...s.preset, environment: joinContexts(all) } }));
     close();
   };
+  const g = CONTEXT_GROUPS.find((x) => x.id === group);
+  const hero = (gid: string) => {
+    const gr = CONTEXT_GROUPS.find((x) => x.id === gid)!;
+    for (const i of gr.items) {
+      const p = envPicture(i.id);
+      if (p) return p;
+    }
+    return null;
+  };
+  let body: React.ReactNode;
+  if (typed) {
+    body = found.length ? (
+      <div className="lib-grid">
+        {found.map(({ i, g: gr }) => <Card key={i.id} label={i.label} sub={i.sub} pic={envPicture(i.id)} colors={gr.colors} on={picks.includes(i.id)} onClick={() => toggle(i.id)} />)}
+      </div>
+    ) : (
+      <p className="note">Nothing matches. Try river, borey, pagoda or Kampot.</p>
+    );
+  } else if (!g) {
+    body = (
+      <div className="lib-grid big">
+        {CONTEXT_GROUPS.map((gr) => {
+          const n = gr.items.filter((i) => picks.includes(i.id)).length;
+          return <Card key={gr.id} label={gr.label} sub={n ? `${n} picked · ${gr.items.length} places` : `${gr.items.length} places`} pic={hero(gr.id)} colors={gr.colors} on={n > 0} onClick={() => setGroup(gr.id)} />;
+        })}
+      </div>
+    );
+  } else {
+    body = (
+      <div className="lib-grid">
+        {g.items.map((i) => <Card key={i.id} label={i.label} sub={i.sub} pic={envPicture(i.id)} colors={g.colors} on={picks.includes(i.id)} onClick={() => toggle(i.id)} />)}
+      </div>
+    );
+  }
   return (
     <>
       <div className="sheet-head">
-        <h2>Environment</h2>
+        {g && !typed ? (
+          <button type="button" className="icon-btn" aria-label="Back" onClick={() => setGroup(null)}>
+            <Icon name="back" />
+          </button>
+        ) : null}
+        <h2>{typed ? "Search" : g ? g.label : "Environment"}</h2>
         <button type="button" className="icon-btn close" aria-label="Close" onClick={close}>
           <Icon name="close" />
         </button>
@@ -204,34 +275,20 @@ function EnvBrowser({ close }: { close: () => void }) {
         <Icon name="search" />
         <input type="search" className="input" placeholder="Search, e.g. river, rice field, Kampot" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search environments" />
       </div>
-      <div className="sheet-body thin">
-        {groups.map((g) => (
-          <section key={g.id} className="lib-group">
-            <h3>
-              <span className="env-dot" style={{ background: `linear-gradient(135deg, ${g.colors.join(", ")})` }} />
-              {g.label}
-              <small>{g.tag}</small>
-            </h3>
-            <div className="lib-grid">
-              {g.items.map((i) => (
-                <Card key={i.id} label={i.label} sub={i.sub} pic={envPicture(i.id)} colors={g.colors} on={picks.includes(i.id)} onClick={() => toggle(i.id)} />
-              ))}
-            </div>
-          </section>
-        ))}
-        <div className="field">
-          <label htmlFor="env-own">Your own words (optional)</label>
-          <input id="env-own" className="input" value={own} onChange={(e) => setOwn(e.target.value)} placeholder="e.g. next to a pagoda, rice fields behind" />
-        </div>
-      </div>
-      <div className="sheet-foot">
-        <button type="button" className="btn ghost" onClick={() => setPicks([])}>As modelled</button>
-        <button type="button" className="btn ghost" title="Make or update the pictures" onClick={() => setState({ libOpen: "env-pics" })}>
-          <Icon name="image" /> Pictures · {envMadeCount()}/36
-        </button>
-        <small style={{ color: "var(--muted)" }}>{picks.length ? `${picks.length} picked` : "Nothing picked: surroundings stay as modelled"}</small>
+      <div className="sheet-body thin">{body}</div>
+      <div className="sheet-foot lib-foot">
+        <input className="input own" value={own} onChange={(e) => setOwn(e.target.value)} placeholder="Your own words (optional), e.g. next to a pagoda" aria-label="Your own words for the environment" />
+        {dev ? (
+          <button type="button" className="btn ghost" title="Developer: make or update the pictures" onClick={() => setState({ libOpen: "env-pics" })}>
+            <Icon name="image" /> Pictures · {envMadeCount()}/36
+          </button>
+        ) : null}
+        <small className="count">{picks.length ? `${picks.length} picked` : "Nothing picked"}</small>
         <div className="end">
-          <button type="button" className="btn primary" onClick={apply}>Use</button>
+          <button type="button" className="btn ghost" onClick={() => apply([])} title="Keep the surroundings as modelled">As modelled</button>
+          <button type="button" className="btn primary big" onClick={() => apply(picks)}>
+            <Icon name="check" /> Use
+          </button>
         </div>
       </div>
     </>

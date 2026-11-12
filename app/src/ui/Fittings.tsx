@@ -2,7 +2,7 @@
 
 import { getState, setState, useApp } from "../store";
 import { effectiveLightScene } from "../actions";
-import { KELVIN_OPTIONS, LEVELS, fittingsFor, fittingsLine, saveFittings } from "../lib/fittings";
+import { KELVIN_OPTIONS, LEVELS, fittingsFor, saveFittings } from "../lib/fittings";
 import type { FittingState } from "../lib/fittings";
 import { Icon } from "./Icon";
 
@@ -17,7 +17,6 @@ export function Fittings() {
     setState({ fittings: next });
     saveFittings(next);
   };
-  const line = fittingsLine(scene, f);
   return (
     <div className={`fitg${f.on ? "" : " off"}`} key={scene}>
       <div className="fitg-head">
@@ -53,7 +52,6 @@ export function Fittings() {
           ))}
         </div>
       </div>
-      <p className="fitg-line">{line ?? "Pick the fittings in your design. Nothing picked: the AI decides."}</p>
     </div>
   );
 }

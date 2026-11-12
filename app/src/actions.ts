@@ -142,6 +142,37 @@ export async function useFile(file: File, name?: string): Promise<void> {
   }
 }
 
+/** Puts a picture into one slot of Multi-View or Style copy. */
+export async function useEditFileAs(file: File, name: string | undefined, target: "base" | "ref" | "shot"): Promise<void> {
+  if (target === "base") return useEditFile(file, name, true);
+  try {
+    const img = await fileToImage(file, 4096);
+    const label = name ?? file.name ?? "Pasted image";
+    if (target === "ref") setState({ styleRef: { image: img, name: label } });
+    else setState((x) => ({ viewSource: "shot", shots: [...x.shots, { image: img, name: label }] }));
+  } catch {
+    toast("Couldn't read that image. Try PNG or JPG.", "error");
+  }
+}
+
+/** Paste the clipboard picture into one slot. */
+export async function pasteInto(target: "base" | "ref" | "shot"): Promise<void> {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (type) return useEditFileAs(new File([await item.getType(type)], "Pasted image", { type }), "Pasted image", target);
+    }
+    toast("No picture on the clipboard. Copy one first, or press Ctrl V.", "warn");
+  } catch {
+    toast("Press Ctrl V to paste here (the browser blocked reading the clipboard).", "info");
+  }
+}
+
+/** Removes the base image of Multi-View / Style copy, keeping the other slot. */
+export function clearBase(): void {
+  setState({ before: null, versions: [], activeVersion: 0, lookIndex: 0 });
+}
+
 /** Empties the Edit tab. Renders stay in History. */
 export function clearEdit(): void {
   setState({ before: null, versions: [], activeVersion: 0, lookIndex: 0, shots: [], styleRef: null, editMode: "compare" });
@@ -153,9 +184,9 @@ export async function useEditFile(file: File, name?: string, replace = false): P
     const st = getState();
     const img = await fileToImage(file, 4096);
     const label = name ?? file.name ?? "Pasted image";
-    if (replace) {
-      setState({ before: null, versions: [{ image: img, label: "Uploaded", prompt: "", kind: "version", meta: { at: Date.now() } }], activeVersion: 0, lookIndex: 0, shots: [], styleRef: null });
-      toast("Image replaced", "ok");
+    if (replace || (!st.versions.length && (st.editMode === "style" || st.editMode === "view"))) {
+      setState({ before: null, versions: [{ image: img, label: label === "Pasted image" ? "Pasted" : "Uploaded", prompt: "", kind: "version", meta: { at: Date.now() } }], activeVersion: 0, lookIndex: 0 });
+      toast(replace ? "Image replaced" : "Base image added", "ok");
       return;
     }
     if (st.editMode === "style" && st.versions.length) {
