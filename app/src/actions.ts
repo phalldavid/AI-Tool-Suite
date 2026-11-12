@@ -26,6 +26,8 @@ import { cameraPromptLine } from "./lib/camera";
 import { dynamicLines, countSet } from "./core/dynamic";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
+import { lightingGuidance, styleCopyPrompt, withOverride } from "./lib/lighting";
+import type { LightScene } from "./lib/lighting";
 import { findKieModel } from "./core/providers/kie-models";
 import { contextLabel, parseContexts } from "./core/context";
 import { getPrefs } from "./prefs";
@@ -68,6 +70,9 @@ export async function init(): Promise<AppState> {
     viewSource: "shot",
     shots: [],
     lookIndex: 0,
+    lightScene: null,
+    styleRef: null,
+    styleLight: "reference",
     keyCheck: "unknown",
     kieCredits: null,
     busy: null,
@@ -141,6 +146,11 @@ export async function useEditFile(file: File, name?: string): Promise<void> {
     const st = getState();
     const img = await fileToImage(file, 4096);
     const label = name ?? file.name ?? "Pasted image";
+    if (st.editMode === "style" && st.versions.length) {
+      setState({ styleRef: { image: img, name: label } });
+      toast("Style reference added", "ok");
+      return;
+    }
     if (st.editMode === "view" && st.versions.length) {
       setState((x) => ({ viewSource: "shot", shots: [...x.shots, { image: img, name: label }] }));
       toast(`View added${getState().shots.length > 1 ? ` · ${getState().shots.length} in the queue` : ""}`, "ok");
@@ -220,7 +230,7 @@ export function buildPrompt(): BuiltPrompt {
   const cap = st.capture;
   const split = splitTypology(st.preset.style);
   const preset: Preset = { ...st.preset, style: split.style, lighting: lightingId() };
-  const extras: string[] = [...dynamicLines(s.dynamic), ...currentNoteLines()];
+  const extras: string[] = [...dynamicLines(s.dynamic), lightingGuidance(effectiveLightScene())];
   let fromSun = countSet(s.dynamic.time) > 0;
   if (st.sun.exact) {
     const live = sunNow();
@@ -229,7 +239,7 @@ export function buildPrompt(): BuiltPrompt {
   }
   const prompt = buildRenderPrompt({
     preset,
-    notes: st.notes,
+    notes: "",
     facts: cap?.facts,
     hasLinePass: Boolean(cap?.lines),
     extras,
@@ -240,7 +250,18 @@ export function buildPrompt(): BuiltPrompt {
     lightingFromDynamic: fromSun,
     avoid: s.avoid,
   });
-  return { prompt, removed: split.removed };
+  return { prompt: withNotes(prompt), removed: split.removed };
+}
+
+/** Interior or exterior lighting: the user's switch, else what the Scene chips say. */
+export function effectiveLightScene(): LightScene {
+  const st = getState();
+  return st.lightScene ?? (st.preset.projectType === "interior" ? "interior" : "exterior");
+}
+
+/** Additional Notes (chips + free text) on top of a prompt, as the highest priority. */
+export function withNotes(prompt: string): string {
+  return withOverride(prompt, currentNoteLines(), getState().notes);
 }
 
 /** Sentences from the Additional Notes chips. */
@@ -299,9 +320,19 @@ async function viewForRender(cap: Capture): Promise<ImageData64> {
 }
 
 /** Builds the prompt, checks it, and opens Review. Nothing is spent here. */
-export async function openReview(kind: "render" | "view" | "shots" = "render"): Promise<void> {
+export async function openReview(kind: "render" | "view" | "shots" | "style" = "render"): Promise<void> {
   const st = getState();
   if (st.busy) return;
+  if (kind === "style") {
+    const base = activeImage();
+    if (!base) return void toast("Open or upload the SketchUp view first.", "warn");
+    if (!st.styleRef) return void toast("Add the style reference photo: paste, drop or upload it.", "warn");
+    const prompt = withNotes(styleCopyPrompt({ scene: effectiveLightScene(), dialLight: st.styleLight === "dial" ? lightCaption().replace(/\.$/, "").toLowerCase() : null }));
+    const lint = lintPrompt(prompt);
+    const size = await imageSize(base);
+    setState({ review: { prompt: lint.prompt, lint, images: [base, st.styleRef.image], aspectRatio: nearestAspectRatio(size.width, size.height), kind } });
+    return;
+  }
   const promptOnly = st.settings.backend === "browser" && !st.settings.testMode;
   if (kind === "render" && !st.capture && !promptOnly) return void toast("Add a view first: paste, drop or upload one.", "warn");
   let prompt: string;
@@ -311,11 +342,11 @@ export async function openReview(kind: "render" | "view" | "shots" = "render"): 
     const look = st.versions[st.lookIndex]?.image ?? activeImage();
     if (!look) return void toast("Open or upload a render first.", "warn");
     if (kind === "view") {
-      prompt = cameraViewPrompt(cameraPromptLine(st.camera), sunForViews(), currentNoteLines());
+      prompt = withNotes(cameraViewPrompt(cameraPromptLine(st.camera), sunForViews(), [], effectiveLightScene() === "interior"));
       images = [look];
     } else {
       if (!st.shots.length) return void toast("Paste, drop or upload a screenshot of the new view.", "warn");
-      prompt = shotViewPrompt({ type: st.preset.projectType, sun: sunForViews(), notes: currentNoteLines() });
+      prompt = withNotes(shotViewPrompt({ type: effectiveLightScene(), sun: sunForViews(), notes: [] }));
       batch = st.shots.map((x) => [x.image, look]);
       images = batch[0];
     }
@@ -361,6 +392,14 @@ export async function confirmReview(prompt: string): Promise<void> {
     }
     if (!made.length) return;
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, shots: r.kind === "shots" ? [] : x.shots, editMode: "compare" }));
+    return;
+  }
+  if (r.kind === "style") {
+    const out = await runProvider(prompt, r.images, r.aspectRatio, undefined, "Copying the style");
+    if (!out.length) return;
+    const made: Version[] = [];
+    for (const img of out) made.push({ image: img, label: "Style copy", prompt, kind: "version", before: r.images[0], meta: { ...meta, look: `Reference: ${st.styleRef?.name ?? "photo"}`, light: st.styleLight === "dial" ? meta.light : "From the reference photo" }, historyId: await record(tool, prompt, r.images[0], img) });
+    setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, editMode: "compare" }));
     return;
   }
   const before = st.capture?.view ?? null;
