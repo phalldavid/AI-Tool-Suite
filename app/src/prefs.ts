@@ -22,11 +22,11 @@ export const ACCENTS: Record<string, { color: string; ink: string; label: string
 };
 
 export const FONTS: Record<string, { stack: string; label: string }> = {
-  system: { stack: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif", label: "System (Segoe UI)" },
-  inter: { stack: "Inter, 'Segoe UI', 'Noto Sans Khmer', sans-serif", label: "Inter" },
+  system: { stack: "'Segoe UI Variable Text', 'Segoe UI', 'Kantumruy Pro', system-ui, sans-serif", label: "System (Segoe UI)" },
+  inter: { stack: "Inter, 'Kantumruy Pro', 'Segoe UI', 'Noto Sans Khmer', sans-serif", label: "Inter" },
   kantumruy: { stack: "'Kantumruy Pro', 'Segoe UI', sans-serif", label: "Kantumruy Pro (Khmer)" },
   notokhmer: { stack: "'Noto Sans Khmer', 'Segoe UI', sans-serif", label: "Noto Sans Khmer" },
-  mono: { stack: "'IBM Plex Mono', Consolas, monospace", label: "IBM Plex Mono" },
+  mono: { stack: "'IBM Plex Mono', 'Kantumruy Pro', Consolas, monospace", label: "IBM Plex Mono" },
 };
 
 const KEY = "drs2.prefs";

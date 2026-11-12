@@ -8,7 +8,7 @@
   --accent: #f0a24a; --accent-ink: #1b1206;
   --accent-text: color-mix(in srgb, var(--accent) 70%, #fff);
   --font: Inter, "Segoe UI", "Noto Sans Khmer", sans-serif;
-  --display: "Bricolage Grotesque", Inter, system-ui, sans-serif;
+  --display: "Bricolage Grotesque", "Kantumruy Pro", Inter, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --on-image: #f6f1ea; --image-chip: rgba(19, 17, 15, 0.78);
   color-scheme: dark;
@@ -592,7 +592,7 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 
 /* ---------- language ---------- */
 :root[lang="km"] body { font-family: "Kantumruy Pro", "Noto Sans Khmer", var(--font); }
-:root[lang="km"] .display, :root[lang="km"] .hero { font-family: "Kantumruy Pro", "Noto Sans Khmer", var(--display); letter-spacing: 0; }
+:root[lang="km"] h1, :root[lang="km"] h2, :root[lang="km"] h3, :root[lang="km"] .display, :root[lang="km"] .hero { font-family: "Kantumruy Pro", "Noto Sans Khmer", var(--display); font-weight: 700; letter-spacing: 0; line-height: 1.45; }
 .flag { display: block; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); flex: none; }
 .langsw button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; }
 @media (max-width: 1020px) { .langsw .lbl-md { display: none; } }
@@ -604,7 +604,7 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .tour-dim { position: absolute; inset: 0; background: rgba(8, 6, 4, 0.66); }
 .tour-hole { position: absolute; border-radius: 16px; box-shadow: 0 0 0 9999px rgba(8, 6, 4, 0.66), 0 0 0 2px var(--accent), 0 0 30px color-mix(in srgb, var(--accent) 50%, transparent); transition: left 320ms var(--ease), top 320ms var(--ease), width 320ms var(--ease), height 320ms var(--ease); pointer-events: none; }
 .tour-card { position: absolute; display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: 18px; background: var(--panel); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 0 0 1px var(--line); max-width: calc(100vw - 24px); }
-.tour-card h3 { font-size: 18px; font-weight: 700; }
+.tour-card h3 { font-family: "Bricolage Grotesque", "Kantumruy Pro", sans-serif; font-size: 18px; font-weight: 700; line-height: 1.4; }
 .tour-card p { margin: 0; color: var(--soft); line-height: 1.55; font-size: 14px; }
 .tour-top { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); }
 .tour-dots { display: flex; gap: 4px; }
