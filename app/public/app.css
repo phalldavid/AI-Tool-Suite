@@ -591,8 +591,15 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .look.asmod .noimg { display: flex; align-items: center; justify-content: center; color: var(--muted); background: repeating-linear-gradient(135deg, var(--well) 0 8px, var(--raised) 8px 16px); }
 
 /* ---------- language ---------- */
+/* Khmer letters only (unicode-range): Latin text keeps its own font. Single-weight
+   fonts, declared for every weight so the browser never fakes a bold. */
+@font-face { font-family: "DRS Khmer Title"; src: url("fonts/kh-jrung-thom.woff") format("woff"); font-weight: 100 900; font-display: swap; unicode-range: U+1780-17FF, U+19E0-19FF, U+200B-200D, U+25CC; }
+@font-face { font-family: "DRS Khmer Bold"; src: url("fonts/kd-jayavarman-1.woff") format("woff"); font-weight: 100 900; font-display: swap; unicode-range: U+1780-17FF, U+19E0-19FF, U+200B-200D, U+25CC; }
+/* Titles: Kh Jrung Thom. Questions and bold text: KD Jayavarman I. Body: Kantumruy Pro. */
+h1, h2, .hero, .display { font-family: "DRS Khmer Title", var(--display); }
+h3, b, strong, .tour-card h3, .langcard b, .cta, .mp-name, .lss-info b { font-family: "DRS Khmer Bold", var(--font); }
 :root[lang="km"] body { font-family: "Kantumruy Pro", "Noto Sans Khmer", var(--font); }
-:root[lang="km"] h1, :root[lang="km"] h2, :root[lang="km"] h3, :root[lang="km"] .display, :root[lang="km"] .hero { font-family: "Kantumruy Pro", "Noto Sans Khmer", var(--display); font-weight: 700; letter-spacing: 0; line-height: 1.45; }
+:root[lang="km"] h1, :root[lang="km"] h2, :root[lang="km"] h3, :root[lang="km"] .display, :root[lang="km"] .hero { letter-spacing: 0; line-height: 1.45; }
 .flag { display: block; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); flex: none; }
 .langsw button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; }
 @media (max-width: 1020px) { .langsw .lbl-md { display: none; } }
@@ -604,7 +611,7 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .tour-dim { position: absolute; inset: 0; background: rgba(8, 6, 4, 0.66); }
 .tour-hole { position: absolute; border-radius: 16px; box-shadow: 0 0 0 9999px rgba(8, 6, 4, 0.66), 0 0 0 2px var(--accent), 0 0 30px color-mix(in srgb, var(--accent) 50%, transparent); transition: left 320ms var(--ease), top 320ms var(--ease), width 320ms var(--ease), height 320ms var(--ease); pointer-events: none; }
 .tour-card { position: absolute; display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: 18px; background: var(--panel); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 0 0 1px var(--line); max-width: calc(100vw - 24px); }
-.tour-card h3 { font-family: "Bricolage Grotesque", "Kantumruy Pro", sans-serif; font-size: 18px; font-weight: 700; line-height: 1.4; }
+.tour-card h3 { font-size: 18px; font-weight: 700; line-height: 1.45; }
 .tour-card p { margin: 0; color: var(--soft); line-height: 1.55; font-size: 14px; }
 .tour-top { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); }
 .tour-dots { display: flex; gap: 4px; }
@@ -625,6 +632,15 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .langcard b { font-size: 18px; font-family: "Kantumruy Pro", var(--font); }
 .langcard small { color: var(--muted); }
 .topbar .nav button, .topbar .pill-btn, .topbar .status { white-space: nowrap; }
-@media (max-width: 1600px) { .langsw .lbl-md { display: none; } }
-:root[lang="km"] .topbar .pill-btn .t { display: none; }
-:root[lang="km"] .topbar .pill-btn { width: 38px; padding: 0; justify-content: center; }
+/* Customise is icon-only in both languages, so switching never moves the header. */
+.topbar .pill-btn .t { display: none; }
+.topbar .pill-btn { width: 38px; padding: 0; justify-content: center; }
+/* The language switch keeps the same width in both languages. */
+.langsw button { min-width: 64px; justify-content: center; }
+.helpvids { display: flex; flex-direction: column; gap: 6px; }
+.helpvid { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--well); color: var(--text); text-decoration: none; transition: background-color 150ms; }
+.helpvid:hover { background: var(--raised); }
+.helpvid b { display: block; font-size: 13.5px; }
+.helpvid small { display: block; color: var(--muted); font-size: 12px; }
+.helpvid .yt { width: 30px; height: 22px; border-radius: 6px; background: #e62117; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+a.logo { cursor: pointer; }
