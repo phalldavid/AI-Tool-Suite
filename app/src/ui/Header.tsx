@@ -26,7 +26,7 @@ export function Header() {
   return (
     <header className="topbar glass">
       <div className="left">
-        <div className="logo" aria-hidden="true" dangerouslySetInnerHTML={{ __html: LOGO_SVG }} />
+        <a className="logo" href="https://www.behance.net/phalldavid" target="_blank" rel="noopener" title="David's portfolio on Behance" aria-label="David's portfolio on Behance" dangerouslySetInnerHTML={{ __html: LOGO_SVG }} />
         <div className="brand display">David Render Studio</div>
         <nav className="nav" aria-label="Main">
           {TABS.map((t) => (

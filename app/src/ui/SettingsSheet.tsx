@@ -11,6 +11,7 @@ import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 import { setDev, unlockDev, useDev } from "../lib/dev";
 import { startTour } from "./Tour";
+import { HELP_VIDEOS } from "../lib/help";
 import { toast } from "../toasts";
 
 function DeveloperSection() {
@@ -222,6 +223,19 @@ export function SettingsSheet() {
             <button type="button" className="btn" onClick={() => startTour(true)}>
               <Icon name="info" /> Show the tutorial again
             </button>
+          </div>
+          <span className="lbl">Video tutorials on YouTube</span>
+          <div className="helpvids">
+            {HELP_VIDEOS.map((v) => (
+              <a key={v.label} className="helpvid" href={v.url} target="_blank" rel="noopener">
+                <span className="yt" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M9 7.5v9l7.5-4.5z" /></svg></span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <b>{v.label}</b>
+                  <small>{v.sub}</small>
+                </span>
+                <Icon name="external" size={14} />
+              </a>
+            ))}
           </div>
         </section>
 
