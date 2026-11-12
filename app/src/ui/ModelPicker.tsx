@@ -92,7 +92,7 @@ export function ModelPicker() {
   };
 
   return (
-    <div className="mp" ref={box}>
+    <div className="mp" ref={box} data-tour="model">
       <button type="button" className="mp-trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>
         {kie ? <Logo family={m.family} size={22} /> : <span className="mp-logo plain" style={{ width: 22, height: 22 }}><Icon name={s.testMode ? "cube" : "clipboard"} size={13} /></span>}
         <b>{current}</b>

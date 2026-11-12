@@ -9,6 +9,7 @@ import { CONTEXT_GROUPS } from "../core/context";
 import { clearEdit, clearView, download, lookPreset, openReview, pasteFromClipboard, updateSettings, useFile } from "../actions";
 import { isLight, toggleTheme } from "../prefs";
 import { toast } from "../toasts";
+import { startTour } from "./Tour";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 
@@ -88,6 +89,7 @@ export function Palette() {
       { group: "Workspace", icon: "history", kind: "go", label: "History", sub: "Every render with its prompt", key: "3", run: go(() => setState({ tab: "history" })) },
       { group: "Workspace", icon: "settings", kind: "go", label: "Settings", sub: "Keys, models, Prompt Copy", run: go(() => setState({ dialog: "settings" })) },
       { group: "Appearance", icon: isLight() ? "moon" : "sun", kind: "setting", label: isLight() ? "Night mode" : "Day mode", sub: "Switch the theme", run: go(() => toggleTheme()) },
+      { group: "Workspace", icon: "info", kind: "go", label: "Tutorial", sub: "The one-minute tour of the app", run: go(() => startTour(true)) },
       { group: "Appearance", icon: "palette", kind: "go", label: "Customise", sub: "Accent colour, font, moving background", run: go(() => setState({ customiseOpen: true })) },
     ];
     const light: Item[] = LIGHTING.map((o) => ({

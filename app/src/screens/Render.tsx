@@ -16,6 +16,8 @@ import { Splitter } from "../ui/Splitter";
 import { Icon } from "../ui/Icon";
 import { SunDial, fmtHour } from "./SunDial";
 import { ModelPicker } from "../ui/ModelPicker";
+import { envPicture } from "../lib/envPreviews";
+import { useEnvTiles } from "../ui/EnvPicturesSheet";
 import { LightSceneSwitch } from "../ui/LightSceneSwitch";
 import { Fittings } from "../ui/Fittings";
 import { DYN_ICONS } from "../ui/DynamicSheet";
@@ -110,7 +112,7 @@ function Stage() {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div
-      className="stage rise cq"
+      className="stage rise cq" data-tour="stage"
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         e.preventDefault();
@@ -340,7 +342,7 @@ function Looks() {
   if (!ids.includes(preset.id) && findLibraryItem(preset.id)) ids.unshift(preset.id);
   const suggestion = suggest(preset.id);
   return (
-    <section className="step">
+    <section className="step" data-tour="look">
       <div className="step-head">
         <span className="n">2</span>
         <h2>Look</h2>
@@ -438,7 +440,7 @@ function Light() {
   const exact = useApp((s) => s.sun.exact);
   const cards = facts?.shadowTime ? [{ id: "sketchup", label: "SketchUp sun", sub: "From your model", sky: ["#5a5f8a", "#f0a050"] as [string, string] }, ...CARDS] : CARDS;
   return (
-    <section className="step cq">
+    <section className="step cq" data-tour="light">
       <div className="step-head">
         <span className="n">3</span>
         <h2>Light</h2>
@@ -470,6 +472,7 @@ function Light() {
 }
 
 function Environment() {
+  useEnvTiles();
   const preset = useApp((s) => s.preset);
   const picks = parseContexts(preset.environment);
   const opts = [...PLACES[preset.projectType], ...picks.filter((p) => !PLACES[preset.projectType].includes(p))];
@@ -478,20 +481,36 @@ function Environment() {
     setState((s) => ({ preset: { ...s.preset, environment: joinContexts(next) } }));
   };
   return (
-    <section className="step">
+    <section className="step" data-tour="env">
       <div className="step-head">
         <span className="n">4</span>
         <h2>Environment</h2>
         <button type="button" className="linkish end" onClick={() => setState({ libOpen: "env" })}>Browse all</button>
       </div>
-      <div className="chips-row">
-        {opts.map((id) => (
-          <button key={id} type="button" className="chip" aria-pressed={picks.includes(id)} onClick={() => toggle(id)}>
-            {contextLabel(id)}
-          </button>
-        ))}
-        <button type="button" className="chip" aria-pressed={picks.length === 0} onClick={() => setState((s) => ({ preset: { ...s.preset, environment: "keep" } }))}>
-          As modelled
+      <div className="looks">
+        {opts.slice(0, 5).map((id) => {
+          const img = envPicture(id);
+          const on = picks.includes(id);
+          return (
+            <button key={id} type="button" className="look lift" aria-pressed={on} title={contextLabel(id)} onClick={() => toggle(id)}>
+              {img ? <img src={img} alt="" loading="lazy" /> : <span className="noimg">{contextLabel(id)}</span>}
+              <span className="name">{contextLabel(id)}</span>
+              {on ? (
+                <span className="tick">
+                  <Icon name="check" size={12} stroke={3.2} />
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+        <button type="button" className="look lift asmod" aria-pressed={picks.length === 0} title="Keep the surroundings as modelled" onClick={() => setState((s) => ({ preset: { ...s.preset, environment: "keep" } }))}>
+          <span className="noimg"><Icon name="cube" size={22} /></span>
+          <span className="name">As modelled</span>
+          {picks.length === 0 ? (
+            <span className="tick">
+              <Icon name="check" size={12} stroke={3.2} />
+            </span>
+          ) : null}
         </button>
       </div>
     </section>

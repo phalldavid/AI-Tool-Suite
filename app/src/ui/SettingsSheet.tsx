@@ -10,6 +10,7 @@ import { backendStatus } from "../lib/status";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 import { setDev, unlockDev, useDev } from "../lib/dev";
+import { startTour } from "./Tour";
 import { toast } from "../toasts";
 
 function DeveloperSection() {
@@ -209,6 +210,18 @@ export function SettingsSheet() {
               <Icon name="download" /> Import from v1
             </button>
             <button type="button" className="btn ghost" onClick={() => void importFromV1(true)}>Import with keys</button>
+            <a className="btn ghost" href={getState().host.kind === "sketchup" ? "#" : "v1/"} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>
+              <Icon name="external" /> Open the old version
+            </a>
+          </div>
+        </section>
+
+        <section className="step">
+          <h2 style={{ fontSize: 16 }}>Help</h2>
+          <div>
+            <button type="button" className="btn" onClick={() => startTour(true)}>
+              <Icon name="info" /> Show the tutorial again
+            </button>
           </div>
         </section>
 

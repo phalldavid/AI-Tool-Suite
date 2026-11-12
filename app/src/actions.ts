@@ -75,6 +75,8 @@ export async function init(): Promise<AppState> {
     styleRef: null,
     styleLight: "reference",
     fittings: loadFittings(),
+    langPick: false,
+    tourStep: null,
     keyCheck: "unknown",
     kieCredits: null,
     busy: null,
