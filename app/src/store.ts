@@ -103,6 +103,9 @@ export interface AppState {
   /** Style Copy: the reference photo, and where its light comes from. */
   styleRef: Shot | null;
   styleLight: "reference" | "dial";
+  /** First start: language choice, then the tour step (null = no tour). */
+  langPick: boolean;
+  tourStep: number | null;
   /** Light fittings, one set for interior and one for exterior lighting. */
   fittings: Record<"interior" | "exterior", import("./lib/fittings").FittingState>;
   keyCheck: KeyCheck;

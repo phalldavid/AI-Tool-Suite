@@ -15,6 +15,9 @@ import { SunScreen } from "./screens/Sun";
 import { LibrarySheet } from "./ui/LibrarySheet";
 import { EnvPicturesSheet } from "./ui/EnvPicturesSheet";
 import { DynamicSheet } from "./ui/DynamicSheet";
+import { Tour, useFirstStart } from "./ui/Tour";
+import { usePrefs } from "./prefs";
+import { setLanguage } from "./lib/i18n";
 
 function typing(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
@@ -23,6 +26,9 @@ function typing(t: EventTarget | null): boolean {
 
 export function App() {
   const tab = useApp((s) => s.tab);
+  const lang = usePrefs().lang;
+  useEffect(() => setLanguage(lang), [lang]);
+  useFirstStart();
   const dragging = useApp((s) => s.dragging);
 
   useEffect(() => {
@@ -98,6 +104,7 @@ export function App() {
       <LibrarySheet />
       <EnvPicturesSheet />
       <DynamicSheet />
+      <Tour />
       <Toasts />
     </div>
   );

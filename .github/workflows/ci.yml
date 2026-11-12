@@ -20,15 +20,15 @@ jobs:
       # npm install (not ci): v2 adds React and the lockfile is refreshed here.
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
-      - name: Typecheck v2 (beta, non-blocking)
+      - name: Typecheck v2 (non-blocking)
         run: npm run typecheck:app
         continue-on-error: true
       - run: npm test
       - name: Ruby syntax check
         run: for f in $(find plugin -name '*.rb'); do ruby -c "$f"; done
       - run: npm run rbz
-      - name: Build v2 beta into /next/
-        run: node scripts/build-app.mjs
+      - name: Build the site (v2 at /, v1 backup at /v1/)
+        run: node scripts/build-site.mjs --reuse-v1
       - uses: actions/upload-artifact@v6
         with:
           name: ai_render_suite-rbz

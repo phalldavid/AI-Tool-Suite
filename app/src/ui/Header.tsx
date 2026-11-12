@@ -4,6 +4,8 @@ import type { Tab } from "../store";
 import { backendStatus } from "../lib/status";
 import { isLight, toggleTheme, usePrefs } from "../prefs";
 import { Icon } from "./Icon";
+import { LOGO_SVG } from "./logo";
+import { LangSwitch } from "./LangSwitch";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "render", label: "Render" },
@@ -24,19 +26,17 @@ export function Header() {
   return (
     <header className="topbar glass">
       <div className="left">
-        <div className="logo" aria-hidden="true">
-          <span>D</span>
-        </div>
+        <div className="logo" aria-hidden="true" dangerouslySetInnerHTML={{ __html: LOGO_SVG }} />
         <div className="brand display">David Render Studio</div>
         <nav className="nav" aria-label="Main">
           {TABS.map((t) => (
-            <button key={t.id} type="button" aria-current={navTab === t.id ? "page" : undefined} onClick={() => setState({ tab: t.id })}>
+            <button key={t.id} type="button" data-tour={`tab-${t.id}`} aria-current={navTab === t.id ? "page" : undefined} onClick={() => setState({ tab: t.id })}>
               {t.label}
             </button>
           ))}
         </nav>
       </div>
-      <button type="button" className="search" aria-label="Search, Ctrl K" title="Search · Ctrl K" onClick={() => setState({ dialog: "palette" })}>
+      <button type="button" className="search" data-tour="search" aria-label="Search, Ctrl K" title="Search · Ctrl K" onClick={() => setState({ dialog: "palette" })}>
         <Icon name="search" />
         <span className="t" style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           Search 932 styles, light, places, actions
@@ -51,6 +51,7 @@ export function Header() {
             {settings.backend === "kie" && credits !== null && st.tone === "ok" ? ` · ${Math.floor(credits)} cr` : ""}
           </span>
         </button>
+        <LangSwitch />
         <button
           type="button"
           className="icon-btn theme"
@@ -70,7 +71,7 @@ export function Header() {
           <Icon name="palette" size={18} />
           <span className="t">Customise</span>
         </button>
-        <button type="button" className="icon-btn" aria-label="Settings" title="Settings" onClick={() => setState({ dialog: "settings" })}>
+        <button type="button" className="icon-btn" data-tour="settings" aria-label="Settings" title="Settings" onClick={() => setState({ dialog: "settings" })}>
           <Icon name="settings" size={18} />
         </button>
       </div>

@@ -1,6 +1,6 @@
 {
   "name": "ai-render-suite",
-  "version": "0.2.0-beta",
+  "version": "2.0.0",
   "private": true,
   "description": "AI render tools for SketchUp and the browser. Bring your own Gemini key or local ComfyUI.",
   "scripts": {
@@ -10,6 +10,7 @@
     "test": "esbuild web/test/*.test.ts --bundle --platform=node --format=esm --outdir=dist/test --out-extension:.js=.mjs --log-level=warning && node --test dist/test/*.test.mjs && npm run test:app",
     "rbz": "node scripts/build.mjs && node scripts/package-rbz.mjs",
     "build:app": "node scripts/build-app.mjs",
+    "build:site": "node scripts/build-site.mjs",
     "dev:app": "node scripts/build-app.mjs --serve",
     "test:app": "esbuild app/test/*.test.ts --bundle --platform=node --format=esm --outdir=dist/test-app --out-extension:.js=.mjs --log-level=warning --define:__PREVIEW_BASE__='\"previews/\"' && node --test dist/test-app/*.test.mjs",
     "typecheck:app": "tsc --noEmit -p app"

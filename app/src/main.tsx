@@ -2,7 +2,8 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { initStore } from "./store";
 import { checkKey, init, updateSettings } from "./actions";
-import { applyPrefs, watchPrefs } from "./prefs";
+import { applyPrefs, getPrefs, watchPrefs } from "./prefs";
+import { startTranslating } from "./lib/i18n";
 import { initSlidingPills } from "./ui/slide";
 
 applyPrefs();
@@ -17,6 +18,7 @@ void (async () => {
   initStore(state);
   createRoot(document.getElementById("root")!).render(<App />);
   initSlidingPills();
+  startTranslating(getPrefs().lang);
   void updateSettings({});
   void checkKey();
 })();
