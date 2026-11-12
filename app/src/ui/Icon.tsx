@@ -43,6 +43,9 @@ const P: Record<string, string> = {
   layers: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5",
   grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   up: "M6 15l6-6 6 6",
+  minus: "M5 12h14",
+  cloud: "M7 18a4 4 0 0 1-.5-7.97A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z",
+  keyboard: "M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10",
   cube: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
 };
 

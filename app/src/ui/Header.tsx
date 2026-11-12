@@ -1,7 +1,8 @@
+import { flushSync } from "react-dom";
 import { getState, setState, useApp } from "../store";
 import type { Tab } from "../store";
 import { backendStatus } from "../lib/status";
-import { isLight, setPrefs, usePrefs } from "../prefs";
+import { isLight, toggleTheme, usePrefs } from "../prefs";
 import { Icon } from "./Icon";
 
 const TABS: { id: Tab; label: string }[] = [
@@ -50,8 +51,20 @@ export function Header() {
             {settings.backend === "kie" && credits !== null && st.tone === "ok" ? ` · ${Math.floor(credits)} cr` : ""}
           </span>
         </button>
-        <button type="button" className="icon-btn theme" aria-label={light ? "Switch to night mode" : "Switch to day mode"} title={light ? "Night mode" : "Day mode"} onClick={() => setPrefs({ theme: light ? "dark" : "light" })}>
-          <Icon name={light ? "moon" : "sun"} size={18} style={{ transition: "transform 400ms", transform: light ? "rotate(-20deg)" : "none" }} />
+        <button
+          type="button"
+          className="icon-btn theme"
+          aria-label={light ? "Switch to night mode" : "Switch to day mode"}
+          title={light ? "Night mode" : "Day mode"}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            toggleTheme({ x: r.left + r.width / 2, y: r.top + r.height / 2 }, flushSync);
+          }}
+        >
+          <span className="theme-ic" data-light={light} aria-hidden="true">
+            <Icon name="sun" size={18} className="ti-sun" />
+            <Icon name="moon" size={18} className="ti-moon" />
+          </span>
         </button>
         <button type="button" className="pill-btn" aria-expanded={customise} onClick={() => setState({ customiseOpen: !getState().customiseOpen })}>
           <Icon name="palette" size={18} />

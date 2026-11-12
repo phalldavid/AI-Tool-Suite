@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { setState, useApp } from "../store";
 import { updateSettings } from "../actions";
-import { KIE_FAMILIES, KIE_MODELS, creditsFor, priceText, findKieModel } from "../core/providers/kie-models";
+import { KIE_MODELS, creditsFor, priceText, findKieModel } from "../core/providers/kie-models";
 import type { KieFamilyId, KieModel } from "../core/providers/kie-models";
 import { modelLogo } from "../core/model-logos";
 import { toast } from "../toasts";
@@ -12,13 +12,26 @@ import { Icon } from "./Icon";
 
 const TINT: Record<KieFamilyId, string> = { nano: "#4f7cff", gpt: "#19a37f", seedream: "#e8663d" };
 
-function badgeFor(m: KieModel): string {
-  if (m.id === "nano-banana-2-1") return "Default";
-  const n = m.note.toLowerCase();
-  if (/text|letter|sign/.test(n)) return "Text";
-  if (/fast|flash|quick/.test(n)) return "Fastest";
-  if (/detail|best|pro/.test(n)) return "Detail";
-  return KIE_FAMILIES.find((f) => f.id === m.family)?.badge ?? "";
+/** Groups by what each model is for. Every model is in exactly one group. */
+export const MODEL_GROUPS: { id: string; label: string; ids: string[] }[] = [
+  { id: "rec", label: "Recommended", ids: ["nano-banana-2-1"] },
+  { id: "quality", label: "Best quality", ids: ["nano-banana-pro", "gpt-image-2-5-sunburst-image-to-image", "seedream/5-pro-image-to-image"] },
+  { id: "fast", label: "Fast and low cost", ids: ["seedream/5-5-image-to-image", "seedream/5-flash-image-to-image", "gpt-image-2-5-flare-image-to-image"] },
+  { id: "text", label: "Signs and lettering", ids: ["gpt-image-2-image-to-image"] },
+];
+
+/** Capability labels taken from the model list itself, so nothing is claimed that isn't there. */
+function capsFor(m: KieModel): string[] {
+  const caps: string[] = [];
+  if (m.id === "nano-banana-2-1") caps.push("Default");
+  if (m.resolutions.includes("4K")) caps.push("4K");
+  else caps.push(`Up to ${m.resolutions.includes("2K") ? "2K" : "1K"}`);
+  if (m.textId) caps.push("No image needed");
+  return caps;
+}
+
+function groupOf(id: string): string {
+  return MODEL_GROUPS.find((g) => g.ids.includes(id))?.id ?? "other";
 }
 
 function Logo({ family, size = 32 }: { family: KieFamilyId; size?: number }) {
@@ -30,6 +43,7 @@ function Logo({ family, size = 32 }: { family: KieFamilyId; size?: number }) {
 export function ModelPicker() {
   const s = useApp((x) => x.settings);
   const [open, setOpen] = useState(false);
+  const [shut, setShut] = useState<string[]>([]);
   const box = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -87,25 +101,40 @@ export function ModelPicker() {
       </button>
       {open ? (
         <div className="mp-pop glass" ref={list} role="listbox" aria-label="Model" onKeyDown={onListKey}>
-          {KIE_MODELS.map((x) => {
-            const on = kie && x.id === s.kieModel;
-            const badge = badgeFor(x);
-            const cr = creditsFor(x, s.kieResolution);
+          {[...MODEL_GROUPS, { id: "other", label: "Other models", ids: [] as string[] }].map((g) => {
+            const list = KIE_MODELS.filter((x) => groupOf(x.id) === g.id);
+            if (!list.length) return null;
+            const closed = shut.includes(g.id);
             return (
-              <button key={x.id} type="button" role="option" aria-selected={on} className="mp-item" onClick={pickKie(x.id)}>
-                <Logo family={x.family} />
-                <span className="mp-text">
-                  <span className="mp-name">
-                    {x.label}
-                    {badge ? <em>{badge}</em> : null}
-                  </span>
-                  <small>{x.note}</small>
-                </span>
-                <span className="mp-cost num">
-                  {cr !== null ? `${cr} cr` : ""}
-                  <small>{priceText(x, s.kieResolution)}</small>
-                </span>
-              </button>
+              <div key={g.id} className="mp-group" role="group" aria-label={g.label}>
+                <button type="button" className="mp-ghead" aria-expanded={!closed} onClick={() => setShut((x) => (closed ? x.filter((y) => y !== g.id) : [...x, g.id]))}>
+                  <Icon name="chevron" size={13} style={{ transform: closed ? "rotate(-90deg)" : "none", transition: "transform 160ms var(--ease)" }} />
+                  {g.label}
+                  <small>{list.length}</small>
+                </button>
+                {closed
+                  ? null
+                  : list.map((x) => {
+                      const on = kie && x.id === s.kieModel;
+                      const cr = creditsFor(x, s.kieResolution);
+                      return (
+                        <button key={x.id} type="button" role="option" aria-selected={on} className="mp-item" onClick={pickKie(x.id)}>
+                          <Logo family={x.family} />
+                          <span className="mp-text">
+                            <span className="mp-name">
+                              {x.label}
+                              {capsFor(x).map((t) => <em key={t}>{t}</em>)}
+                            </span>
+                            <small>{x.note}</small>
+                          </span>
+                          <span className="mp-cost num">
+                            {cr !== null ? `${cr} cr` : ""}
+                            <small>{priceText(x, s.kieResolution)}</small>
+                          </span>
+                        </button>
+                      );
+                    })}
+              </div>
             );
           })}
           <div className="mp-sep" role="presentation" />

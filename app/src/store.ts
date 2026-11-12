@@ -91,7 +91,7 @@ export interface AppState {
   glassColour: string;
   advancedOpen: boolean;
   /** Full-screen pickers: the look library, the environment list, a dynamic prompt form. */
-  libOpen: null | "look" | "env";
+  libOpen: null | "look" | "env" | "env-pics";
   dynOpen: string | null;
   editMode: EditMode;
   viewSource: "camera" | "shot";
@@ -103,6 +103,8 @@ export interface AppState {
   /** Style Copy: the reference photo, and where its light comes from. */
   styleRef: Shot | null;
   styleLight: "reference" | "dial";
+  /** Light fittings, one set for interior and one for exterior lighting. */
+  fittings: Record<"interior" | "exterior", import("./lib/fittings").FittingState>;
   keyCheck: KeyCheck;
   kieCredits: number | null;
   busy: Busy | null;
@@ -111,7 +113,15 @@ export interface AppState {
   activeVersion: number;
   history: HistoryItem[];
   review: ReviewState | null;
-  handoff: { prompt: string; images: ImageData64[]; before: ImageData64 | null } | null;
+  handoff: {
+    prompt: string;
+    images: ImageData64[];
+    before: ImageData64 | null;
+    /** "edit": a spot edit or relight; the pasted result becomes a new version of the image being edited. */
+    kind?: "render" | "edit";
+    /** names for the images, e.g. "Painted image" */
+    names?: string[];
+  } | null;
   dialog: null | "settings" | "palette" | "confirm-cost" | "import";
   customiseOpen: boolean;
   dragging: boolean;

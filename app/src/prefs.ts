@@ -8,6 +8,8 @@ export interface Prefs {
   font: string;
   lang: "en" | "km";
   motion: "full" | "reduced";
+  /** Background: slowly moving light, still, or plain. */
+  bg: "moving" | "still" | "plain";
 }
 
 export const ACCENTS: Record<string, { color: string; ink: string; label: string }> = {
@@ -28,7 +30,7 @@ export const FONTS: Record<string, { stack: string; label: string }> = {
 };
 
 const KEY = "drs2.prefs";
-const DEFAULTS: Prefs = { theme: "dark", accent: "amber", font: "inter", lang: "en", motion: "full" };
+const DEFAULTS: Prefs = { theme: "dark", accent: "amber", font: "inter", lang: "en", motion: "full", bg: "moving" };
 let prefs: Prefs = load();
 const listeners = new Set<() => void>();
 
@@ -52,6 +54,8 @@ export function applyPrefs(): void {
   const root = document.documentElement;
   root.classList.toggle("light", isLight());
   root.classList.toggle("calm", prefs.motion === "reduced");
+  root.classList.toggle("bg-still", prefs.bg === "still");
+  root.classList.toggle("bg-plain", prefs.bg === "plain");
   const a = ACCENTS[prefs.accent] ?? ACCENTS.amber;
   root.style.setProperty("--accent", a.color);
   root.style.setProperty("--accent-ink", a.ink);
@@ -70,11 +74,47 @@ export function setPrefs(patch: Partial<Prefs>): void {
   for (const l of listeners) l();
 }
 
+function reducedMotion(): boolean {
+  return prefs.motion === "reduced" || (typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+type VT = { ready: Promise<void>; finished: Promise<void> };
+
+/**
+ * Night/Day switch. The new theme grows as a circle from the button (View Transitions),
+ * or switches straight away with reduced motion or in older browsers.
+ */
+export function toggleTheme(origin?: { x: number; y: number }, flush?: (fn: () => void) => void): void {
+  const next = isLight() ? "dark" : "light";
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => VT };
+  if (reducedMotion() || !doc.startViewTransition) {
+    setPrefs({ theme: next });
+    return;
+  }
+  const x = origin?.x ?? window.innerWidth - 60;
+  const y = origin?.y ?? 30;
+  const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  const root = document.documentElement;
+  root.classList.add("vt-theme");
+  const t = doc.startViewTransition(() => (flush ? flush(() => setPrefs({ theme: next })) : setPrefs({ theme: next })));
+  t.ready
+    .then(() => {
+      root.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+        { duration: 650, easing: "cubic-bezier(0.22, 0.8, 0.3, 1)", pseudoElement: "::view-transition-new(root)" } as KeyframeAnimationOptions,
+      );
+    })
+    .catch(() => undefined);
+  t.finished.finally(() => root.classList.remove("vt-theme"));
+}
+
 export function resetPrefs(): void {
   setPrefs({ ...DEFAULTS });
 }
 
 export function watchPrefs(): void {
+  // The moving background rests while the tab is hidden.
+  document.addEventListener("visibilitychange", () => document.documentElement.classList.toggle("tab-hidden", document.hidden));
   window.addEventListener("storage", (e) => {
     if (e.key !== KEY) return;
     prefs = load();

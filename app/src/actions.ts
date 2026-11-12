@@ -28,6 +28,7 @@ import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
 import { lightingGuidance, styleCopyPrompt, withOverride } from "./lib/lighting";
 import type { LightScene } from "./lib/lighting";
+import { fittingsLine, loadFittings } from "./lib/fittings";
 import { findKieModel } from "./core/providers/kie-models";
 import { contextLabel, parseContexts } from "./core/context";
 import { getPrefs } from "./prefs";
@@ -73,6 +74,7 @@ export async function init(): Promise<AppState> {
     lightScene: null,
     styleRef: null,
     styleLight: "reference",
+    fittings: loadFittings(),
     keyCheck: "unknown",
     kieCredits: null,
     busy: null,
@@ -140,12 +142,22 @@ export async function useFile(file: File, name?: string): Promise<void> {
   }
 }
 
+/** Empties the Edit tab. Renders stay in History. */
+export function clearEdit(): void {
+  setState({ before: null, versions: [], activeVersion: 0, lookIndex: 0, shots: [], styleRef: null, editMode: "compare" });
+}
+
 /** A picture dropped or pasted on the Edit tab: a new view screenshot, or a render to edit. */
-export async function useEditFile(file: File, name?: string): Promise<void> {
+export async function useEditFile(file: File, name?: string, replace = false): Promise<void> {
   try {
     const st = getState();
     const img = await fileToImage(file, 4096);
     const label = name ?? file.name ?? "Pasted image";
+    if (replace) {
+      setState({ before: null, versions: [{ image: img, label: "Uploaded", prompt: "", kind: "version", meta: { at: Date.now() } }], activeVersion: 0, lookIndex: 0, shots: [], styleRef: null });
+      toast("Image replaced", "ok");
+      return;
+    }
     if (st.editMode === "style" && st.versions.length) {
       setState({ styleRef: { image: img, name: label } });
       toast("Style reference added", "ok");
@@ -230,7 +242,9 @@ export function buildPrompt(): BuiltPrompt {
   const cap = st.capture;
   const split = splitTypology(st.preset.style);
   const preset: Preset = { ...st.preset, style: split.style, lighting: lightingId() };
-  const extras: string[] = [...dynamicLines(s.dynamic), lightingGuidance(effectiveLightScene())];
+  const scene = effectiveLightScene();
+  const fit = fittingsLine(scene, st.fittings[scene]);
+  const extras: string[] = [...dynamicLines(s.dynamic), lightingGuidance(scene), ...(fit ? [fit] : [])];
   let fromSun = countSet(s.dynamic.time) > 0;
   if (st.sun.exact) {
     const live = sunNow();
@@ -251,6 +265,12 @@ export function buildPrompt(): BuiltPrompt {
     avoid: s.avoid,
   });
   return { prompt: withNotes(prompt), removed: split.removed };
+}
+
+/** The light fittings sentence for the current lighting scene, or null. */
+export function currentFittingsLine(): string | null {
+  const scene = effectiveLightScene();
+  return fittingsLine(scene, getState().fittings[scene]);
 }
 
 /** Interior or exterior lighting: the user's switch, else what the Scene chips say. */
@@ -327,7 +347,8 @@ export async function openReview(kind: "render" | "view" | "shots" | "style" = "
     const base = activeImage();
     if (!base) return void toast("Open or upload the SketchUp view first.", "warn");
     if (!st.styleRef) return void toast("Add the style reference photo: paste, drop or upload it.", "warn");
-    const prompt = withNotes(styleCopyPrompt({ scene: effectiveLightScene(), dialLight: st.styleLight === "dial" ? lightCaption().replace(/\.$/, "").toLowerCase() : null }));
+    const fit = currentFittingsLine();
+    const prompt = withNotes(styleCopyPrompt({ scene: effectiveLightScene(), dialLight: st.styleLight === "dial" ? lightCaption().replace(/\.$/, "").toLowerCase() : null }).replace("\nStraight verticals", fit ? `\n- ${fit}\n\nStraight verticals` : "\nStraight verticals"));
     const lint = lintPrompt(prompt);
     const size = await imageSize(base);
     setState({ review: { prompt: lint.prompt, lint, images: [base, st.styleRef.image], aspectRatio: nearestAspectRatio(size.width, size.height), kind } });
@@ -449,6 +470,41 @@ async function runProvider(prompt: string, images: ImageData64[], aspectRatio: s
   }
 }
 
+/** One contact sheet for the environment pictures, on Kie (Nano Banana 2.1, 2K, one image). Not saved to History. */
+export async function renderSheet(prompt: string, aspectRatio: string): Promise<ImageData64 | null> {
+  const st = getState();
+  if (!st.settings.kieKey.trim()) {
+    toast("Add your Kie.ai key in Settings, or use Copy prompt with Gemini.", "warn", { label: "Settings", run: () => setState({ dialog: "settings" }) });
+    return null;
+  }
+  const provider = makeProvider({ ...st.settings, backend: "kie", testMode: false, kieModel: "nano-banana-2-1", kieResolution: "2K", imageCount: 1 }, st.host);
+  setState({ busy: { label: "Making a sheet", since: Date.now(), typical: 60000 } });
+  try {
+    const out = await provider.render({ prompt, images: [], aspectRatio });
+    return out.image;
+  } catch (e) {
+    toast((e as Error).message, "error");
+    return null;
+  } finally {
+    setState({ busy: null });
+  }
+}
+
+/** The first image on the clipboard, if any. */
+export async function clipboardImage(): Promise<ImageData64 | null> {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (type) return await fileToImage(new File([await item.getType(type)], "sheet", { type }), 4096);
+    }
+  } catch {
+    /* no permission */
+  }
+  return null;
+}
+
+export { fileToImage };
+
 async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64): Promise<string | undefined> {
   const st = getState();
   const s = st.settings;
@@ -505,9 +561,37 @@ export function handoffSite(): (typeof BROWSER_SITES)[number] {
 }
 
 /** A result pasted or dropped back from Gemini / ChatGPT lands in History with its prompt. */
+/** A Prompt Copy edit waiting for its result: pasted back over the original outside the painted area. */
+let pendingEdit: { src: ImageData64; mask: HTMLCanvasElement | null } | null = null;
+
+function cloneCanvas(c: HTMLCanvasElement): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = c.width;
+  out.height = c.height;
+  out.getContext("2d")!.drawImage(c, 0, 0);
+  return out;
+}
+
+/** Edits don't carry the render notes; spot edits have their own zone text. */
+function withNotesForEdit(prompt: string): string {
+  return prompt;
+}
+
 export async function importResult(file: File): Promise<void> {
   const st = getState();
   const h = st.handoff;
+  if (h?.kind === "edit" && pendingEdit) {
+    const pe = pendingEdit;
+    pendingEdit = null;
+    const raw = await fileToImage(file, 4096);
+    const size = await imageSize(pe.src);
+    const fitted = await resizeTo(raw, size.width, size.height);
+    const merged = pe.mask ? await compositeMasked(pe.src, fitted, pe.mask) : fitted;
+    const id = await record("spot-edit", h.prompt, pe.src, merged);
+    setState((x) => ({ handoff: null, versions: [...x.versions, { image: merged, label: "Pasted edit", prompt: h.prompt, kind: "version", meta: x.versions[x.activeVersion]?.meta, historyId: id }], activeVersion: x.versions.length, tab: "edit", editMode: "compare" }));
+    toast(pe.mask ? "Edit pasted back. Outside your selection nothing changed." : "Edit saved to History", "ok");
+    return;
+  }
   const after = await fileToImage(file, 4096);
   const before = h?.before ?? st.capture?.view ?? after;
   const fresh = !h?.before;
@@ -528,10 +612,18 @@ export async function runSpotEdit(painter: ZonePainter, instructions: Record<str
   if (missing.length) return void toast(`Describe what should change in ${missing.map((id) => `Zone ${id}`).join(", ")}.`, "warn");
   const zones = ZONES.filter((z) => painted.includes(z.id));
   const s = getState().settings;
-  const prompt = buildZoneEditPrompt(
+  if (s.backend === "browser" && !s.testMode) {
+    // Prompt Copy: one painted image + the prompt, pasted into Gemini or ChatGPT by hand.
+    const prompt = withNotesForEdit(buildZoneEditPrompt(zones.map((z) => ({ colour: z.colour, instruction: instructions[z.id] })), { singleImage: true, general }));
+    const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: painter.canvases[z.id], colour: z.css }))) : src;
+    pendingEdit = { src, mask: zones.length && !general.trim() ? cloneCanvas(painter.union()) : null };
+    setState({ handoff: { prompt, images: [overlay], before: src, kind: "edit", names: [zones.length ? "Painted image" : "Image"] } });
+    return;
+  }
+  const prompt = withNotesForEdit(buildZoneEditPrompt(
     zones.map((z) => ({ colour: z.colour, instruction: instructions[z.id] })),
     { singleImage: s.singleImage, general },
-  );
+  ));
   const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: painter.canvases[z.id], colour: z.css }))) : src;
   const images = !zones.length ? [src] : s.singleImage ? [overlay] : [src, overlay];
   const size = await imageSize(src);
@@ -550,9 +642,14 @@ export async function runRelight(lightId: string): Promise<void> {
   const src = activeImage();
   if (!src) return;
   const light = relightText(lightId, getState().capture?.facts) ?? lightingText(lightId) ?? lightId;
-  const prompt = `Change only the lighting and sky of this image to: ${light}. Shadows and reflections must match the new light. Keep every building, material, object and the camera exactly as they are. The result must look like a real photograph.`;
+  const prompt = `Change only the lighting and sky of this image to: ${light}. ${lightingGuidance(effectiveLightScene())} ${currentFittingsLine() ? `${currentFittingsLine()} ` : ""}Shadows and reflections must match the new light. Keep every building, material, object and the camera exactly as they are. The result must look like a real photograph.`;
   const size = await imageSize(src);
   const s = getState().settings;
+  if (s.backend === "browser" && !s.testMode) {
+    pendingEdit = { src, mask: null };
+    setState({ handoff: { prompt, images: [src], before: src, kind: "edit", names: ["Image"] } });
+    return;
+  }
   const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), s.backend === "kie" ? s.editModel || undefined : undefined);
   if (!out.length) return;
   const id = await record("lighting", prompt, src, out[0]);

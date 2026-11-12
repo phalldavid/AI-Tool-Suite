@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { setState, useApp } from "../store";
-import { copyImage, handoffSite, importResult } from "../actions";
+import { copyImage, download, handoffSite, importResult } from "../actions";
 import { toDataUrl } from "../core/images";
 import { toast } from "../toasts";
 import { Sheet } from "./Sheet";
@@ -16,13 +16,13 @@ export function HandoffSheet() {
   const text = prompt || h.prompt;
   const close = () => setState({ handoff: null });
   return (
-    <Sheet open onClose={close} title={`Render in ${site.label} with your account`} labelledBy="handoff-title">
+    <Sheet open onClose={close} title={h.kind === "edit" ? `Edit in ${site.label} with your account` : `Render in ${site.label} with your account`} labelledBy="handoff-title">
       <div className="sheet-body thin">
         <p className="note" style={{ margin: 0 }}>No key, no credits: your {site.label} plan applies. Copy the prompt, render there, then paste the result back anywhere on this page with Ctrl V.</p>
         <ol style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 16 }}>
           {h.images[0] ? (
             <li>
-              <b>Copy your view and open {site.label}</b>
+              <b>Copy the {(h.names?.[0] ?? "view").toLowerCase()} and open {site.label}</b>
               <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
                 <img src={toDataUrl(h.images[0])} alt="Your view" style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 10 }} />
                 <button
@@ -39,7 +39,10 @@ export function HandoffSheet() {
                     }
                   }}
                 >
-                  <Icon name="clipboard" /> Copy view & open {site.label}
+                  <Icon name="clipboard" /> Copy {h.names?.[0] ?? "view"} & open {site.label}
+                </button>
+                <button type="button" className="btn ghost" title="If copying images doesn't work in your browser, download and drag it in" onClick={() => void download(h.images[0], (h.names?.[0] ?? "view").toLowerCase().replace(/\s+/g, "-"))}>
+                  <Icon name="download" /> Download
                 </button>
               </div>
             </li>
@@ -62,6 +65,9 @@ export function HandoffSheet() {
                   }}
                 >
                   <Icon name="clipboard" /> Copy image 2
+                </button>
+                <button type="button" className="btn ghost" onClick={() => void download(h.images[1], "image-2")}>
+                  <Icon name="download" /> Download
                 </button>
               </div>
             </li>

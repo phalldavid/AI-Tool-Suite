@@ -11,6 +11,8 @@ import { previewFile } from "../core/preview-files";
 import type { ProjectType } from "../core/types";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
+import { useEnvTiles } from "./EnvPicturesSheet";
+import { envMadeCount, envPicture } from "../lib/envPreviews";
 
 const CATS: { id: ProjectType; label: string }[] = [
   { id: "exterior", label: "Exterior" },
@@ -44,7 +46,7 @@ export function LibrarySheet() {
   const open = useApp((s) => s.libOpen);
   const close = () => setState({ libOpen: null });
   return (
-    <Sheet open={Boolean(open)} onClose={close} className="lib">
+    <Sheet open={open === "look" || open === "env"} onClose={close} className="lib">
       {open === "look" ? <LookBrowser close={close} /> : open === "env" ? <EnvBrowser close={close} /> : null}
     </Sheet>
   );
@@ -173,6 +175,7 @@ function StyleCell({ x, label, on, fav, onUse, onStar }: { x: LibItem; label?: s
 }
 
 function EnvBrowser({ close }: { close: () => void }) {
+  useEnvTiles();
   const preset = useApp((s) => s.preset);
   const [picks, setPicks] = useState<string[]>(() => parseContexts(preset.environment));
   const [own, setOwn] = useState("");
@@ -209,17 +212,9 @@ function EnvBrowser({ close }: { close: () => void }) {
               {g.label}
               <small>{g.tag}</small>
             </h3>
-            <div className="env-grid">
+            <div className="lib-grid">
               {g.items.map((i) => (
-                <button key={i.id} type="button" className="env-item" aria-pressed={picks.includes(i.id)} onClick={() => toggle(i.id)}>
-                  <b>{i.label}</b>
-                  <small>{i.sub}</small>
-                  {picks.includes(i.id) ? (
-                    <span className="tick">
-                      <Icon name="check" size={12} stroke={3.2} />
-                    </span>
-                  ) : null}
-                </button>
+                <Card key={i.id} label={i.label} sub={i.sub} pic={envPicture(i.id)} colors={g.colors} on={picks.includes(i.id)} onClick={() => toggle(i.id)} />
               ))}
             </div>
           </section>
@@ -231,6 +226,9 @@ function EnvBrowser({ close }: { close: () => void }) {
       </div>
       <div className="sheet-foot">
         <button type="button" className="btn ghost" onClick={() => setPicks([])}>As modelled</button>
+        <button type="button" className="btn ghost" title="Make or update the pictures" onClick={() => setState({ libOpen: "env-pics" })}>
+          <Icon name="image" /> Pictures · {envMadeCount()}/36
+        </button>
         <small style={{ color: "var(--muted)" }}>{picks.length ? `${picks.length} picked` : "Nothing picked: surroundings stay as modelled"}</small>
         <div className="end">
           <button type="button" className="btn primary" onClick={apply}>Use</button>

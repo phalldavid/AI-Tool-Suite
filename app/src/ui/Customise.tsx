@@ -58,6 +58,7 @@ export function Customise() {
         </section>
         {seg("Language", p.lang, [["en", "English"], ["km", "ខ្មែរ"]], (lang) => setPrefs({ lang }), "tabs2")}
         {seg("Motion", p.motion, [["full", "Full"], ["reduced", "Reduced"]], (motion) => setPrefs({ motion }), "tabs2")}
+        {seg("Background", p.bg, [["moving", "Moving"], ["still", "Still"], ["plain", "Plain"]], (bg) => setPrefs({ bg }))}
         <button type="button" className="linkish" style={{ alignSelf: "flex-start", color: "var(--muted)" }} onClick={resetPrefs}>
           Reset to defaults
         </button>

@@ -62,6 +62,11 @@ export const CONTEXT_GROUPS: ContextGroup[] = [
       ctx("lake", "Lakeside", "Calm water with reflections", "on the edge of a calm lake with reflections of the building, reeds and lotus plants along the bank"),
       ctx("hills", "Forest hills", "Cardamom or Bokor style", "a green forested hillside in the Cambodian countryside, misty hills in the distance"),
       ctx("beach", "Coast", "Kep or Sihanoukville", "a coastal resort setting near Kep or Sihanoukville: sand, coconut palms, calm sea in the distance"),
+      ctx("khmer-village", "Khmer village", "Stilt houses, sugar palms", "a traditional Khmer village: timber stilt houses, sugar palms, banana trees, a dirt lane and water jars"),
+      ctx("courtyard", "Courtyard", "Enclosed garden, water basin", "an enclosed tropical courtyard: frangipani tree, stone paving, a shallow water basin and walls with climbing plants"),
+      ctx("minimal-garden", "Minimal landscape", "Gravel, lawn, single trees", "a modern minimal landscape: clean lawn, raked gravel, low grasses, a few sculptural single trees and concrete stepping slabs"),
+      ctx("pagoda", "Near a pagoda", "Wat roofs, stupas, old trees", "near a Cambodian pagoda (wat): tiered temple roofs with gold finials, white stupas, large old trees and a walled compound"),
+      ctx("bokor", "Mountain", "Bokor plateau, misty", "high on a mountain plateau like Bokor near Kampot: cool mist, low forest, rocky ground and wide views over the lowlands"),
     ],
   },
   {
