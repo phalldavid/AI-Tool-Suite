@@ -13,6 +13,7 @@ import { EditScreen } from "./screens/Edit";
 import { HistoryScreen } from "./screens/History";
 import { SunScreen } from "./screens/Sun";
 import { LibrarySheet } from "./ui/LibrarySheet";
+import { EnvPicturesSheet } from "./ui/EnvPicturesSheet";
 import { DynamicSheet } from "./ui/DynamicSheet";
 
 function typing(t: EventTarget | null): boolean {
@@ -95,6 +96,7 @@ export function App() {
       <HandoffSheet />
       <Palette />
       <LibrarySheet />
+      <EnvPicturesSheet />
       <DynamicSheet />
       <Toasts />
     </div>

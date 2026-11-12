@@ -16,6 +16,9 @@ export const BUILT_IN_NOTES: NotePreset[] = [
   { id: "mist", label: "Ground mist", text: "Add a thin, low ground mist close to the ground, like an early humid morning." },
   { id: "led", label: "Orange to LED", text: "Turn the orange and yellow solid colors into glowing warm-white 3300K LED strips." },
   { id: "water", label: "Blue to water", text: "Turn the blue solid-colour surfaces into calm, clear water with soft reflections." },
+  { id: "trees", label: "Add trees", text: "Add mature shade trees suited to Cambodia, placed naturally around the building." },
+  { id: "shrubs", label: "Add shrubs", text: "Add layered tropical shrubs and flowering plants along the edges and beds." },
+  { id: "ground", label: "Add ground cover", text: "Cover the bare ground with lawn and low tropical ground-cover planting." },
   { id: "clean", label: "Clean site", text: "Show a clean, finished site: no construction debris, no scaffolding, no stray materials." },
 ];
 

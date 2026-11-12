@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { EditMode, Version } from "../store";
-import { activeImage, effectiveLightScene, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
+import { activeImage, clearEdit, effectiveLightScene, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
 import { toDataUrl } from "../core/images";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
@@ -18,6 +18,7 @@ import { SunDial, fmtHour } from "./SunDial";
 import { CameraControls, CameraPreview } from "./Camera";
 import { Progress } from "./Render";
 import { LightSceneSwitch } from "../ui/LightSceneSwitch";
+import { GLOBAL_PRESETS, MATERIALS, SURFACES, ZONE_GROUPS, appendLine, materialSentence } from "../lib/spot";
 import { INTERIOR_RELIGHT } from "../core/prompt";
 
 let painter: ZonePainter | null = null;
@@ -86,11 +87,62 @@ function EditEmpty() {
   );
 }
 
+const CAMERA_PRESETS: { label: string; icon: string; title: string; m: { orbit: number; tilt: number; lensMm: number; distanceM: number } }[] = [
+  { label: "Eye level", icon: "view", title: "1.6 m high, level, 35 mm", m: { orbit: 0, tilt: 0, lensMm: 35, distanceM: 20 } },
+  { label: "Wide angle", icon: "expand", title: "24 mm wide, level", m: { orbit: 0, tilt: 0, lensMm: 24, distanceM: 15 } },
+  { label: "Two-point", icon: "grid", title: "Corner view, 30° round, straight verticals", m: { orbit: 30, tilt: 0, lensMm: 35, distanceM: 22 } },
+  { label: "Low angle", icon: "up", title: "Close and slightly low, heroic", m: { orbit: -20, tilt: 0, lensMm: 24, distanceM: 10 } },
+  { label: "Aerial", icon: "map", title: "Drone at 45°", m: { orbit: 20, tilt: 45, lensMm: 35, distanceM: 60 } },
+];
+
+/** Replace the image being edited, or clear the Edit tab. Asks first if a painted selection or queue would be lost. */
+function ReplaceClear() {
+  const [ask, setAsk] = useState(false);
+  useEffect(() => {
+    if (!ask) return;
+    const t = window.setTimeout(() => setAsk(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [ask]);
+  const unsaved = () => {
+    const st = getState();
+    return Boolean(painter?.paintedZones().length || st.shots.length || st.styleRef);
+  };
+  const clear = () => {
+    resetPainter();
+    clearEdit();
+    toast("Edit cleared. Your renders are still in History.", "ok");
+  };
+  return (
+    <span className="rc">
+      <label className="pill-btn" title="Replace with another image" style={{ cursor: "pointer" }}>
+        <Icon name="image" size={14} /> <span className="lbl-md">Replace</span>
+        <input type="file" accept="image/*" className="sr-only" onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) {
+            resetPainter();
+            void useEditFile(f, f.name, true);
+          }
+          e.target.value = "";
+        }} />
+      </label>
+      {ask ? (
+        <button type="button" className="pill-btn danger" onClick={clear}>
+          <Icon name="trash" size={14} /> Clear anyway?
+        </button>
+      ) : (
+        <button type="button" className="pill-btn" aria-label="Clear image" title="Clear image" onClick={() => (unsaved() ? setAsk(true) : clear())}>
+          <Icon name="trash" size={14} /> <span className="lbl-md">Clear</span>
+        </button>
+      )}
+    </span>
+  );
+}
+
 const TOOLS_ROW: [EditMode | "download" | "again", string, string][] = [
   ["compare", "Compare", "compare"],
   ["spot", "Spot edit", "brush"],
   ["relight", "Relight", "sun"],
-  ["view", "New view", "camera"],
+  ["view", "Multi-View", "camera"],
   ["style", "Style copy", "layers"],
   ["again", "Try again", "refresh"],
   ["download", "Download", "download"],
@@ -124,6 +176,7 @@ function EditWork() {
           </>
         ) : null}
         <span className="lbl-md" style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--muted)" }}>{v?.label}</span>
+        <ReplaceClear />
       </div>
       <div className="stage cq" style={{ background: "var(--field)" }}>
         {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : <CompareStage v={v} />}
@@ -399,13 +452,24 @@ function SpotEditPanel() {
   const s = useApp((x) => x.settings);
   const [, bump] = useState(0);
   const [texts, setTexts] = useState<Record<string, string>>({});
+  const [globalPicks, setGlobalPicks] = useState<string[]>([]);
   const [general, setGeneral] = useState("");
   const [zoneCount, setZoneCount] = useState(2);
+  const [group, setGroup] = useState<"light" | "decor" | "material">("light");
+  const [surface, setSurface] = useState("surface");
+  const [material, setMaterial] = useState(MATERIALS[0]);
+  const [ownMaterial, setOwnMaterial] = useState("");
+  const [sizing, setSizing] = useState(false);
   if (!p) return null;
   const refresh = () => bump((n) => n + 1);
   const tool = p.erase ? "eraser" : p.tool;
   const painted = p.paintedZones();
   const cost = renderCost(s, s.backend === "kie" ? s.editModel || s.kieModel : s.kieModel);
+  const promptOnly = s.backend === "browser" && !s.testMode;
+  const active = ZONES.find((z) => z.id === p.active) ?? ZONES[0];
+  const addToZone = (line: string) => setTexts((t) => ({ ...t, [active.id]: appendLine(t[active.id] ?? "", line) }));
+  const globalText = [...GLOBAL_PRESETS.filter((g) => globalPicks.includes(g.id)).map((g) => g.text), ...(general.trim() ? [general.trim()] : [])].join(" ");
+  const groupDef = ZONE_GROUPS.find((g) => g.id === group);
   return (
     <>
       <div>
@@ -438,9 +502,25 @@ function SpotEditPanel() {
         ))}
       </div>
       {tool === "brush" || tool === "eraser" ? (
-        <div className="field">
-          <label htmlFor="bs" className="num">Brush size · {p.size} px</label>
-          <input id="bs" type="range" min={6} max={120} value={p.size} onChange={(e) => { p.size = Number(e.target.value); refresh(); }} style={{ accentColor: "var(--accent)" }} />
+        <div className="brushrow">
+          <div className="field" style={{ flex: 1 }}>
+            <label htmlFor="bs" className="num">Brush size · {p.size} px</label>
+            <input
+              id="bs"
+              type="range"
+              min={6}
+              max={120}
+              value={p.size}
+              onPointerDown={() => setSizing(true)}
+              onPointerUp={() => setSizing(false)}
+              onBlur={() => setSizing(false)}
+              onChange={(e) => { p.size = Number(e.target.value); refresh(); }}
+              style={{ accentColor: "var(--accent)" }}
+            />
+          </div>
+          <div className={`brushprev${sizing ? " live" : ""}`} aria-hidden="true" title="Actual brush size on the image">
+            <span style={{ width: p.size, height: p.size, ["--zc" as string]: tool === "eraser" ? "var(--soft)" : active.css }} />
+          </div>
         </div>
       ) : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -455,19 +535,61 @@ function SpotEditPanel() {
                   {z.name}
                   <span className="state" style={{ color: has ? "var(--ok)" : "var(--warn)" }}>{has ? "painted" : "not painted"}</span>
                 </div>
-                <textarea className="input" rows={1} aria-label={`What should change in ${z.name}`} placeholder="What should change here?" value={texts[z.id] ?? ""} onChange={(e) => setTexts({ ...texts, [z.id]: e.target.value })} />
+                <textarea className="input" rows={Math.min(4, Math.max(1, Math.ceil((texts[z.id]?.length ?? 0) / 46) + ((texts[z.id] ?? "").split("\n").length - 1)))} aria-label={`What should change in ${z.name}`} placeholder="Tap a quick action below, or type" value={texts[z.id] ?? ""} onChange={(e) => setTexts({ ...texts, [z.id]: e.target.value })} />
               </div>
             </div>
           );
         })}
         {zoneCount < ZONES.length ? (
-          <button type="button" className="btn ghost" onClick={() => { setZoneCount(zoneCount + 1); p.active = ZONES[zoneCount].id; refresh(); }}>Add zone</button>
+          <button type="button" className="btn ghost" onClick={() => { setZoneCount(zoneCount + 1); p.active = ZONES[zoneCount].id; refresh(); }}><Icon name="plus" /> Add zone</button>
         ) : null}
       </div>
-      <div className="field">
-        <label htmlFor="gen">Change for the whole picture (optional)</label>
-        <input id="gen" className="input" value={general} onChange={(e) => setGeneral(e.target.value)} placeholder="e.g. make the sky clearer" />
-      </div>
+      <section className="quick" style={{ ["--zc" as string]: active.css }}>
+        <div className="quick-head">
+          <span className="qdot" />
+          <b>Quick actions for {active.name}</b>
+        </div>
+        <div className="seg-mini" role="tablist" aria-label="Quick action group">
+          {([["light", "Lighting"], ["decor", "Decor"], ["material", "Material"]] as const).map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={group === id} aria-checked={group === id} onClick={() => setGroup(id)}>{label}</button>
+          ))}
+        </div>
+        {groupDef ? (
+          <div className="chips-row">
+            {groupDef.actions.map((a) => (
+              <button key={a.id} type="button" className="chip qchip" title={a.text} aria-pressed={(texts[active.id] ?? "").includes(a.text)} onClick={() => addToZone(a.text)}>
+                <Icon name={a.icon} size={13} /> {a.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="matrow">
+            <select className="input" aria-label="Surface" value={surface} onChange={(e) => setSurface(e.target.value)}>
+              {SURFACES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </select>
+            <span style={{ color: "var(--muted)", fontSize: 13 }}>to</span>
+            <select className="input" aria-label="Material" value={material} onChange={(e) => setMaterial(e.target.value)}>
+              {MATERIALS.map((m) => <option key={m} value={m}>{m[0].toUpperCase() + m.slice(1)}</option>)}
+              <option value="__own">Custom…</option>
+            </select>
+            {material === "__own" ? <input className="input" aria-label="Your material" placeholder="e.g. laterite block" value={ownMaterial} onChange={(e) => setOwnMaterial(e.target.value)} /> : null}
+            <button type="button" className="btn" disabled={material === "__own" && !ownMaterial.trim()} onClick={() => addToZone(materialSentence(surface, material === "__own" ? ownMaterial : material))}>
+              <Icon name="plus" /> Add
+            </button>
+          </div>
+        )}
+      </section>
+      <section className="field">
+        <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Global Edit <small style={{ fontWeight: 400, color: "var(--muted)" }}>· whole picture</small></span>
+        <div className="chips-row">
+          {GLOBAL_PRESETS.map((g) => (
+            <button key={g.id} type="button" className="chip qchip" aria-pressed={globalPicks.includes(g.id)} title={g.text} onClick={() => setGlobalPicks((x) => (x.includes(g.id) ? x.filter((y) => y !== g.id) : [...x, g.id]))}>
+              <Icon name={g.icon} size={13} /> {g.label}
+            </button>
+          ))}
+        </div>
+        <input id="gen" className="input" aria-label="Your own global edit" value={general} onChange={(e) => setGeneral(e.target.value)} placeholder="Your own, e.g. make the sky clearer" />
+      </section>
       <div style={{ display: "flex", gap: 8 }}>
         <button type="button" className="btn" style={{ flex: 1 }} aria-label="Undo, Ctrl Z" title="Undo · Ctrl Z" disabled={!p.canUndo()} onClick={() => { p.undo(); refresh(); }}>
           <Icon name="undo" /> <span className="lbl-xs">Undo</span>
@@ -476,9 +598,9 @@ function SpotEditPanel() {
           <Icon name="trash" /> <span className="lbl-xs">Clear all</span>
         </button>
       </div>
-      <p className="note" style={{ margin: 0 }}>Everything outside your selection is pasted back from the original, so it stays exactly as it was.</p>
-      <button type="button" className="cta sheen" disabled={Boolean(busy)} onClick={() => void runSpotEdit(p, texts, general).then(refresh)}>
-        Apply edit · {cost.label}
+      <p className="note" style={{ margin: 0 }}>{globalText ? "Global Edit changes the whole picture, so the result is not pasted back over the original." : "Everything outside your selection is pasted back from the original, so it stays exactly as it was."}</p>
+      <button type="button" className="cta sheen" disabled={Boolean(busy)} onClick={() => void runSpotEdit(p, texts, globalText).then(refresh)}>
+        {promptOnly ? <><Icon name="clipboard" size={18} /> Get edit prompt + painted image</> : <>Apply edit · {cost.label}</>}
       </button>
     </>
   );
@@ -515,7 +637,7 @@ function RelightPanel() {
         <h2 style={{ fontSize: 22 }}>Relight</h2>
         <p className="sub">Same building and camera, new time of day.</p>
       </div>
-      <LightSceneSwitch />
+      <LightSceneSwitch info />
       <section className="step cq">
         <div className="lightwrap">
           <div className="dialcol">
@@ -556,10 +678,10 @@ function NewViewPanel() {
     <>
       <div className="side-scroll thin">
         <div>
-          <h2 style={{ fontSize: 22 }}>New view, same look</h2>
-          <p className="sub">Materials, light and environment come from the look source on the left.</p>
+          <h2 style={{ fontSize: 22 }}>Multi-View</h2>
+          <p className="sub">Same look, new angle. Materials, light and environment come from the look source on the left.</p>
         </div>
-        <LightSceneSwitch />
+        <LightSceneSwitch info />
         <div className="tabs2" role="radiogroup" aria-label="How to set the new view">
           <button type="button" role="radio" aria-checked={source === "shot"} onClick={() => setState({ viewSource: "shot" })}>My view</button>
           <button type="button" role="radio" aria-checked={source === "camera"} onClick={() => setState({ viewSource: "camera" })}>Move camera</button>
@@ -589,6 +711,13 @@ function NewViewPanel() {
         ) : (
           <>
             <p className="note" style={{ margin: 0 }}>Quick, but the AI has to imagine sides it hasn't seen. Small moves (under about 45°) work best.</p>
+            <div className="chips-row" aria-label="Camera presets">
+              {CAMERA_PRESETS.map((x) => (
+                <button key={x.label} type="button" className="chip qchip" title={x.title} aria-pressed={cam.orbit === x.m.orbit && cam.tilt === x.m.tilt && cam.lensMm === x.m.lensMm && cam.distanceM === x.m.distanceM} onClick={() => setState({ camera: { ...x.m } })}>
+                  <Icon name={x.icon} size={13} /> {x.label}
+                </button>
+              ))}
+            </div>
             <CameraControls />
             <div className="prompt-box glass" style={{ padding: "10px 12px" }}>
               <span className="lbl" style={{ fontSize: 12.5, color: "var(--muted)" }}>Added to the prompt</span>
@@ -695,7 +824,7 @@ function StyleCopyPanel() {
         </ol>
         <section className="field">
           <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Lighting for</span>
-          <LightSceneSwitch />
+          <LightSceneSwitch info />
         </section>
         <section className="field">
           <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Time of day and sun</span>

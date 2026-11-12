@@ -17,6 +17,7 @@ import { Icon } from "../ui/Icon";
 import { SunDial, fmtHour } from "./SunDial";
 import { ModelPicker } from "../ui/ModelPicker";
 import { LightSceneSwitch } from "../ui/LightSceneSwitch";
+import { Fittings } from "../ui/Fittings";
 import { DYN_ICONS } from "../ui/DynamicSheet";
 import { GENERATORS, countSet } from "../core/dynamic";
 import { BUILT_IN_NOTES, GLASS_COLOURS, labelFor, loadCustomNotes, saveCustomNotes } from "../lib/notes";
@@ -442,8 +443,8 @@ function Light() {
       <div className="step-head">
         <span className="n">3</span>
         <h2>Light</h2>
-        <span className="end"><LightSceneSwitch /></span>
       </div>
+      <LightSceneSwitch info />
       <div className="lightwrap">
         <div className="dialcol">
           <SunDial hour={hour} onHour={(h) => setState({ hour: h, lighting: "time" })} />
@@ -465,6 +466,7 @@ function Light() {
           })}
         </div>
       </div>
+      <Fittings />
     </section>
   );
 }

@@ -2,7 +2,17 @@
 // v1 (web/) is built by build.mjs and stays at the site root until the swap.
 // Run after build.mjs: that script clears dist/web first.
 import * as esbuild from "esbuild";
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+
+// Keep v2's list of card pictures in step with web/public/previews (styles and env-* pictures).
+{
+  const file = "app/src/core/preview-files.ts";
+  const dir = "web/public/previews";
+  const ids = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".webp")).map((f) => f.slice(0, -5)).sort() : [];
+  const src = readFileSync(file, "utf8");
+  const next = src.replace(/const IDS: string\[\] = \[[^\]]*\];/, `const IDS: string[] = ${JSON.stringify(ids)};`);
+  if (next !== src) writeFileSync(file, next);
+}
 
 const serve = process.argv.includes("--serve");
 // Where the app is served from, relative to the site root. "next" during the beta.
