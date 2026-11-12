@@ -91,7 +91,7 @@ export interface AppState {
   glassColour: string;
   advancedOpen: boolean;
   /** Full-screen pickers: the look library, the environment list, a dynamic prompt form. */
-  libOpen: null | "look" | "env" | "env-pics";
+  libOpen: null | "look" | "env" | "env-pics" | "look-pics";
   dynOpen: string | null;
   editMode: EditMode;
   viewSource: "camera" | "shot";

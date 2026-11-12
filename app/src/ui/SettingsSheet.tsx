@@ -9,6 +9,40 @@ import { KIE_KEY_PAGE } from "../core/providers/kie";
 import { backendStatus } from "../lib/status";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
+import { setDev, unlockDev, useDev } from "../lib/dev";
+import { toast } from "../toasts";
+
+function DeveloperSection() {
+  const dev = useDev();
+  const [word, setWord] = useState("");
+  return (
+    <section className="step">
+      <h2 style={{ fontSize: 16 }}>Developer</h2>
+      {dev ? (
+        <>
+          <p className="note" style={{ margin: 0 }}>Developer mode is on: "Pictures" appears in Browse all for looks and environments, to make card pictures from contact sheets.</p>
+          <div>
+            <button type="button" className="btn ghost" onClick={() => setDev(false)}>Turn off developer mode</button>
+          </div>
+        </>
+      ) : (
+        <form
+          style={{ display: "flex", gap: 8 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (unlockDev(word)) {
+              setWord("");
+              toast("Developer mode on", "ok");
+            } else toast("That keyword isn't right.", "warn");
+          }}
+        >
+          <input className="input" type="password" autoComplete="off" value={word} onChange={(e) => setWord(e.target.value)} placeholder="Keyword" aria-label="Developer keyword" style={{ flex: 1 }} />
+          <button type="submit" className="btn" disabled={!word.trim()}>Unlock</button>
+        </form>
+      )}
+    </section>
+  );
+}
 
 const BACKENDS: { id: Settings["backend"] | "test"; label: string; sub: string }[] = [
   { id: "browser", label: "Prompt Copy · free", sub: "Get the prompt and render in Gemini, ChatGPT or Flow with your own login. No key." },
@@ -177,6 +211,8 @@ export function SettingsSheet() {
             <button type="button" className="btn ghost" onClick={() => void importFromV1(true)}>Import with keys</button>
           </div>
         </section>
+
+        <DeveloperSection />
       </div>
       <div className="sheet-foot">
         <small style={{ color: "var(--muted)" }}>v{getState().host.kind === "sketchup" ? "2 · SketchUp" : "2 beta"} · settings saved automatically</small>

@@ -436,7 +436,6 @@ function Light() {
   const lighting = useApp((s) => s.lighting);
   const facts = useApp((s) => s.capture?.facts);
   const exact = useApp((s) => s.sun.exact);
-  const caption = useApp(() => lightCaption());
   const cards = facts?.shadowTime ? [{ id: "sketchup", label: "SketchUp sun", sub: "From your model", sky: ["#5a5f8a", "#f0a050"] as [string, string] }, ...CARDS] : CARDS;
   return (
     <section className="step cq">
@@ -448,7 +447,6 @@ function Light() {
       <div className="lightwrap">
         <div className="dialcol">
           <SunDial hour={hour} onHour={(h) => setState({ hour: h, lighting: "time" })} />
-          <p className="caption">{caption}</p>
           <button type="button" className="linkish" style={{ fontSize: 12.5 }} onClick={() => setState({ tab: "sun" })}>
             {exact ? "Exact direction on" : "Set exact direction"}
           </button>

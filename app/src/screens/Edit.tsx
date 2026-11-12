@@ -4,7 +4,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { EditMode, Version } from "../store";
-import { activeImage, clearEdit, effectiveLightScene, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
+import type { ImageData64 } from "../core/types";
+import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, effectiveLightScene, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
 import { toDataUrl } from "../core/images";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
@@ -26,7 +27,8 @@ let painterFor: unknown = null;
 
 export function EditScreen() {
   const versions = useApp((s) => s.versions);
-  if (!versions.length) return <EditEmpty />;
+  const mode = useApp((s) => s.editMode);
+  if (!versions.length && mode !== "view" && mode !== "style") return <EditEmpty />;
   return <Panels label="edit" work={<EditWork />} side={<EditSide />} />;
 }
 
@@ -185,7 +187,7 @@ function EditWork() {
       <div className="refine-wrap">
         <nav className="refine glass" aria-label="Edit tools">
           {TOOLS_ROW.map(([id, label, icon]) => {
-            const disabled = id === "again" && (!cap || Boolean(busy));
+            const disabled = (id === "again" && (!cap || Boolean(busy))) || (!v && id !== "view" && id !== "style");
             return (
               <button
                 key={id}
@@ -195,7 +197,7 @@ function EditWork() {
                 title={id === "again" && !cap ? "Try again needs the view on the Render tab" : label}
                 disabled={disabled}
                 onClick={() => {
-                  if (id === "download") return void download(v.image, `render-v${active + 1}`);
+                  if (id === "download") return void (v && download(v.image, `render-v${active + 1}`));
                   if (id === "again") return void openReview();
                   if (id === "view") return setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion }));
                   setState({ editMode: id });
@@ -314,54 +316,80 @@ function Fig({ src, label, children, accent }: { src?: string; label: string; ch
   );
 }
 
+/** An empty picture slot on the stage: drop, paste or upload into it. */
+function DropFig({ title, hint, icon, target }: { title: string; hint: string; icon: string; target: SlotTarget }) {
+  const [over, setOver] = useState(false);
+  return (
+    <figure
+      className="rise"
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes("Files")) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setOver(false);
+        const files = [...e.dataTransfer.files].filter((x) => x.type.startsWith("image/"));
+        for (const f of target === "shot" ? files : files.slice(0, 1)) void useEditFileAs(f, f.name, target);
+      }}
+    >
+      <div className={`drop${over ? " over" : ""}`} style={{ inset: 10 }}>
+        <div className="badge"><Icon name={icon} size={26} stroke={1.8} /></div>
+        <h2 style={{ fontSize: 18 }}>{title}</h2>
+        <p>{hint}</p>
+        <SlotButtons target={target} primary />
+      </div>
+    </figure>
+  );
+}
+
+type SlotTarget = "base" | "ref" | "shot";
+
+/** Paste, Upload (and Capture in SketchUp) into one slot. */
+function SlotButtons({ target, primary }: { target: SlotTarget; primary?: boolean }) {
+  const host = useApp((s) => s.host);
+  return (
+    <div className={primary ? "row" : "row-btns"}>
+      <button type="button" className={primary ? "btn primary" : "btn"} onClick={() => void pasteInto(target)}>
+        <Icon name="clipboard" /> Paste
+      </button>
+      <label className="btn" style={{ cursor: "pointer" }}>
+        <Icon name="image" /> Upload
+        <input type="file" accept="image/*" multiple={target === "shot"} className="sr-only" onChange={(e) => {
+          for (const f of [...(e.target.files ?? [])]) void useEditFileAs(f, f.name, target);
+          e.target.value = "";
+        }} />
+      </label>
+      {host.kind === "sketchup" && target !== "ref" ? (
+        <button type="button" className="btn" onClick={() => void captureFromSketchUp()}><Icon name="camera" /> Capture</button>
+      ) : null}
+    </div>
+  );
+}
+
 function ViewStage() {
   const versions = useApp((s) => s.versions);
   const lookIndex = useApp((s) => s.lookIndex);
   const source = useApp((s) => s.viewSource);
   const shots = useApp((s) => s.shots);
-  const host = useApp((s) => s.host);
-  const [over, setOver] = useState(false);
   const look = versions[lookIndex] ?? versions[0];
-  const lookSrc = useMemo(() => toDataUrl(look.image), [look]);
+  const lookSrc = useMemo(() => (look ? toDataUrl(look.image) : ""), [look]);
   const shotSrc = useMemo(() => (shots[0] ? toDataUrl(shots[0].image) : ""), [shots]);
-  const n = versions.filter((x, i) => i <= lookIndex && x.kind === look.kind).length;
   return (
     <div className="pairs view-pairs">
-      <Fig src={lookSrc} label={`Look source · ${look.kind === "view" ? "View " : "v"}${n}`} />
+      {look ? <Fig src={lookSrc} label="1 · Look source" /> : <DropFig title="1 · Look source" hint="The render whose materials, light and planting the new view copies." icon="star" target="base" />}
       {source === "camera" ? (
-        <Fig label="New camera" accent>
+        <Fig label="2 · New camera" accent>
           <CameraPreview />
           <span className="chip-img lbl-sm" style={{ position: "absolute", right: 12, bottom: 12 }}>Orange = front of the building</span>
         </Fig>
       ) : shots.length ? (
-        <Fig src={shotSrc} label={shots.length > 1 ? `Your view 1 of ${shots.length}` : "Your view"} accent />
+        <Fig src={shotSrc} label={shots.length > 1 ? `2 · New view 1 of ${shots.length}` : "2 · New view"} accent />
       ) : (
-        <figure
-          className="rise"
-          onDragOver={(e) => {
-            if (![...e.dataTransfer.types].includes("Files")) return;
-            e.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setOver(false);
-            for (const f of [...e.dataTransfer.files].filter((x) => x.type.startsWith("image/"))) void useEditFile(f, f.name);
-          }}
-        >
-          <div className={`drop${over ? " over" : ""}`} style={{ inset: 10 }}>
-            <div className="badge"><Icon name="image" size={26} stroke={1.8} /></div>
-            <h2 style={{ fontSize: 18 }}>Add the new view</h2>
-            <p>Paste, drop or upload a SketchUp screenshot of the new angle. Several at once is fine.</p>
-            <div className="row">
-              <button type="button" className="btn primary" onClick={() => void pasteFromClipboard()}>Paste <span className="kbd" style={{ background: "transparent", color: "inherit" }}>Ctrl V</span></button>
-              <FilePick className="btn">Upload</FilePick>
-              {host.kind === "sketchup" ? <button type="button" className="btn" onClick={() => void captureFromSketchUp()}><Icon name="camera" /> Capture</button> : null}
-            </div>
-          </div>
-        </figure>
+        <DropFig title="2 · New view" hint="A SketchUp screenshot of the new angle. Several at once is fine." icon="camera" target="shot" />
       )}
     </div>
   );
@@ -670,66 +698,65 @@ function NewViewPanel() {
   const cam = useApp((s) => s.camera);
   const busy = useApp((s) => s.busy);
   const s = useApp((x) => x.settings);
-  const host = useApp((x) => x.host);
+  const lookIndex = useApp((x) => x.lookIndex);
+  const look = useApp((x) => x.versions[x.lookIndex] ?? x.versions[0]);
   const one = renderCost(s);
   const n = source === "shot" ? shots.length : 1;
   const total = one.credits !== null && n > 1 ? `${one.credits * n} credits` : one.label;
+  const promptOnly = s.backend === "browser" && !s.testMode;
   return (
     <>
       <div className="side-scroll thin">
         <div>
           <h2 style={{ fontSize: 22 }}>Multi-View</h2>
-          <p className="sub">Same look, new angle. Materials, light and environment come from the look source on the left.</p>
+          <p className="sub">Same look, new angle. Materials, light and environment come from the look source.</p>
         </div>
-        <LightSceneSwitch info />
-        <div className="tabs2" role="radiogroup" aria-label="How to set the new view">
-          <button type="button" role="radio" aria-checked={source === "shot"} onClick={() => setState({ viewSource: "shot" })}>My view</button>
-          <button type="button" role="radio" aria-checked={source === "camera"} onClick={() => setState({ viewSource: "camera" })}>Move camera</button>
-        </div>
-        {source === "shot" ? (
-          <>
-            <p className="note" style={{ margin: 0 }}>Most accurate: the AI copies the look and keeps the geometry of your screenshot exactly, so nothing is invented. Drop several screenshots to render them as a set.</p>
-            <div className="row-btns">
-              <button type="button" className="btn" onClick={() => void pasteFromClipboard()}><Icon name="clipboard" /> Paste</button>
-              <FilePick className="btn"><Icon name="image" /> Upload</FilePick>
-              {host.kind === "sketchup" ? <button type="button" className="btn" onClick={() => void captureFromSketchUp()}><Icon name="camera" /> Capture</button> : null}
+        <ol className="style-steps">
+          <Slot title="Look source" hint={look ? undefined : "The render whose look the new view copies."} image={look?.image} name={look ? `${look.kind === "view" ? "View" : "v"}${lookIndex + 1} · ${look.label}` : undefined} onClear={clearBase} target="base" />
+          <Slot title="New view">
+            <div className="tabs2" role="radiogroup" aria-label="How to set the new view">
+              <button type="button" role="radio" aria-checked={source === "shot"} onClick={() => setState({ viewSource: "shot" })}>My view</button>
+              <button type="button" role="radio" aria-checked={source === "camera"} onClick={() => setState({ viewSource: "camera" })}>Move camera</button>
             </div>
-            {shots.length ? (
-              <div className="queue">
+            {source === "shot" ? (
+              <>
+                <small>Most accurate: keeps the geometry of your screenshot exactly. Add several to render them as a set.</small>
                 {shots.map((x, i) => (
                   <div key={i} className="qitem">
                     <img src={toDataUrl(x.image)} alt="" />
                     <span>{i + 1}. {x.name}</span>
-                    <button type="button" className="icon-btn" aria-label={`Remove ${x.name}`} onClick={() => setState((st) => ({ shots: st.shots.filter((_, j) => j !== i) }))}>
+                    <button type="button" className="icon-btn" aria-label={`Clear ${x.name}`} title="Clear" onClick={() => setState((st) => ({ shots: st.shots.filter((_, j) => j !== i) }))}>
                       <Icon name="close" size={14} />
                     </button>
                   </div>
                 ))}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <p className="note" style={{ margin: 0 }}>Quick, but the AI has to imagine sides it hasn't seen. Small moves (under about 45°) work best.</p>
-            <div className="chips-row" aria-label="Camera presets">
-              {CAMERA_PRESETS.map((x) => (
-                <button key={x.label} type="button" className="chip qchip" title={x.title} aria-pressed={cam.orbit === x.m.orbit && cam.tilt === x.m.tilt && cam.lensMm === x.m.lensMm && cam.distanceM === x.m.distanceM} onClick={() => setState({ camera: { ...x.m } })}>
-                  <Icon name={x.icon} size={13} /> {x.label}
-                </button>
-              ))}
-            </div>
-            <CameraControls />
-            <div className="prompt-box glass" style={{ padding: "10px 12px" }}>
-              <span className="lbl" style={{ fontSize: 12.5, color: "var(--muted)" }}>Added to the prompt</span>
-              <p className="mono num" style={{ height: "auto", fontSize: 12.5 }}>{cameraPromptLine(cam)}</p>
-            </div>
-          </>
-        )}
+                <SlotButtons target="shot" />
+              </>
+            ) : (
+              <>
+                <small>Quick, but the AI imagines sides it hasn't seen. Small moves (under about 45°) work best.</small>
+                <div className="chips-row" aria-label="Camera presets">
+                  {CAMERA_PRESETS.map((x) => (
+                    <button key={x.label} type="button" className="chip qchip" title={x.title} aria-pressed={cam.orbit === x.m.orbit && cam.tilt === x.m.tilt && cam.lensMm === x.m.lensMm && cam.distanceM === x.m.distanceM} onClick={() => setState({ camera: { ...x.m } })}>
+                      <Icon name={x.icon} size={13} /> {x.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </Slot>
+        </ol>
+        {source === "camera" ? <CameraControls /> : null}
+        <section className="field">
+          <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Lighting for</span>
+          <LightSceneSwitch info />
+        </section>
+        <p className="note" style={{ margin: 0 }}>Additional Notes from the Render tab go on top of the prompt as the highest priority.</p>
       </div>
       <div className="side-foot">
-        <button type="button" className="cta sheen" disabled={Boolean(busy) || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
+        <button type="button" className="cta sheen" disabled={Boolean(busy) || !look || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
           <Icon name="camera" size={18} />
-          {source === "shot" ? (n > 1 ? `Render ${n} views · ${total}` : `Render this view · ${total}`) : `Render new camera · ${one.label}`}
+          {promptOnly ? "Get prompt · free" : source === "shot" ? (n > 1 ? `Render ${n} views · ${total}` : `Render this view · ${total}`) : `Render new camera · ${one.label}`}
         </button>
       </div>
     </>
@@ -744,48 +771,44 @@ export function resetPainter(): void {
 function StyleStage() {
   const v = useApp((s) => s.versions[s.activeVersion]);
   const ref = useApp((s) => s.styleRef);
-  const [over, setOver] = useState(false);
-  const baseSrc = useMemo(() => toDataUrl(v.image), [v]);
+  const baseSrc = useMemo(() => (v ? toDataUrl(v.image) : ""), [v]);
   const refSrc = useMemo(() => (ref ? toDataUrl(ref.image) : ""), [ref]);
   return (
     <div className="pairs view-pairs">
-      <Fig src={baseSrc} label="1 · Base architecture" />
-      {ref ? (
-        <Fig src={refSrc} label="2 · Style reference" accent />
-      ) : (
-        <figure
-          className="rise"
-          onDragOver={(e) => {
-            if (![...e.dataTransfer.types].includes("Files")) return;
-            e.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setOver(false);
-            const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("image/"));
-            if (f) void useEditFile(f, f.name);
-          }}
-        >
-          <div className={`drop${over ? " over" : ""}`} style={{ inset: 10 }}>
-            <div className="badge"><Icon name="layers" size={26} stroke={1.8} /></div>
-            <h2 style={{ fontSize: 18 }}>Add the style reference</h2>
-            <p>A photo whose materials, light and mood you want. Its building is not copied, only its look.</p>
-            <div className="row">
-              <button type="button" className="btn primary" onClick={() => void pasteFromClipboard()}>Paste <span className="kbd" style={{ background: "transparent", color: "inherit" }}>Ctrl V</span></button>
-              <FilePick className="btn">Upload</FilePick>
-            </div>
-          </div>
-        </figure>
-      )}
+      {v ? <Fig src={baseSrc} label="1 · Base architecture" /> : <DropFig title="1 · Base architecture" hint="Your SketchUp view: the building and camera that stay exactly as they are." icon="cube" target="base" />}
+      {ref ? <Fig src={refSrc} label="2 · Style reference" accent /> : <DropFig title="2 · Style reference" hint="A photo whose materials, light and mood you want. Its building is not copied, only its look." icon="layers" target="ref" />}
     </div>
+  );
+}
+
+/** One numbered step on the right: a filled slot (thumbnail, name, ×) or its Paste / Upload buttons. */
+function Slot({ title, hint, image, name, onClear, target, children }: { title: string; hint?: string; image?: ImageData64 | null; name?: string; onClear?: () => void; target?: SlotTarget; children?: React.ReactNode }) {
+  return (
+    <li>
+      <b>{title}</b>
+      {hint ? <small>{hint}</small> : null}
+      {image ? (
+        <div className="qitem">
+          <img src={toDataUrl(image)} alt="" />
+          <span>{name}</span>
+          {onClear ? (
+            <button type="button" className="icon-btn" aria-label={`Clear ${title}`} title="Clear" onClick={onClear}>
+              <Icon name="close" size={14} />
+            </button>
+          ) : null}
+        </div>
+      ) : target ? (
+        <SlotButtons target={target} />
+      ) : null}
+      {children}
+    </li>
   );
 }
 
 function StyleCopyPanel() {
   const ref = useApp((s) => s.styleRef);
+  const base = useApp((s) => s.versions[s.activeVersion]);
+  const activeIdx = useApp((s) => s.activeVersion);
   const light = useApp((s) => s.styleLight);
   const busy = useApp((s) => s.busy);
   const hour = useApp((s) => s.hour);
@@ -800,27 +823,8 @@ function StyleCopyPanel() {
           <p className="sub">Keeps the building and camera of image 1. Copies materials, light, planting and photo style from image 2.</p>
         </div>
         <ol className="style-steps">
-          <li>
-            <b>Base architecture</b>
-            <small>The image on the left: your SketchUp view. Upload a different one on the Edit tab, or pick another version above.</small>
-          </li>
-          <li>
-            <b>Style reference</b>
-            {ref ? (
-              <div className="qitem">
-                <img src={toDataUrl(ref.image)} alt="" />
-                <span>{ref.name}</span>
-                <button type="button" className="icon-btn" aria-label="Remove the style reference" onClick={() => setState({ styleRef: null })}>
-                  <Icon name="close" size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="row-btns">
-                <button type="button" className="btn" onClick={() => void pasteFromClipboard()}><Icon name="clipboard" /> Paste</button>
-                <FilePick className="btn"><Icon name="image" /> Upload</FilePick>
-              </div>
-            )}
-          </li>
+          <Slot title="Base architecture" hint={base ? undefined : "Your SketchUp view: geometry and camera stay exactly as they are."} image={base?.image} name={base ? `v${activeIdx + 1} · ${base.label}` : undefined} onClear={clearBase} target="base" />
+          <Slot title="Style reference" hint={ref ? undefined : "The photo whose materials, light and mood you want."} image={ref?.image} name={ref?.name} onClear={() => setState({ styleRef: null })} target="ref" />
         </ol>
         <section className="field">
           <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Lighting for</span>
@@ -843,7 +847,7 @@ function StyleCopyPanel() {
         <p className="note" style={{ margin: 0 }}>Additional Notes from the Render tab go on top of the prompt as the highest priority.</p>
       </div>
       <div className="side-foot">
-        <button type="button" className="cta sheen" disabled={Boolean(busy) || !ref} onClick={() => void openReview("style")}>
+        <button type="button" className="cta sheen" disabled={Boolean(busy) || !ref || !base} onClick={() => void openReview("style")}>
           <Icon name="layers" size={18} />
           {promptOnly ? "Get prompt · free" : `Copy the style · ${cost.label}`}
         </button>
