@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { EditMode, Version } from "../store";
-import { activeImage, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
+import { activeImage, effectiveLightScene, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
 import { toDataUrl } from "../core/images";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
@@ -17,6 +17,8 @@ import { Icon } from "../ui/Icon";
 import { SunDial, fmtHour } from "./SunDial";
 import { CameraControls, CameraPreview } from "./Camera";
 import { Progress } from "./Render";
+import { LightSceneSwitch } from "../ui/LightSceneSwitch";
+import { INTERIOR_RELIGHT } from "../core/prompt";
 
 let painter: ZonePainter | null = null;
 let painterFor: unknown = null;
@@ -89,6 +91,7 @@ const TOOLS_ROW: [EditMode | "download" | "again", string, string][] = [
   ["spot", "Spot edit", "brush"],
   ["relight", "Relight", "sun"],
   ["view", "New view", "camera"],
+  ["style", "Style copy", "layers"],
   ["again", "Try again", "refresh"],
   ["download", "Download", "download"],
 ];
@@ -123,7 +126,7 @@ function EditWork() {
         <span className="lbl-md" style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--muted)" }}>{v?.label}</span>
       </div>
       <div className="stage cq" style={{ background: "var(--field)" }}>
-        {mode === "view" ? <ViewStage /> : mode === "spot" ? <PaintStage key={active} /> : <CompareStage v={v} />}
+        {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : <CompareStage v={v} />}
         {busy ? <Progress /> : null}
       </div>
       <div className="refine-wrap">
@@ -314,6 +317,7 @@ function ViewStage() {
 function EditSide() {
   const mode = useApp((s) => s.editMode);
   if (mode === "view") return <NewViewPanel />;
+  if (mode === "style") return <StyleCopyPanel />;
   return (
     <div className="side-scroll thin">
       {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : <SummaryPanel />}
@@ -489,27 +493,36 @@ const RELIGHT: { id: string; label: string; sub: string; hour?: number; sky: [st
   { id: "night", label: "Night", sub: "Lights only", sky: ["#05070f", "#1b2036"] },
 ];
 
+const RELIGHT_INTERIOR: typeof RELIGHT = [
+  ...INTERIOR_RELIGHT.map((o) => ({ id: o.id, label: o.label, sub: o.sub ?? "", sky: (o.swatch ?? ["#3a2a1c", "#c98a4a"]) as [string, string] })),
+  { id: "night", label: "Night", sub: "Lights only", sky: ["#05070f", "#1b2036"] },
+];
+
 function RelightPanel() {
+  useApp((s) => s.lightScene);
+  const interior = effectiveLightScene() === "interior";
+  const cards = interior ? RELIGHT_INTERIOR : RELIGHT;
   const [hour, setHour] = useState(() => getState().hour);
   const [card, setCard] = useState<string>("time");
   const busy = useApp((s) => s.busy);
   const s = useApp((x) => x.settings);
   const cost = renderCost(s, s.backend === "kie" ? s.editModel || s.kieModel : s.kieModel);
   const id = card === "time" ? dialTimeId(hour) : card;
-  const what = card === "time" ? fmtHour(hour) : RELIGHT.find((r) => r.id === card)?.label;
+  const what = card === "time" ? fmtHour(hour) : cards.find((r) => r.id === card)?.label ?? RELIGHT.find((r) => r.id === card)?.label;
   return (
     <>
       <div>
         <h2 style={{ fontSize: 22 }}>Relight</h2>
         <p className="sub">Same building and camera, new time of day.</p>
       </div>
+      <LightSceneSwitch />
       <section className="step cq">
         <div className="lightwrap">
           <div className="dialcol">
             <SunDial hour={hour} onHour={(h) => { setHour(h); setCard("time"); }} />
           </div>
           <div className="lightcards">
-            {RELIGHT.map((c) => {
+            {cards.map((c) => {
               const on = card === c.id || (card === "time" && c.hour !== undefined && Math.abs(hour - c.hour) < 0.01);
               return (
                 <button key={c.id} type="button" className="lightcard" aria-pressed={on} onClick={() => (c.hour !== undefined ? (setHour(c.hour), setCard("time")) : setCard(c.id))}>
@@ -546,6 +559,7 @@ function NewViewPanel() {
           <h2 style={{ fontSize: 22 }}>New view, same look</h2>
           <p className="sub">Materials, light and environment come from the look source on the left.</p>
         </div>
+        <LightSceneSwitch />
         <div className="tabs2" role="radiogroup" aria-label="How to set the new view">
           <button type="button" role="radio" aria-checked={source === "shot"} onClick={() => setState({ viewSource: "shot" })}>My view</button>
           <button type="button" role="radio" aria-checked={source === "camera"} onClick={() => setState({ viewSource: "camera" })}>Move camera</button>
@@ -596,4 +610,115 @@ function NewViewPanel() {
 export function resetPainter(): void {
   painter = null;
   painterFor = null;
+}
+
+function StyleStage() {
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const ref = useApp((s) => s.styleRef);
+  const [over, setOver] = useState(false);
+  const baseSrc = useMemo(() => toDataUrl(v.image), [v]);
+  const refSrc = useMemo(() => (ref ? toDataUrl(ref.image) : ""), [ref]);
+  return (
+    <div className="pairs view-pairs">
+      <Fig src={baseSrc} label="1 · Base architecture" />
+      {ref ? (
+        <Fig src={refSrc} label="2 · Style reference" accent />
+      ) : (
+        <figure
+          className="rise"
+          onDragOver={(e) => {
+            if (![...e.dataTransfer.types].includes("Files")) return;
+            e.preventDefault();
+            setOver(true);
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOver(false);
+            const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("image/"));
+            if (f) void useEditFile(f, f.name);
+          }}
+        >
+          <div className={`drop${over ? " over" : ""}`} style={{ inset: 10 }}>
+            <div className="badge"><Icon name="layers" size={26} stroke={1.8} /></div>
+            <h2 style={{ fontSize: 18 }}>Add the style reference</h2>
+            <p>A photo whose materials, light and mood you want. Its building is not copied, only its look.</p>
+            <div className="row">
+              <button type="button" className="btn primary" onClick={() => void pasteFromClipboard()}>Paste <span className="kbd" style={{ background: "transparent", color: "inherit" }}>Ctrl V</span></button>
+              <FilePick className="btn">Upload</FilePick>
+            </div>
+          </div>
+        </figure>
+      )}
+    </div>
+  );
+}
+
+function StyleCopyPanel() {
+  const ref = useApp((s) => s.styleRef);
+  const light = useApp((s) => s.styleLight);
+  const busy = useApp((s) => s.busy);
+  const hour = useApp((s) => s.hour);
+  const s = useApp((x) => x.settings);
+  const cost = renderCost(s);
+  const promptOnly = s.backend === "browser" && !s.testMode;
+  return (
+    <>
+      <div className="side-scroll thin">
+        <div>
+          <h2 style={{ fontSize: 22 }}>Reference Style Copy</h2>
+          <p className="sub">Keeps the building and camera of image 1. Copies materials, light, planting and photo style from image 2.</p>
+        </div>
+        <ol className="style-steps">
+          <li>
+            <b>Base architecture</b>
+            <small>The image on the left: your SketchUp view. Upload a different one on the Edit tab, or pick another version above.</small>
+          </li>
+          <li>
+            <b>Style reference</b>
+            {ref ? (
+              <div className="qitem">
+                <img src={toDataUrl(ref.image)} alt="" />
+                <span>{ref.name}</span>
+                <button type="button" className="icon-btn" aria-label="Remove the style reference" onClick={() => setState({ styleRef: null })}>
+                  <Icon name="close" size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="row-btns">
+                <button type="button" className="btn" onClick={() => void pasteFromClipboard()}><Icon name="clipboard" /> Paste</button>
+                <FilePick className="btn"><Icon name="image" /> Upload</FilePick>
+              </div>
+            )}
+          </li>
+        </ol>
+        <section className="field">
+          <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Lighting for</span>
+          <LightSceneSwitch />
+        </section>
+        <section className="field">
+          <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Time of day and sun</span>
+          <div className="tabs2" role="radiogroup" aria-label="Where the light comes from">
+            <button type="button" role="radio" aria-checked={light === "reference"} onClick={() => setState({ styleLight: "reference" })}>From the reference</button>
+            <button type="button" role="radio" aria-checked={light === "dial"} onClick={() => setState({ styleLight: "dial" })}>My sun dial</button>
+          </div>
+          {light === "dial" ? (
+            <div className="dialcol" style={{ marginTop: 8 }}>
+              <SunDial hour={hour} onHour={(h) => setState({ hour: h, lighting: "time" })} />
+            </div>
+          ) : (
+            <small style={{ color: "var(--muted)" }}>The render copies the sun angle, time of day and sky of the reference photo.</small>
+          )}
+        </section>
+        <p className="note" style={{ margin: 0 }}>Additional Notes from the Render tab go on top of the prompt as the highest priority.</p>
+      </div>
+      <div className="side-foot">
+        <button type="button" className="cta sheen" disabled={Boolean(busy) || !ref} onClick={() => void openReview("style")}>
+          <Icon name="layers" size={18} />
+          {promptOnly ? "Get prompt · free" : `Copy the style · ${cost.label}`}
+        </button>
+      </div>
+    </>
+  );
 }

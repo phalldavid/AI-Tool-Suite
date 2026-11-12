@@ -458,3 +458,15 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .body.flow .refine .lbl-md { display: none; }
 .body.flow .refine button { padding: 11px 14px; }
 .body.flow .busy-chip { bottom: auto; top: 50%; }
+
+/* ---------- lighting switch, style copy ---------- */
+.seg-mini { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--well); box-shadow: inset 0 0 0 1px var(--line); }
+.seg-mini button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 12px; border-radius: 999px; cursor: pointer; transition: background-color 150ms, color 150ms; }
+.seg-mini button:hover { color: var(--text); }
+.seg-mini button[aria-checked="true"] { background: var(--text); color: var(--bg); }
+.style-steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 10px; }
+.style-steps li { counter-increment: s; position: relative; display: flex; flex-direction: column; gap: 6px; padding: 12px 12px 12px 44px; border-radius: 14px; background: var(--well); }
+.style-steps li::before { content: counter(s); position: absolute; left: 12px; top: 12px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.style-steps small { color: var(--muted); font-size: 12.5px; }
+.style-steps .qitem { background: var(--raised); }
+.seg-mini { align-self: flex-start; }

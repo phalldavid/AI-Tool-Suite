@@ -11,7 +11,7 @@ import type { LintResult } from "./lib/lint";
 
 export type Tab = "render" | "edit" | "history" | "sun";
 
-export type EditMode = "compare" | "spot" | "relight" | "view";
+export type EditMode = "compare" | "spot" | "relight" | "view" | "style";
 
 export interface SunState {
   mode: "time" | "free" | "sketchup";
@@ -63,7 +63,7 @@ export interface ReviewState {
   lint: LintResult;
   images: ImageData64[];
   aspectRatio: string;
-  kind: "render" | "edit" | "view" | "shots";
+  kind: "render" | "edit" | "view" | "shots" | "style";
   /** "shots": one image set per screenshot, all with the same prompt. */
   batch?: ImageData64[][];
 }
@@ -98,6 +98,11 @@ export interface AppState {
   shots: Shot[];
   /** Version the new view copies its look from. */
   lookIndex: number;
+  /** Interior or exterior lighting; null follows the Scene chips. */
+  lightScene: "interior" | "exterior" | null;
+  /** Style Copy: the reference photo, and where its light comes from. */
+  styleRef: Shot | null;
+  styleLight: "reference" | "dial";
   keyCheck: KeyCheck;
   kieCredits: number | null;
   busy: Busy | null;

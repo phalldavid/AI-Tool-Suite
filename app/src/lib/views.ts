@@ -4,6 +4,7 @@
 
 import { compass, heightWord } from "./sun";
 import type { ProjectType } from "../core/types";
+import { lightingGuidance } from "./lighting";
 
 export interface SunWords {
   /** Compass bearing the sun shines from, if known. */
@@ -52,6 +53,7 @@ export function shotViewPrompt(p: ShotPromptInput): string {
     "Image 1 is a raw SketchUp view. Its flat greys, default textures and placeholder colours are not final: Image 2 decides those materials. Real textures in Image 1 only help match each surface to the same surface in Image 2. If Image 1 shows a surface that Image 2 does not, give it the closest matching material from Image 2, so the set reads as one project.",
     "",
     `Light: same time of day, sky and mood as Image 2. The sun stays fixed relative to the building, not to the camera: ${p.sun}. Shadows must fall the way that sun position makes them fall in this new view.`,
+    lightingGuidance(p.type === "interior" ? "interior" : "exterior"),
     "Planting and people: same species, density and style as Image 2, placed naturally for this view. Do not copy them to the same spots in the frame.",
     "",
     "Remove all black SketchUp edge lines.",
@@ -68,13 +70,14 @@ export function shotViewPrompt(p: ShotPromptInput): string {
   return lines.join("\n");
 }
 
-export function cameraViewPrompt(cameraLine: string, sun: string, notes: string[]): string {
+export function cameraViewPrompt(cameraLine: string, sun: string, notes: string[], interior = false): string {
   return [
     "SAME BUILDING, NEW CAMERA",
     "Image 1 is an approved render of this building. Show this same building from a new camera position.",
     cameraLine,
     "Keep the design, materials, colours, sky, planting and light; only the viewpoint changes, so both images look like one photo shoot.",
     `The sun stays fixed relative to the building, not to the camera: ${sun}. Shadows must fall the way that sun position makes them fall in this new view.`,
+    lightingGuidance(interior ? "interior" : "exterior"),
     "Sides of the building that Image 1 does not show: keep them simple and consistent with the visible sides. Do not invent new features, openings or storeys.",
     ...notes,
     "Straight verticals, no lens distortion. No text, no watermark, no CGI look.",

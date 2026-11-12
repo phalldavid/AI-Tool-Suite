@@ -16,6 +16,7 @@ import { Splitter } from "../ui/Splitter";
 import { Icon } from "../ui/Icon";
 import { SunDial, fmtHour } from "./SunDial";
 import { ModelPicker } from "../ui/ModelPicker";
+import { LightSceneSwitch } from "../ui/LightSceneSwitch";
 import { DYN_ICONS } from "../ui/DynamicSheet";
 import { GENERATORS, countSet } from "../core/dynamic";
 import { BUILT_IN_NOTES, GLASS_COLOURS, labelFor, loadCustomNotes, saveCustomNotes } from "../lib/notes";
@@ -441,14 +442,15 @@ function Light() {
       <div className="step-head">
         <span className="n">3</span>
         <h2>Light</h2>
-        <button type="button" className="linkish end" onClick={() => setState({ tab: "sun" })}>
-          {exact ? "Exact direction on" : "Set exact direction"}
-        </button>
+        <span className="end"><LightSceneSwitch /></span>
       </div>
       <div className="lightwrap">
         <div className="dialcol">
           <SunDial hour={hour} onHour={(h) => setState({ hour: h, lighting: "time" })} />
           <p className="caption">{caption}</p>
+          <button type="button" className="linkish" style={{ fontSize: 12.5 }} onClick={() => setState({ tab: "sun" })}>
+            {exact ? "Exact direction on" : "Set exact direction"}
+          </button>
         </div>
         <div className="lightcards">
           {cards.map((c) => {
