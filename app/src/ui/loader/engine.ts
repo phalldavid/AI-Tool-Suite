@@ -26,7 +26,27 @@ export const LOADER_STYLES: { id: LoaderStyle; label: string; hint: string }[] =
   { id: "words", label: "Status words and orb", hint: "A pulsing orb with short notes on what is happening." },
 ];
 
-export const STATUS_WORDS = ["Reading your view", "Matching the materials", "Setting the light", "Placing plants and people", "Refining the details"];
+/**
+ * What the loader says while it waits: Khmer Gen Z and architect-life slang, written the way
+ * people type it. Shown as-is in both languages (never translated).
+ */
+export const STATUS_WORDS = [
+  "sl ke mneak eng",
+  "pherk kve ku plong",
+  "ku plong ort dek",
+  "zoul boul tic",
+  "som revise tic",
+  "hob bay nov?",
+  "hob biyea ort?",
+  "ke plong lerk ti 9",
+  "hous deadline hz",
+  "tmr jos site",
+  "g-devith no smoke",
+  "pg vai lerng",
+  "tos bos tong",
+  "jol team ort?",
+  "jol team CG",
+];
 
 export interface LoaderOptions {
   style: LoaderStyle;

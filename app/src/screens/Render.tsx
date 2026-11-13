@@ -138,7 +138,7 @@ function Stage() {
           <div className="chips tl">
             <span className="chip-img" title={`${preset.projectType} view`}>
               <Icon name="check" size={14} style={{ color: "var(--ok)" }} />
-              <span className="lbl-md" style={{ textTransform: "capitalize" }}>{preset.projectType}</span>
+              <span className="lbl-md">{preset.projectType.charAt(0).toUpperCase() + preset.projectType.slice(1)}</span>
             </span>
             <span className="chip-img" title="Geometry locked: the look changes materials and mood only">
               <Icon name="lock" size={14} style={{ color: "var(--accent)" }} />

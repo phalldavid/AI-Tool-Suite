@@ -1,12 +1,11 @@
 // The animation that plays over the stage while a render runs, its status line with the
 // three-dot mark, the Stop button, and a small looping preview for Customise.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getState, useApp } from "../store";
 import type { ImageData64 } from "../core/types";
 import { toDataUrl } from "../core/images";
 import { isLight, reducedMotion, usePrefs } from "../prefs";
-import { t } from "../lib/i18n";
 import { LoaderEngine, STATUS_WORDS, loadImage } from "./loader/engine";
 import type { LoaderStyle } from "./loader/engine";
 import { registerLoader } from "./loader/bus";
@@ -20,7 +19,7 @@ function useEngineOptions(style?: LoaderStyle) {
     light: isLight(p),
     reduced: reducedMotion(),
     gatherSec: p.loaderGather,
-    words: STATUS_WORDS.map((w) => t(w)),
+    words: STATUS_WORDS,
     lang: p.lang,
   };
 }
@@ -132,15 +131,39 @@ export function ThinkingDots({ size = 20 }: { size?: number }) {
   );
 }
 
-/** The status line on the stage: three dots, what is happening, and Stop. */
+/** One slang line after another while a render runs, starting somewhere random. */
+function useStatusWord(on: boolean): string {
+  const [i, setI] = useState(() => Math.floor(Math.random() * STATUS_WORDS.length));
+  useEffect(() => {
+    if (!on) return;
+    setI(Math.floor(Math.random() * STATUS_WORDS.length));
+    const id = window.setInterval(() => setI((x) => (x + 1) % STATUS_WORDS.length), 2600);
+    return () => window.clearInterval(id);
+  }, [on]);
+  return STATUS_WORDS[i];
+}
+
+/** The status line on the stage: three dots, a rotating slang line, and Stop. */
 export function LoaderStatus() {
   const busy = useApp((s) => s.busy);
+  const word = useStatusWord(Boolean(busy) && !busy?.revealing);
   if (!busy) return null;
-  const text = busy.revealing ? "Finishing up" : busy.label;
+  // Keep counts that matter ("View 2 of 3", "4 images") next to the slang.
+  // Written as symbols so it reads the same in Khmer and English: "×4", "2/3".
+  const m = busy.revealing ? null : /(\d+) of (\d+)|(\d+) images?/.exec(busy.label);
+  const count = !m ? null : m[3] ? `×${m[3]}` : `${m[1]}/${m[2]}`;
   return (
     <div className="busy-chip" role="status" aria-live="polite">
       <ThinkingDots />
-      <span className="shimmer">{text}</span>
+      <span className="sr-only">{busy.revealing ? "Finishing up" : busy.label}</span>
+      {busy.revealing ? (
+        <span className="shimmer" aria-hidden="true">Finishing up</span>
+      ) : (
+        <span className="shimmer sw" key={word} aria-hidden="true" data-no-translate>
+          {word}
+          {count ? <span className="sw-n"> · {count}</span> : null}
+        </span>
+      )}
       {busy.revealing ? null : (
         <button type="button" aria-label="Stop the render" title="Stop" onClick={() => void import("../actions").then((a) => a.cancelRender())}>
           <Icon name="stop" size={12} />
