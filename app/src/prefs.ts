@@ -1,6 +1,7 @@
 // Look and feel: theme, accent, font, language, motion. Shared across tabs.
 
 import { useSyncExternalStore } from "react";
+import type { LoaderStyle } from "./ui/loader/engine";
 
 export interface Prefs {
   theme: "dark" | "light" | "auto";
@@ -10,6 +11,10 @@ export interface Prefs {
   motion: "full" | "reduced";
   /** Background: slowly moving light, still, or plain. */
   bg: "moving" | "still" | "plain";
+  /** The animation that plays while a render runs. */
+  loader: LoaderStyle;
+  /** Seconds the specks take to gather into the orb (developer setting). */
+  loaderGather: number;
 }
 
 export const ACCENTS: Record<string, { color: string; ink: string; label: string }> = {
@@ -30,7 +35,7 @@ export const FONTS: Record<string, { stack: string; label: string }> = {
 };
 
 const KEY = "drs2.prefs";
-const DEFAULTS: Prefs = { theme: "dark", accent: "amber", font: "inter", lang: "en", motion: "full", bg: "moving" };
+const DEFAULTS: Prefs = { theme: "dark", accent: "amber", font: "inter", lang: "en", motion: "full", bg: "moving", loader: "orb", loaderGather: 4.5 };
 let prefs: Prefs = load();
 const listeners = new Set<() => void>();
 
@@ -74,7 +79,7 @@ export function setPrefs(patch: Partial<Prefs>): void {
   for (const l of listeners) l();
 }
 
-function reducedMotion(): boolean {
+export function reducedMotion(): boolean {
   return prefs.motion === "reduced" || (typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches);
 }
 

@@ -85,7 +85,7 @@ export function Palette() {
       { group: "Lighting", icon: "moon", kind: "setting", label: "Night render", sub: "Dark sky, every light on", run: go(() => setState({ lighting: "night", tab: "render" })) },
       { group: "Workspace", icon: "clipboard", kind: "action", label: "Paste image", sub: "From the clipboard", key: "Ctrl V", run: go(() => void pasteFromClipboard()) },
       { group: "Workspace", icon: "image", kind: "action", label: "Upload image", sub: "From your computer", run: go(pickFile) },
-      { group: "Workspace", icon: "download", kind: "action", label: "Download render", sub: "The version open on the Edit tab", run: go(() => { const st = getState(); const v = st.versions[st.activeVersion]; if (v) void download(v.image, `render-v${st.activeVersion + 1}`); else toast("Nothing to download yet.", "warn"); }) },
+      { group: "Workspace", icon: "download", kind: "action", label: "Download render", sub: "The version open on the Edit tab", run: go(() => { const st = getState(); const v = st.versions[st.activeVersion]; if (v) void download(v.image, `v${st.activeVersion + 1}`); else toast("Nothing to download yet.", "warn"); }) },
       { group: "Workspace", icon: "history", kind: "go", label: "History", sub: "Every render with its prompt", key: "3", run: go(() => setState({ tab: "history" })) },
       { group: "Workspace", icon: "settings", kind: "go", label: "Settings", sub: "Keys, models, Prompt Copy", run: go(() => setState({ dialog: "settings" })) },
       { group: "Appearance", icon: isLight() ? "moon" : "sun", kind: "setting", label: isLight() ? "Night mode" : "Day mode", sub: "Switch the theme", run: go(() => toggleTheme()) },

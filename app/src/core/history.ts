@@ -65,6 +65,16 @@ export async function rateHistory(id: string, rating: 1 | -1 | undefined): Promi
   }
 }
 
+/** Stars or un-stars one render. */
+export async function starHistory(id: string, starred: boolean): Promise<void> {
+  try {
+    const item = await withStore<HistoryItem | undefined>("readonly", (s) => s.get(id) as IDBRequest<HistoryItem | undefined>);
+    if (item) await withStore("readwrite", (s) => s.put({ ...item, starred }));
+  } catch {
+    memory = memory.map((m) => (m.id === id ? { ...m, starred } : m));
+  }
+}
+
 /** Usable / not usable counts per preset and model, best first. */
 export function ratingSummary(items: HistoryItem[]): { preset: string; model: string; good: number; bad: number }[] {
   const rows = new Map<string, { preset: string; model: string; good: number; bad: number }>();

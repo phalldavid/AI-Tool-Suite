@@ -12,6 +12,7 @@ const P: Record<string, string> = {
   image: "M3 5h18v14H3zM9 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM21 16l-5-5-9 8",
   plus: "M12 5v14M5 12h14",
   close: "M6 6l12 12M18 6L6 18",
+  stop: "M7 7h10v10H7z",
   back: "M15 18l-6-6 6-6",
   chevron: "M6 9l6 6 6-6",
   download: "M12 4v11M7 10l5 5 5-5M5 20h14",

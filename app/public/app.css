@@ -54,9 +54,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .breathe { animation: breathe 6s ease-in-out infinite; }
 @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
-.scan { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.scan::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 60%; background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--accent) 28%, transparent) 50%, transparent); animation: scanmove 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
-@keyframes scanmove { from { transform: translateX(-100%); } to { transform: translateX(170%); } }
 .calm *, .calm *::before, .calm *::after { animation: none !important; }
 .dragging .blob, .dragging .spin, .dragging .spin-slow, .dragging .glow, .dragging .sheen::after, .dragging .pulse, .dragging .logo::before { animation-play-state: paused; }
 .dragging .glass { backdrop-filter: none; background: var(--glass-strong); }
@@ -644,3 +641,51 @@ h3, b, strong, .tour-card h3, .langcard b, .cta, .mp-name, .lss-info b { font-fa
 .helpvid small { display: block; color: var(--muted); font-size: 12px; }
 .helpvid .yt { width: 30px; height: 22px; border-radius: 6px; background: #e62117; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
 a.logo { cursor: pointer; }
+
+/* History stars and filters */
+.chip-img.star { opacity: 0.85; }
+.chip-img.star.on { opacity: 1; color: var(--accent); }
+.chip-img.star.on svg { fill: currentColor; }
+.hcard + .chip-img.star:not(.on) { opacity: 0; transition: opacity 160ms var(--ease); }
+div:hover > .chip-img.star, .chip-img.star:focus-visible { opacity: 1; }
+
+/* Version name and remove, on the Edit tab */
+.vname { display: flex; align-items: center; gap: 2px; margin-left: auto; min-width: 0; }
+.vname > button.lbl { background: none; border: 0; color: var(--muted); font-size: 12.5px; padding: 4px 6px; border-radius: 8px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+.vname > button.lbl:hover { background: var(--field); color: var(--text); }
+.vname input { height: 28px; font-size: 12.5px; width: 180px; padding: 0 8px; }
+.vname .icon-btn { width: 28px; height: 28px; }
+
+/* Compare zoom */
+.zoomchip { position: absolute; right: 12px; bottom: 12px; z-index: 3; }
+.frame.zoomed { cursor: grab; }
+.frame.zoomed.panning { cursor: grabbing; }
+.zoomable { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+
+/* Spot edit brush outline that follows the mouse */
+.brush-ring { position: absolute; pointer-events: none; border-radius: 50%; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); transform: translate(-50%, -50%); z-index: 4; }
+
+/* Paste target under the mouse */
+figure.paste-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.frame[style*="cursor: none"] .paint-wrap canvas { cursor: none; }
+.style-steps li.paste-target { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 14px; }
+
+/* Render loader: card, faint view, blurred aurora, specks (see ui/loader/engine.ts). */
+.rl { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.rl-card { position: absolute; inset: 0; background: #0c0d11; opacity: 0; }
+:root.light .rl-card { background: #e7e3dc; }
+.rl-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.rl-aurora { position: absolute; left: -10%; top: -10%; width: 120%; height: 120%; filter: blur(28px); opacity: 0; }
+.rl-preview { position: relative; inset: auto; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; background: var(--field); }
+.loader-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.loader-layer .frame { box-shadow: none; background: transparent; }
+.dots3 circle { fill: var(--accent); }
+.shimmer { background: linear-gradient(90deg, currentColor 0%, currentColor 35%, color-mix(in srgb, currentColor 45%, transparent) 50%, currentColor 65%, currentColor 100%); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; caret-color: currentColor; animation: shimmer 2.4s linear infinite; }
+.busy-chip .shimmer { color: var(--on-image); }
+@keyframes shimmer { from { background-position: 110% 0; } to { background-position: -110% 0; } }
+.cta.stop { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.cta.stop:hover:not(:disabled) { background: color-mix(in srgb, var(--raised) 80%, var(--text) 8%); }
+.cta.stop:disabled { cursor: default; opacity: 1; }
+.stop-sq { width: 11px; height: 11px; border-radius: 2px; background: currentColor; }
+.loader-pick { display: flex; flex-direction: column; gap: 4px; }
+.calm .shimmer { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }

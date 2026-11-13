@@ -11,7 +11,7 @@ export class MockProvider implements Provider {
   readonly label = "Test mode (no AI)";
   readonly modelName = "test-mode";
 
-  constructor(private delayMs = 4000) {}
+  constructor(private delayMs = 12000) {}
 
   async render(req: RenderRequest, signal?: AbortSignal): Promise<RenderResult> {
     const src = req.images[0];

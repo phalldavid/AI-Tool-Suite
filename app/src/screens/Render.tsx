@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
+import type { AppState, NotesSlot } from "../store";
+import { useRatio } from "../ui/useRatio";
 import { captureFromSketchUp, clearView, lightCaption, lookPreset, openHistoryItem, openReview, pasteFromClipboard, pickFrame, updateSettings, useFile } from "../actions";
 import { FRAME_ROW, findFrame, swapFrameId } from "../core/frame";
 import { toDataUrl } from "../core/images";
@@ -19,6 +21,7 @@ import { ModelPicker } from "../ui/ModelPicker";
 import { envPicture } from "../lib/envPreviews";
 import { useEnvTiles } from "../ui/EnvPicturesSheet";
 import { LightSceneSwitch } from "../ui/LightSceneSwitch";
+import { LoaderStatus, RenderLoader, StopButton } from "../ui/RenderLoader";
 import { Fittings } from "../ui/Fittings";
 import { DYN_ICONS } from "../ui/DynamicSheet";
 import { GENERATORS, countSet } from "../core/dynamic";
@@ -187,7 +190,7 @@ function Stage() {
           </div>
         </div>
       )}
-      {busy ? <Progress /> : null}
+      <LoaderStatus />
     </div>
   );
 }
@@ -196,14 +199,13 @@ function FitFrame({ src }: { src: string }) {
   const frameId = useApp((s) => s.frameId);
   const cap = useApp((s) => s.capture);
   const f = findFrame(frameId);
-  const nat = cap?.view.width && cap.view.height ? cap.view.width / cap.view.height : 4 / 3;
+  const nat = useRatio(cap?.view);
   const r = f.ratio || nat;
-  const busy = useApp((s) => s.busy);
   return (
     <div className="fit">
       <div className="frame" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}` }}>
         <img src={src} alt="Your view" />
-        {busy ? <div className="scan" /> : null}
+        <RenderLoader under={cap?.view} holdResult />
       </div>
     </div>
   );
@@ -256,26 +258,6 @@ function FrameRow() {
   );
 }
 
-export function Progress() {
-  const busy = useApp((s) => s.busy)!;
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(t);
-  }, []);
-  const el = Math.max(0, Math.floor((now - busy.since) / 1000));
-  const left = Math.max(0, Math.round(busy.typical / 1000 - el));
-  return (
-    <div className="busy-chip" role="status" aria-live="polite" title={left > 0 ? `About ${left} s left` : "Almost done"}>
-      <Icon name="aperture" className="spin-slow" size={15} />
-      <span className="num">{busy.label} · {Math.floor(el / 60)}:{String(el % 60).padStart(2, "0")}</span>
-      <button type="button" aria-label="Cancel render" title="Cancel" onClick={() => void import("../actions").then((a) => a.cancelRender())}>
-        <Icon name="close" size={13} />
-      </button>
-    </div>
-  );
-}
-
 // ---------- right: settings ----------
 
 function RenderSide() {
@@ -324,11 +306,15 @@ function RenderSide() {
       </div>
       <div className="side-foot">
         <ModelPicker />
-        <button type="button" className="cta sheen" disabled={(!cap && !promptOnly) || Boolean(busy)} onClick={() => void openReview()}>
-          <Icon name={promptOnly ? "clipboard" : "aperture"} size={18} className={promptOnly ? undefined : "spin-slow"} />
-          {busy ? "Rendering…" : promptOnly ? "Get prompt · free" : `Render · ${cost.label}`}
-          <span className="kbd">R</span>
-        </button>
+        {busy ? (
+          <StopButton />
+        ) : (
+          <button type="button" className="cta sheen" disabled={!cap && !promptOnly} onClick={() => void openReview()}>
+            <Icon name={promptOnly ? "clipboard" : "aperture"} size={18} className={promptOnly ? undefined : "spin-slow"} />
+            {promptOnly ? "Get prompt · free" : `Render · ${cost.label}`}
+            <span className="kbd">R</span>
+          </button>
+        )}
       </div>
     </>
   );
@@ -517,15 +503,19 @@ function Environment() {
   );
 }
 
-function AdditionalNotes() {
-  const notes = useApp((s) => s.notes);
-  const picked = useApp((s) => s.noteChips);
+/** Additional Notes: chips + free text. With a slot, it is the Edit tab's own copy (Multi-View or Style copy). */
+export function AdditionalNotes({ slot }: { slot?: NotesSlot }) {
+  const notes = useApp((s) => (slot ? s.editNotes[slot].notes : s.notes));
+  const picked = useApp((s) => (slot ? s.editNotes[slot].chips : s.noteChips));
   const colour = useApp((s) => s.glassColour);
   const [custom, setCustom] = useState<NotePreset[]>(() => loadCustomNotes());
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
   const [label, setLabel] = useState("");
-  const toggle = (id: string) => setState((s) => ({ noteChips: s.noteChips.includes(id) ? s.noteChips.filter((x) => x !== id) : [...s.noteChips, id] }));
+  const setChips = (fn: (c: string[]) => string[], extra: Partial<AppState> = {}) =>
+    setState((s) => (slot ? { ...extra, editNotes: { ...s.editNotes, [slot]: { ...s.editNotes[slot], chips: fn(s.editNotes[slot].chips) } } } : { ...extra, noteChips: fn(s.noteChips) }));
+  const setNotes = (v: string) => setState((s) => (slot ? { editNotes: { ...s.editNotes, [slot]: { ...s.editNotes[slot], notes: v } } } : { notes: v }));
+  const toggle = (id: string) => setChips((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
   const add = () => {
     const t = text.trim();
     if (!t) return;
@@ -533,7 +523,7 @@ function AdditionalNotes() {
     const next = [...custom, n];
     setCustom(next);
     saveCustomNotes(next);
-    setState((s) => ({ noteChips: [...s.noteChips, n.id] }));
+    setChips((c) => [...c, n.id]);
     setText("");
     setLabel("");
     setAdding(false);
@@ -542,14 +532,18 @@ function AdditionalNotes() {
     const next = custom.filter((x) => x.id !== id);
     setCustom(next);
     saveCustomNotes(next);
-    setState((s) => ({ noteChips: s.noteChips.filter((x) => x !== id) }));
+    setChips((c) => c.filter((x) => x !== id));
   };
   return (
-    <section className="step">
-      <div className="step-head">
-        <span className="n">5</span>
-        <h2>Additional Notes</h2>
-      </div>
+    <section className={slot ? "field" : "step"}>
+      {slot ? (
+        <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Additional Notes <small style={{ fontWeight: 400, color: "var(--muted)" }}>· highest priority</small></span>
+      ) : (
+        <div className="step-head">
+          <span className="n">5</span>
+          <h2>Additional Notes</h2>
+        </div>
+      )}
       <div className="chips-row">
         {BUILT_IN_NOTES.map((n) =>
           n.id === "glass" ? (
@@ -557,7 +551,7 @@ function AdditionalNotes() {
               <button type="button" aria-pressed={picked.includes(n.id)} onClick={() => toggle(n.id)} title={n.text.split("{colour}").join(colour)}>
                 Change
               </button>
-              <select aria-label="Colour to turn into glass" value={colour} onChange={(e) => setState((s) => ({ glassColour: e.target.value, noteChips: s.noteChips.includes("glass") ? s.noteChips : [...s.noteChips, "glass"] }))}>
+              <select aria-label="Colour to turn into glass" value={colour} onChange={(e) => setChips((c) => (c.includes("glass") ? c : [...c, "glass"]), { glassColour: e.target.value })}>
                 {GLASS_COLOURS.map((g) => <option key={g} value={g}>{g}</option>)}
               </select>
               <button type="button" aria-pressed={picked.includes(n.id)} onClick={() => toggle(n.id)} tabIndex={-1}>to glass</button>
@@ -590,7 +584,7 @@ function AdditionalNotes() {
           </div>
         </div>
       ) : null}
-      <textarea id="notes" className="input" rows={2} aria-label="Anything else" value={notes} placeholder="Anything else, in English or Khmer, e.g. two motorbikes by the gate" onChange={(e) => setState({ notes: e.target.value })} />
+      <textarea className="input" rows={2} aria-label="Anything else" value={notes} placeholder="Anything else, in English or Khmer, e.g. two motorbikes by the gate" onChange={(e) => setNotes(e.target.value)} />
     </section>
   );
 }

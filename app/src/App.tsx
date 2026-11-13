@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { getState, setState, useApp } from "./store";
-import { importResult, openReview, useFile } from "./actions";
+import { importResult, openReview, useEditFileAs, useFile } from "./actions";
+import { hoveredSlot } from "./lib/pasteTarget";
 import { Header, KeyBanner } from "./ui/Header";
 import { Customise } from "./ui/Customise";
 import { SettingsSheet } from "./ui/SettingsSheet";
@@ -58,7 +59,9 @@ export function App() {
       const f = [...(e.clipboardData?.files ?? [])].find((x) => x.type.startsWith("image/"));
       if (!f) return;
       e.preventDefault();
+      const slot = hoveredSlot();
       if (getState().handoff) void importResult(f);
+      else if (getState().tab === "edit" && slot) void useEditFileAs(f, "Pasted image", slot);
       else {
         if (getState().tab !== "render" && getState().tab !== "edit") setState({ tab: "render" });
         void useFile(f, "Pasted image");
