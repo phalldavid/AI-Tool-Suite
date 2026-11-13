@@ -50,7 +50,7 @@ export interface Capture {
   source: "sketchup" | "upload";
 }
 
-export type ToolId = "render" | "lighting" | "spot-edit" | "style-match";
+export type ToolId = "render" | "lighting" | "spot-edit" | "style-match" | "view" | "style-copy";
 
 export type ProjectType = "exterior" | "interior" | "aerial" | "sketch";
 
@@ -93,6 +93,8 @@ export interface HistoryItem {
   presetId?: string;
   /** The user's verdict: 1 usable, -1 not usable. */
   rating?: 1 | -1;
+  /** Starred in History. */
+  starred?: boolean;
   /** Kie credits this image cost, when known. */
   credits?: number;
   /** Project (job) name the render belongs to. */

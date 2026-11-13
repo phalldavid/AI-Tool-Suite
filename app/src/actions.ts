@@ -10,7 +10,7 @@ import { buildRenderPrompt, buildZoneEditPrompt, dialTimeId, nearestAspectRatio,
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
 import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOverlay } from "./core/images";
 import { cropToRatio, findFrame } from "./core/frame";
-import { addHistory, listHistory, removeHistory } from "./core/history";
+import { addHistory, listHistory, removeHistory, starHistory } from "./core/history";
 import { findLibraryItem } from "./core/library";
 import { rememberDuration, typicalMs } from "./core/progress";
 import { friendlyError } from "./core/errors";
@@ -153,8 +153,13 @@ export async function useEditFileAs(file: File, name: string | undefined, target
   try {
     const img = await fileToImage(file, 4096);
     const label = name ?? file.name ?? "Pasted image";
-    if (target === "ref") setState({ styleRef: { image: img, name: label } });
-    else setState((x) => ({ viewSource: "shot", shots: [...x.shots, { image: img, name: label }] }));
+    if (target === "ref") {
+      setState({ styleRef: { image: img, name: label } });
+      toast("Style reference added", "ok");
+    } else {
+      setState((x) => ({ viewSource: "shot", shots: [...x.shots, { image: img, name: label }] }));
+      toast(`View added${getState().shots.length > 1 ? ` · ${getState().shots.length} in the queue` : ""}`, "ok");
+    }
   } catch {
     toast("Couldn't read that image. Try PNG or JPG.", "error");
   }
@@ -464,6 +469,7 @@ export async function confirmReview(prompt: string): Promise<void> {
   const r = st.review;
   if (!r) return;
   setState({ review: null });
+  reviewed = true;
   const s = st.settings;
   if (s.backend === "browser" && st.host.kind === "browser" && !s.testMode) {
     setState({ handoff: { prompt, images: r.images, before: r.images[0] ?? null } });
@@ -480,7 +486,7 @@ export async function confirmReview(prompt: string): Promise<void> {
       const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, kieEdit(), sets.length > 1 ? `View ${i + 1} of ${sets.length}` : "Rendering the new view");
       const src = st.versions[st.lookIndex];
       const vm = editMeta({ look: `Same as ${src ? `${src.kind === "view" ? "View" : "v"}${st.lookIndex + 1}` : "the look source"}`, light: "From the look source" });
-      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta: vm, before: set[0], historyId: await record(tool, prompt, set[0], img) });
+      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta: vm, before: set[0], historyId: await record("view", prompt, set[0], img, { name: r.kind === "shots" ? "New view" : "New camera", model: kieEdit() }) });
     }
     if (!made.length) return;
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, shots: r.kind === "shots" ? [] : x.shots, editMode: "compare" }));
@@ -491,7 +497,7 @@ export async function confirmReview(prompt: string): Promise<void> {
     if (!out.length) return;
     const made: Version[] = [];
     const sm = editMeta({ look: `Reference: ${st.styleRef?.name ?? "photo"}`, light: st.styleLight === "dial" ? styleDialWords().replace(/^./, (c) => c.toUpperCase()) : "From the reference photo" });
-    for (const img of out) made.push({ image: img, label: "Style copy", prompt, kind: "version", before: r.images[0], meta: sm, historyId: await record(tool, prompt, r.images[0], img) });
+    for (const img of out) made.push({ image: img, label: "Style copy", prompt, kind: "version", before: r.images[0], meta: sm, historyId: await record("style-copy", prompt, r.images[0], img, { name: "Style copy", model: kieEdit() }) });
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, editMode: "compare" }));
     return;
   }
@@ -515,9 +521,18 @@ export function cancelRender(): void {
   abort?.abort();
 }
 
+/** Set by Review, which already warned about a low balance. */
+let reviewed = false;
+
 async function runProvider(prompt: string, images: ImageData64[], aspectRatio: string, modelId?: string, label?: string): Promise<ImageData64[]> {
   const st = getState();
   const settings = modelId ? { ...st.settings, kieModel: modelId } : st.settings;
+  const wasReviewed = reviewed;
+  reviewed = false;
+  if (!wasReviewed && settings.backend === "kie" && !settings.testMode && st.kieCredits !== null) {
+    const need = renderCost(settings).credits;
+    if (need !== null && need > st.kieCredits && !window.confirm(`This costs ${need} credits and your Kie balance is ${Math.round(st.kieCredits * 100) / 100}. Kie will probably refuse it. Try anyway?`)) return [];
+  }
   const provider = makeProvider(settings, st.host);
   const key = `${settings.backend}:${settings.kieModel}:${settings.kieResolution}`;
   const n = settings.backend === "browser" ? 1 : Math.max(1, Math.min(4, settings.imageCount));
@@ -600,16 +615,16 @@ export async function clipboardImage(): Promise<ImageData64 | null> {
 
 export { fileToImage };
 
-async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64): Promise<string | undefined> {
+async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, opt: { name?: string; model?: string } = {}): Promise<string | undefined> {
   const st = getState();
-  const s = st.settings;
+  const s = opt.model ? { ...st.settings, kieModel: opt.model, imageCount: 1 } : { ...st.settings, imageCount: 1 };
   const cost = renderCost(s);
   const item: HistoryItem = {
     id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     createdAt: Date.now(),
     tool,
-    presetName: st.preset.name,
-    presetId: st.preset.id,
+    presetName: opt.name ?? st.preset.name,
+    presetId: opt.name ? undefined : st.preset.id,
     prompt,
     before,
     after,
@@ -682,7 +697,7 @@ export async function importResult(file: File): Promise<void> {
     const size = await imageSize(pe.src);
     const fitted = await resizeTo(raw, size.width, size.height);
     const merged = pe.mask ? await compositeMasked(pe.src, fitted, pe.mask) : fitted;
-    const id = await record("spot-edit", h.prompt, pe.src, merged);
+    const id = await record("spot-edit", h.prompt, pe.src, merged, { name: "Spot edit" });
     setState((x) => ({ handoff: null, versions: [...x.versions, { image: merged, label: "Pasted edit", prompt: h.prompt, kind: "version", meta: x.versions[x.activeVersion]?.meta, historyId: id }], activeVersion: x.versions.length, tab: "edit", editMode: "compare" }));
     toast(pe.mask ? "Edit pasted back. Outside your selection nothing changed." : "Edit saved to History", "ok");
     return;
@@ -727,7 +742,7 @@ export async function runSpotEdit(painter: ZonePainter, instructions: Record<str
   const fitted = await resizeTo(out[0], size.width, size.height);
   // A plain zone edit is pasted back over the original, so nothing outside the selection changes.
   const merged = general.trim() || !zones.length ? fitted : await compositeMasked(src, fitted, painter.union());
-  const id = await record("spot-edit", prompt, src, merged);
+  const id = await record("spot-edit", prompt, src, merged, { name: "Spot edit", model: kieEdit() });
   painter.clearAll();
   setState((x) => ({ versions: [...x.versions, { image: merged, label: "Spot edit", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? {}), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
@@ -747,7 +762,7 @@ export async function runRelight(lightId: string): Promise<void> {
   }
   const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), kieEdit());
   if (!out.length) return;
-  const id = await record("lighting", prompt, src, out[0]);
+  const id = await record("lighting", prompt, src, out[0], { name: "Relight", model: kieEdit() });
   setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), scene: editLightScene(), light: light.replace(/^./, (ch) => ch.toUpperCase()), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
 
@@ -762,7 +777,48 @@ export async function deleteHistoryItem(id: string): Promise<void> {
 }
 
 export async function download(img: ImageData64, name: string): Promise<void> {
-  await getState().host.save(img, name);
+  await getState().host.save(img, fileName(name));
+}
+
+/** "Takhmao-v3-2026-11-13": project, what it is, today's date. */
+export function fileName(what: string): string {
+  const s = getState().settings;
+  const d = new Date();
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const clean = (x: string) => x.trim().replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, "-");
+  return [s.project ? clean(s.project) : "", clean(what) || "render", date].filter(Boolean).join("-");
+}
+
+/** Copies a picture to the clipboard as PNG, ready to paste into chat or slides, with a toast. */
+export async function copyImageToClipboard(img: ImageData64): Promise<void> {
+  try {
+    await copyImage(img);
+    toast("Image copied. Paste it anywhere with Ctrl V.", "ok");
+  } catch {
+    toast("Couldn't copy the image here. Use Download instead.", "error");
+  }
+}
+
+export async function toggleStar(id: string): Promise<void> {
+  const it = getState().history.find((h) => h.id === id);
+  if (!it) return;
+  await starHistory(id, !it.starred);
+  setState({ history: await listHistory() });
+}
+
+/** Removes one version from the Edit tab (it stays in History). */
+export function deleteVersion(i: number): void {
+  setState((x) => {
+    const versions = x.versions.filter((_, j) => j !== i);
+    const fix = (n: number) => (n > i ? n - 1 : n === i ? Math.max(0, i - 1) : n);
+    return { versions, activeVersion: Math.min(fix(x.activeVersion), Math.max(0, versions.length - 1)), lookIndex: Math.min(fix(x.lookIndex), Math.max(0, versions.length - 1)) };
+  });
+}
+
+export function renameVersion(i: number, label: string): void {
+  const t = label.trim();
+  if (!t) return;
+  setState((x) => ({ versions: x.versions.map((v, j) => (j === i ? { ...v, label: t } : v)) }));
 }
 
 /** Copies presets, favourites and projects from v1 (never keys unless asked). */

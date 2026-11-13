@@ -23,6 +23,8 @@ import { GLOBAL_PRESETS, MATERIALS, PLANTS, SURFACES, ZONE_GROUPS, appendLine, m
 import { AdditionalNotes } from "./Render";
 import { ModelPicker } from "../ui/ModelPicker";
 import { useRatio } from "../ui/useRatio";
+import { hoverSlot, hoveredSlot, onHoverSlot } from "../lib/pasteTarget";
+import { copyImageToClipboard as copyImage, deleteVersion, renameVersion } from "../actions";
 import { INTERIOR_RELIGHT } from "../core/prompt";
 
 let painter: ZonePainter | null = null;
@@ -143,13 +145,14 @@ function ReplaceClear() {
   );
 }
 
-const TOOLS_ROW: [EditMode | "download" | "again", string, string][] = [
+const TOOLS_ROW: [EditMode | "download" | "again" | "copy", string, string][] = [
   ["compare", "Compare", "compare"],
   ["spot", "Spot edit", "brush"],
   ["relight", "Relight", "sun"],
   ["view", "Multi-View", "camera"],
   ["style", "Style copy", "layers"],
   ["again", "Try again", "refresh"],
+  ["copy", "Copy", "clipboard"],
   ["download", "Download", "download"],
 ];
 
@@ -180,7 +183,7 @@ function EditWork() {
             {views.map((r, n) => pill(r, n + 1, "View "))}
           </>
         ) : null}
-        <span className="lbl-md" style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--muted)" }}>{v?.label}</span>
+        {v ? <VersionName key={active} i={active} label={v.label} count={versions.length} /> : <span style={{ marginLeft: "auto" }} />}
         <ReplaceClear />
       </div>
       <div className="stage cq" style={{ background: "var(--field)" }}>
@@ -195,12 +198,13 @@ function EditWork() {
               <button
                 key={id}
                 type="button"
-                aria-pressed={mode === id}
+                aria-pressed={id === "copy" || id === "download" || id === "again" ? undefined : mode === id}
                 aria-label={label}
-                title={id === "again" && !cap ? "Try again needs the view on the Render tab" : label}
+                title={id === "again" && !cap ? "Try again needs the view on the Render tab" : id === "copy" ? "Copy image, then paste into chat or slides" : label}
                 disabled={disabled}
                 onClick={() => {
-                  if (id === "download") return void (v && download(v.image, `render-v${active + 1}`));
+                  if (id === "download") return void (v && download(v.image, `v${active + 1}`));
+                  if (id === "copy") return void (v && copyImage(v.image));
                   if (id === "again") return void openReview();
                   if (id === "view") return setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion }));
                   setState({ editMode: id });
@@ -217,15 +221,68 @@ function EditWork() {
   );
 }
 
+/** The open version's name: click to rename, × to take it off the Edit tab (it stays in History). */
+function VersionName({ i, label, count }: { i: number; label: string; count: number }) {
+  const [edit, setEdit] = useState(false);
+  const [text, setText] = useState(label);
+  const save = () => {
+    renameVersion(i, text);
+    setEdit(false);
+  };
+  return (
+    <span className="vname lbl-md">
+      {edit ? (
+        <input className="input" autoFocus value={text} aria-label="Version name" onChange={(e) => setText(e.target.value)} onBlur={save} onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") { setText(label); setEdit(false); }
+        }} />
+      ) : (
+        <button type="button" className="lbl" title="Rename this version" onClick={() => { setText(label); setEdit(true); }}>{label}</button>
+      )}
+      {count > 1 ? (
+        <button type="button" className="icon-btn" aria-label="Remove this version" title="Remove this version (it stays in History)" onClick={() => deleteVersion(i)}>
+          <Icon name="close" size={14} />
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 function CompareStage({ v }: { v: Version }) {
   const mainBefore = useApp((s) => s.before);
   const before = v.before ?? (v.kind === "view" ? null : mainBefore);
   const after = v.image;
   const [split, setSplit] = useState(50);
-  const drag = useRef(false);
+  const [zoom, setZoom] = useState({ z: 1, x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const drag = useRef<null | "split" | { px: number; py: number; x: number; y: number }>(null);
+  const box = useRef<HTMLDivElement>(null);
   const a = useMemo(() => toDataUrl(after), [after]);
   const b = useMemo(() => (before ? toDataUrl(before) : ""), [before]);
   const r = useRatio(after);
+  useEffect(() => setZoom({ z: 1, x: 0, y: 0 }), [after]);
+  // Mouse wheel zooms about the cursor (non-passive, so the page doesn't scroll).
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      setZoom((o) => {
+        const z = Math.max(1, Math.min(8, o.z * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+        if (z === 1) return { z: 1, x: 0, y: 0 };
+        const k = z / o.z;
+        const clamp = (t: number, size: number) => Math.min(0, Math.max(size * (1 - z), t));
+        return { z, x: clamp(mx - (mx - o.x) * k, rect.width), y: clamp(my - (my - o.y) * k, rect.height) };
+      });
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, []);
+  const zoomed = zoom.z > 1.001;
+  const tf = zoomed ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.z})`, transformOrigin: "0 0" } : {};
   const set = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setSplit(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
@@ -233,24 +290,40 @@ function CompareStage({ v }: { v: Version }) {
   return (
     <div className="fit">
       <div
-        className="frame rise"
+        ref={box}
+        className={`frame rise${zoomed ? " zoomed" : ""}${panning ? " panning" : ""}`}
         role="slider"
         tabIndex={0}
-        aria-label="Before and after divider. Drag on the image, or use the arrow keys"
+        aria-label="Before and after divider. Drag on the image, or use the arrow keys. Scroll to zoom"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(split)}
-        style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}`, cursor: before ? "ew-resize" : "default", touchAction: "none", userSelect: "none" }}
+        style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}`, cursor: zoomed ? undefined : before ? "ew-resize" : "zoom-in", touchAction: "none", userSelect: "none" }}
         onPointerDown={(e) => {
-          if (!before) return;
           e.currentTarget.setPointerCapture(e.pointerId);
-          drag.current = true;
+          // Zoomed: drag moves the picture; Shift-drag (or the line itself) still moves the divider.
+          if (zoomed && !e.shiftKey) {
+            drag.current = { px: e.clientX, py: e.clientY, x: zoom.x, y: zoom.y };
+            setPanning(true);
+            return;
+          }
+          if (!before) return;
+          drag.current = "split";
           set(e);
         }}
-        onPointerMove={(e) => drag.current && set(e)}
-        onPointerUp={() => (drag.current = false)}
-        onPointerCancel={() => (drag.current = false)}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          if (d === "split") return set(e);
+          const rect = e.currentTarget.getBoundingClientRect();
+          const clamp = (t: number, size: number) => Math.min(0, Math.max(size * (1 - zoom.z), t));
+          setZoom((o) => ({ ...o, x: clamp(d.x + e.clientX - d.px, rect.width), y: clamp(d.y + e.clientY - d.py, rect.height) }));
+        }}
+        onPointerUp={() => { drag.current = null; setPanning(false); }}
+        onPointerCancel={() => { drag.current = null; setPanning(false); }}
+        onDoubleClick={() => setZoom({ z: 1, x: 0, y: 0 })}
         onKeyDown={(e) => {
+          if (e.key === "0") return setZoom({ z: 1, x: 0, y: 0 });
           const step = e.shiftKey ? 10 : 2;
           const n = e.key === "ArrowLeft" ? split - step : e.key === "ArrowRight" ? split + step : e.key === "Home" ? 0 : e.key === "End" ? 100 : null;
           if (n === null) return;
@@ -258,11 +331,11 @@ function CompareStage({ v }: { v: Version }) {
           setSplit(Math.max(0, Math.min(100, n)));
         }}
       >
-        <img src={a} alt="Render" draggable={false} />
+        <img src={a} alt="Render" draggable={false} style={tf} />
         {before ? (
           <>
-            <div style={{ position: "absolute", inset: 0, clipPath: `inset(0 ${100 - split}% 0 0)` }}>
-              <img src={b} alt="Before" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+            <div style={{ position: "absolute", inset: 0, clipPath: `inset(0 ${100 - split}% 0 0)`, overflow: "hidden" }}>
+              <img src={b} alt="Before" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", ...tf }} />
             </div>
             <div className="compare-line" style={{ position: "absolute", top: 0, bottom: 0, left: `${split}%`, width: 2, marginLeft: -1, background: "#fff", pointerEvents: "none" }}>
               <span style={{ position: "absolute", top: "50%", left: "50%", width: 40, height: 40, margin: "-20px 0 0 -20px", borderRadius: "50%", background: "#fff", boxShadow: "0 4px 14px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", color: "#1b1815" }}>
@@ -271,9 +344,15 @@ function CompareStage({ v }: { v: Version }) {
             </div>
             <span className="chip-img" style={{ position: "absolute", top: 12, left: 12 }}>{v.kind === "view" ? "Your view" : "Before"}</span>
             <span className="chip-img" style={{ position: "absolute", top: 12, right: 12 }}>After</span>
-            <span className="chip-img glow lbl-sm" style={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" }}>Drag to compare</span>
+            {zoomed ? null : <span className="chip-img glow lbl-sm" style={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", pointerEvents: "none" }}>Drag to compare · scroll to zoom</span>}
           </>
         ) : null}
+        {zoomed ? (
+          <button type="button" className="chip-img zoomchip num" title="Back to fit (double-click or 0)" onPointerDown={(e) => e.stopPropagation()} onClick={() => setZoom({ z: 1, x: 0, y: 0 })}>
+            {Math.round(zoom.z * 100)}% · Fit
+          </button>
+        ) : null}
+        {zoomed && before ? <span className="chip-img lbl-sm" style={{ position: "absolute", bottom: 12, left: 12, pointerEvents: "none" }}>Drag to move · Shift-drag to compare</span> : null}
       </div>
     </div>
   );
@@ -303,16 +382,48 @@ function PaintStage() {
     host.current.replaceChildren(surface);
   }, [img, p]);
   const r = useRatio(img);
+  useApp((s) => s.paintRev);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  // [ and ] change the brush size, like Photoshop.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!p || (e.target as HTMLElement)?.closest?.("input, textarea, select")) return;
+      if (e.key !== "[" && e.key !== "]") return;
+      e.preventDefault();
+      p.size = Math.max(6, Math.min(120, p.size + (e.key === "]" ? 6 : -6)));
+      setState((s) => ({ paintRev: s.paintRev + 1 }));
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [p]);
+  const brushy = p && (p.tool === "brush" || p.erase);
   return (
     <div className="fit">
-      <div ref={host} className="frame" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}` }} />
+      <div style={{ position: "relative", width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}` }}
+        onPointerMove={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top }); }}
+        onPointerLeave={() => setPos(null)}>
+        <div ref={host} className="frame" style={{ width: "100%", height: "100%", cursor: brushy ? "none" : undefined }} />
+        {brushy && pos && p ? <span className="brush-ring" style={{ left: pos.x, top: pos.y, width: p.size, height: p.size, borderStyle: p.erase ? "dashed" : "solid" }} /> : null}
+      </div>
     </div>
   );
 }
 
-function Fig({ src, label, children, accent }: { src?: string; label: string; children?: React.ReactNode; accent?: boolean }) {
+/** Mouse over a slot: Ctrl V pastes into it. */
+function useSlotHover(target?: SlotTarget) {
+  const [on, setOn] = useState(false);
+  useEffect(() => onHoverSlot(() => setOn(Boolean(target) && hoveredSlot() === target)), [target]);
+  useEffect(() => () => { if (target && hoveredSlot() === target) hoverSlot(null); }, [target]);
+  return {
+    on,
+    props: target ? { onPointerEnter: () => hoverSlot(target), onPointerLeave: () => hoverSlot(null) } : {},
+  };
+}
+
+function Fig({ src, label, children, accent, target }: { src?: string; label: string; children?: React.ReactNode; accent?: boolean; target?: SlotTarget }) {
+  const h = useSlotHover(target);
   return (
-    <figure className="rise" style={accent ? { outline: "2px solid color-mix(in srgb, var(--accent) 55%, transparent)", outlineOffset: -2 } : undefined}>
+    <figure className={`rise${h.on ? " paste-target" : ""}`} {...h.props} title={target ? "Ctrl V here replaces this picture" : undefined} style={accent && !h.on ? { outline: "2px solid color-mix(in srgb, var(--accent) 55%, transparent)", outlineOffset: -2 } : undefined}>
       {src ? <img src={src} alt={label} draggable={false} style={{ objectFit: "contain" }} /> : children}
       <figcaption className="chip-img" style={{ position: "absolute", left: 12, top: 12 }}>{label}</figcaption>
     </figure>
@@ -322,9 +433,11 @@ function Fig({ src, label, children, accent }: { src?: string; label: string; ch
 /** An empty picture slot on the stage: drop, paste or upload into it. */
 function DropFig({ title, hint, icon, target }: { title: string; hint: string; icon: string; target: SlotTarget }) {
   const [over, setOver] = useState(false);
+  const h = useSlotHover(target);
   return (
     <figure
-      className="rise"
+      className={`rise${h.on ? " paste-target" : ""}`}
+      {...h.props}
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes("Files")) return;
         e.preventDefault();
@@ -383,14 +496,14 @@ function ViewStage() {
   const shotSrc = useMemo(() => (shots[0] ? toDataUrl(shots[0].image) : ""), [shots]);
   return (
     <div className="pairs view-pairs">
-      {look ? <Fig src={lookSrc} label="1 · Look source" /> : <DropFig title="1 · Look source" hint="The render whose materials, light and planting the new view copies." icon="star" target="base" />}
+      {look ? <Fig src={lookSrc} label="1 · Look source" target="base" /> : <DropFig title="1 · Look source" hint="The render whose materials, light and planting the new view copies." icon="star" target="base" />}
       {source === "camera" ? (
         <Fig label="2 · New camera" accent>
           <CameraPreview />
           <span className="chip-img lbl-sm" style={{ position: "absolute", right: 12, bottom: 12 }}>Orange = front of the building</span>
         </Fig>
       ) : shots.length ? (
-        <Fig src={shotSrc} label={shots.length > 1 ? `2 · New view 1 of ${shots.length}` : "2 · New view"} accent />
+        <Fig src={shotSrc} label={shots.length > 1 ? `2 · New view 1 of ${shots.length}` : "2 · New view"} accent target="shot" />
       ) : (
         <DropFig title="2 · New view" hint="A SketchUp screenshot of the new angle. Several at once is fine." icon="camera" target="shot" />
       )}
@@ -757,7 +870,7 @@ function NewViewPanel() {
         </div>
         <ol className="style-steps">
           <Slot title="Look source" hint={look ? undefined : "The render whose look the new view copies."} image={look?.image} name={look ? `${look.kind === "view" ? "View" : "v"}${lookIndex + 1} · ${look.label}` : undefined} onClear={clearBase} target="base" />
-          <Slot title="New view">
+          <Slot title="New view" target="shot">
             <div className="tabs2" role="radiogroup" aria-label="How to set the new view">
               <button type="button" role="radio" aria-checked={source === "shot"} onClick={() => setState({ viewSource: "shot" })}>My view</button>
               <button type="button" role="radio" aria-checked={source === "camera"} onClick={() => setState({ viewSource: "camera" })}>Move camera</button>
@@ -820,16 +933,17 @@ function StyleStage() {
   const refSrc = useMemo(() => (ref ? toDataUrl(ref.image) : ""), [ref]);
   return (
     <div className="pairs view-pairs">
-      {v ? <Fig src={baseSrc} label="1 · Base architecture" /> : <DropFig title="1 · Base architecture" hint="Your SketchUp view: the building and camera that stay exactly as they are." icon="cube" target="base" />}
-      {ref ? <Fig src={refSrc} label="2 · Style reference" accent /> : <DropFig title="2 · Style reference" hint="A photo whose materials, light and mood you want. Its building is not copied, only its look." icon="layers" target="ref" />}
+      {v ? <Fig src={baseSrc} label="1 · Base architecture" target="base" /> : <DropFig title="1 · Base architecture" hint="Your SketchUp view: the building and camera that stay exactly as they are." icon="cube" target="base" />}
+      {ref ? <Fig src={refSrc} label="2 · Style reference" accent target="ref" /> : <DropFig title="2 · Style reference" hint="A photo whose materials, light and mood you want. Its building is not copied, only its look." icon="layers" target="ref" />}
     </div>
   );
 }
 
 /** One numbered step on the right: a filled slot (thumbnail, name, ×) or its Paste / Upload buttons. */
 function Slot({ title, hint, image, name, onClear, target, children }: { title: string; hint?: string; image?: ImageData64 | null; name?: string; onClear?: () => void; target?: SlotTarget; children?: React.ReactNode }) {
+  const h = useSlotHover(target);
   return (
-    <li>
+    <li {...h.props} className={h.on ? "paste-target" : undefined}>
       <b>{title}</b>
       {hint ? <small>{hint}</small> : null}
       {image ? (
@@ -842,7 +956,7 @@ function Slot({ title, hint, image, name, onClear, target, children }: { title: 
             </button>
           ) : null}
         </div>
-      ) : target ? (
+      ) : target && !children ? (
         <SlotButtons target={target} />
       ) : null}
       {children}

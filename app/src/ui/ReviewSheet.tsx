@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../store";
-import { closeReview, confirmReview, buildPrompt } from "../actions";
+import { closeReview, confirmReview, buildPrompt, editModelId, updateSettings } from "../actions";
 import { renderCost, usd } from "../lib/cost";
 import { findKieModel } from "../core/providers/kie-models";
 import { Sheet } from "./Sheet";
@@ -9,10 +9,13 @@ import { Icon } from "./Icon";
 export function ReviewSheet() {
   const review = useApp((s) => s.review);
   const s = useApp((x) => x.settings);
+  const balance = useApp((x) => x.kieCredits);
   const [text, setText] = useState("");
   useEffect(() => setText(review?.prompt ?? ""), [review]);
   if (!review) return <Sheet open={false} onClose={closeReview}>{null}</Sheet>;
-  const one = renderCost(s);
+  const editTool = review.kind === "view" || review.kind === "shots" || review.kind === "style";
+  const modelId = editTool && s.backend === "kie" ? editModelId() : s.kieModel;
+  const one = renderCost(s, modelId);
   const n = review.batch?.length ?? 1;
   const cost = n > 1 && one.credits !== null ? { ...one, credits: one.credits * n, label: `${one.credits * n} credits` } : one;
   const removed = review.kind === "render" ? buildPrompt().removed : [];
@@ -26,6 +29,8 @@ export function ReviewSheet() {
           ? "Stays on your computer (ComfyUI)."
           : "You paste it into the site yourself in the next step.";
   const words = text.trim().split(/\s+/).length;
+  const low = s.backend === "kie" && !s.testMode && balance !== null && cost.credits !== null && cost.credits > balance;
+  const variations = s.backend !== "browser" || s.testMode;
   return (
     <Sheet
       open
@@ -38,13 +43,19 @@ export function ReviewSheet() {
           <div className="end">
             <button type="button" className="btn ghost" onClick={closeReview}>Back</button>
             <button type="button" className="btn primary" autoFocus onClick={() => void confirmReview(text)}>
-              {s.backend === "browser" && !s.testMode ? "Next: copy and paste" : n > 1 ? `Render ${n} views · ${cost.label}` : `Render · ${cost.label}`}
+              {s.backend === "browser" && !s.testMode ? "Next: copy and paste" : `${low ? "Render anyway" : n > 1 ? `Render ${n} views` : s.imageCount > 1 ? `Render ${s.imageCount} variations` : "Render"} · ${cost.label}`}
             </button>
           </div>
         </>
       }
     >
       <div className="sheet-body thin">
+        {low ? (
+          <div className="check warn">
+            <Icon name="warn" size={18} style={{ color: "var(--warn)", marginTop: 1 }} />
+            <div><b>Not enough credits</b><small>This costs {cost.credits} credits and your Kie balance is {Math.round(balance! * 100) / 100}. Top up on kie.ai, pick a lower-cost model, or use fewer variations.</small></div>
+          </div>
+        ) : null}
         {review.lint.fixes.length || review.lint.warnings.length || removed.length ? (
           <section className="step" style={{ gap: 8 }}>
             <h3 style={{ fontSize: 13, color: "var(--soft)" }}>Checks</h3>
@@ -89,9 +100,20 @@ export function ReviewSheet() {
             <div className="k">Cost</div>
             <div className="v num">{cost.credits !== null ? `${cost.credits} credits` : cost.label}</div>
             <small style={{ color: "var(--soft)" }}>
-              {s.backend === "kie" && !s.testMode ? `${findKieModel(s.kieModel).label} · ${s.kieResolution} · ${s.imageCount} image${s.imageCount > 1 ? "s" : ""}${cost.credits !== null ? ` · about ${usd(cost.credits)}` : ""}` : !review.images.length ? "Prompt only, no image" : review.images.length > 1 ? `${review.images.length} images sent` : "1 image sent"}
+              {s.backend === "kie" && !s.testMode ? `${findKieModel(modelId).label} · ${s.kieResolution} · ${s.imageCount} image${s.imageCount > 1 ? "s" : ""}${cost.credits !== null ? ` · about ${usd(cost.credits)}` : ""}` : !review.images.length ? "Prompt only, no image" : review.images.length > 1 ? `${review.images.length} images sent` : "1 image sent"}
             </small>
           </div>
+          {variations ? (
+            <div className="tile">
+              <div className="k">Variations</div>
+              <div className="tabs3" role="radiogroup" aria-label="How many variations" style={{ marginTop: 6, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                {[1, 2, 3, 4].map((k) => (
+                  <button key={k} type="button" role="radio" aria-checked={s.imageCount === k} onClick={() => void updateSettings({ imageCount: k })}>×{k}</button>
+                ))}
+              </div>
+              <small style={{ color: "var(--soft)" }}>Same prompt, {s.imageCount > 1 ? `${s.imageCount} results to pick from` : "one result"}. Each one costs a render.</small>
+            </div>
+          ) : null}
           <div className="tile">
             <div className="k">Where your image goes</div>
             <div style={{ marginTop: 4, fontSize: 13 }}>{where}</div>

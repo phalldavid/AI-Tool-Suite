@@ -644,3 +644,31 @@ h3, b, strong, .tour-card h3, .langcard b, .cta, .mp-name, .lss-info b { font-fa
 .helpvid small { display: block; color: var(--muted); font-size: 12px; }
 .helpvid .yt { width: 30px; height: 22px; border-radius: 6px; background: #e62117; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
 a.logo { cursor: pointer; }
+
+/* History stars and filters */
+.chip-img.star { opacity: 0.85; }
+.chip-img.star.on { opacity: 1; color: var(--accent); }
+.chip-img.star.on svg { fill: currentColor; }
+.hcard + .chip-img.star:not(.on) { opacity: 0; transition: opacity 160ms var(--ease); }
+div:hover > .chip-img.star, .chip-img.star:focus-visible { opacity: 1; }
+
+/* Version name and remove, on the Edit tab */
+.vname { display: flex; align-items: center; gap: 2px; margin-left: auto; min-width: 0; }
+.vname > button.lbl { background: none; border: 0; color: var(--muted); font-size: 12.5px; padding: 4px 6px; border-radius: 8px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+.vname > button.lbl:hover { background: var(--field); color: var(--text); }
+.vname input { height: 28px; font-size: 12.5px; width: 180px; padding: 0 8px; }
+.vname .icon-btn { width: 28px; height: 28px; }
+
+/* Compare zoom */
+.zoomchip { position: absolute; right: 12px; bottom: 12px; z-index: 3; }
+.frame.zoomed { cursor: grab; }
+.frame.zoomed.panning { cursor: grabbing; }
+.zoomable { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+
+/* Spot edit brush outline that follows the mouse */
+.brush-ring { position: absolute; pointer-events: none; border-radius: 50%; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); transform: translate(-50%, -50%); z-index: 4; }
+
+/* Paste target under the mouse */
+figure.paste-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.frame[style*="cursor: none"] .paint-wrap canvas { cursor: none; }
+.style-steps li.paste-target { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 14px; }
