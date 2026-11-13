@@ -17,7 +17,7 @@ import { Panels } from "../ui/Panels";
 import { Icon } from "../ui/Icon";
 import { SunDial, fmtHour } from "./SunDial";
 import { CameraControls, CameraPreview } from "./Camera";
-import { Progress } from "./Render";
+import { LoaderStatus, RenderLoader, StopButton } from "../ui/RenderLoader";
 import { LightSceneSwitch } from "../ui/LightSceneSwitch";
 import { GLOBAL_PRESETS, MATERIALS, PLANTS, SURFACES, ZONE_GROUPS, appendLine, materialSentence, removeLine } from "../lib/spot";
 import { AdditionalNotes } from "./Render";
@@ -188,7 +188,8 @@ function EditWork() {
       </div>
       <div className="stage cq" style={{ background: "var(--field)" }}>
         {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : <CompareStage v={v} />}
-        {busy ? <Progress /> : null}
+        <LoaderLayer />
+        <LoaderStatus />
       </div>
       <div className="refine-wrap">
         <nav className="refine glass" aria-label="Edit tools">
@@ -404,6 +405,23 @@ function PaintStage() {
         onPointerLeave={() => setPos(null)}>
         <div ref={host} className="frame" style={{ width: "100%", height: "100%", cursor: brushy ? "none" : undefined }} />
         {brushy && pos && p ? <span className="brush-ring" style={{ left: pos.x, top: pos.y, width: p.size, height: p.size, borderStyle: p.erase ? "dashed" : "solid" }} /> : null}
+      </div>
+    </div>
+  );
+}
+
+/** The render loader over the stage, shaped like the picture being worked on. */
+function LoaderLayer() {
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const before = useApp((s) => s.before);
+  const under = v?.image ?? before;
+  const r = useRatio(under);
+  return (
+    <div className="loader-layer">
+      <div className="fit">
+        <div className="frame" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}` }}>
+          <RenderLoader under={under} />
+        </div>
       </div>
     </div>
   );
@@ -782,9 +800,9 @@ function SpotEditPanel() {
       </div>
       <p className="note" style={{ margin: 0 }}>{globalText ? "Global Edit changes the whole picture, so the result is not pasted back over the original." : "Everything outside your selection is pasted back from the original, so it stays exactly as it was."}</p>
       <ModelPicker edit />
-      <button type="button" className="cta sheen" disabled={Boolean(busy)} onClick={() => void runSpotEdit(p, texts, globalText).then(refresh)}>
+      {busy ? <StopButton /> : <button type="button" className="cta sheen" onClick={() => void runSpotEdit(p, texts, globalText).then(refresh)}>
         {promptOnly ? <><Icon name="clipboard" size={18} /> Get edit prompt + painted image</> : <>Apply edit · {cost.label}</>}
-      </button>
+      </button>}
     </>
   );
 }
@@ -842,9 +860,9 @@ function RelightPanel() {
         </div>
       </section>
       <ModelPicker edit />
-      <button type="button" className="cta sheen" disabled={Boolean(busy)} onClick={() => void runRelight(id)}>
+      {busy ? <StopButton /> : <button type="button" className="cta sheen" onClick={() => void runRelight(id)}>
         <Icon name="sun" size={18} /> Relight to {what} · {cost.label}
-      </button>
+      </button>}
     </>
   );
 }
@@ -912,10 +930,10 @@ function NewViewPanel() {
       </div>
       <div className="side-foot">
         <ModelPicker edit />
-        <button type="button" className="cta sheen" disabled={Boolean(busy) || !look || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!look || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
           <Icon name="camera" size={18} />
           {promptOnly ? "Get prompt · free" : source === "shot" ? (n > 1 ? `Render ${n} views · ${total}` : `Render this view · ${total}`) : `Render new camera · ${one.label}`}
-        </button>
+        </button>}
       </div>
     </>
   );
@@ -1007,10 +1025,10 @@ function StyleCopyPanel() {
       </div>
       <div className="side-foot">
         <ModelPicker edit />
-        <button type="button" className="cta sheen" disabled={Boolean(busy) || !ref || !base} onClick={() => void openReview("style")}>
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!ref || !base} onClick={() => void openReview("style")}>
           <Icon name="layers" size={18} />
           {promptOnly ? "Get prompt · free" : `Copy the style · ${cost.label}`}
-        </button>
+        </button>}
       </div>
     </>
   );

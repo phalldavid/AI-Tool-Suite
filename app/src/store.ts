@@ -58,6 +58,8 @@ export interface Busy {
   label: string;
   since: number;
   typical: number;
+  /** The result is in and the loader is playing its reveal; Stop no longer applies. */
+  revealing?: boolean;
 }
 
 export interface ReviewState {

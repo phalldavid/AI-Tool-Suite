@@ -11,8 +11,21 @@ import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 import { setDev, unlockDev, useDev } from "../lib/dev";
 import { startTour } from "./Tour";
+import { setPrefs, usePrefs } from "../prefs";
 import { HELP_VIDEOS } from "../lib/help";
 import { toast } from "../toasts";
+
+/** How long the loader's specks take to gather into the orb once the image arrives. */
+function LoaderGatherSlider() {
+  const p = usePrefs();
+  return (
+    <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={{ flex: "0 0 auto" }}>Orb gather time</span>
+      <input type="range" min={2} max={8} step={0.5} value={p.loaderGather} onChange={(e) => setPrefs({ loaderGather: Number(e.target.value) })} style={{ flex: 1 }} aria-label="Orb gather time in seconds" />
+      <span className="num" style={{ minWidth: 44, textAlign: "right" }}>{p.loaderGather.toFixed(1)} s</span>
+    </label>
+  );
+}
 
 function DeveloperSection() {
   const dev = useDev();
@@ -23,6 +36,7 @@ function DeveloperSection() {
       {dev ? (
         <>
           <p className="note" style={{ margin: 0 }}>Developer mode is on: "Pictures" appears in Browse all for looks and environments, to make card pictures from contact sheets. Test mode appears in the model list and How renders are made.</p>
+          <LoaderGatherSlider />
           <div>
             <button type="button" className="btn ghost" onClick={() => { setDev(false); if (getState().settings.testMode) void updateSettings({ testMode: false }); }}>Turn off developer mode</button>
           </div>

@@ -1,6 +1,8 @@
 import { setState, useApp } from "../store";
 import { ACCENTS, FONTS, resetPrefs, setPrefs, usePrefs } from "../prefs";
 import { Icon } from "./Icon";
+import { LoaderPreview } from "./RenderLoader";
+import { LOADER_STYLES } from "./loader/engine";
 
 export function Customise() {
   const open = useApp((s) => s.customiseOpen);
@@ -59,6 +61,19 @@ export function Customise() {
         {seg("Language", p.lang, [["en", "English"], ["km", "ខ្មែរ"]], (lang) => setPrefs({ lang }), "tabs2")}
         {seg("Motion", p.motion, [["full", "Full"], ["reduced", "Reduced"]], (motion) => setPrefs({ motion }), "tabs2")}
         {seg("Background", p.bg, [["moving", "Moving"], ["still", "Still"], ["plain", "Plain"]], (bg) => setPrefs({ bg }))}
+        <section className="step" style={{ gap: 8 }}>
+          <h3>Loading animation</h3>
+          <LoaderPreview key={p.loader} style={p.loader} />
+          <p className="note" style={{ margin: 0 }}>{(LOADER_STYLES.find((x) => x.id === p.loader) ?? LOADER_STYLES[0]).hint}</p>
+          <div className="loader-pick" role="radiogroup" aria-label="Loading animation">
+            {LOADER_STYLES.map((x) => (
+              <button key={x.id} type="button" role="radio" className="fontopt" aria-checked={p.loader === x.id} onClick={() => setPrefs({ loader: x.id })}>
+                <span style={{ flex: 1, textAlign: "left" }}>{x.label}</span>
+                {x.id === "orb" ? <span className="note" style={{ margin: 0 }}>Default</span> : null}
+              </button>
+            ))}
+          </div>
+        </section>
         <button type="button" className="linkish" style={{ alignSelf: "flex-start", color: "var(--muted)" }} onClick={resetPrefs}>
           Reset to defaults
         </button>

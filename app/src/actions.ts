@@ -32,6 +32,7 @@ import { fittingsLine, loadFittings } from "./lib/fittings";
 import { findKieModel } from "./core/providers/kie-models";
 import { contextLabel, parseContexts } from "./core/context";
 import { getPrefs } from "./prefs";
+import { revealResult } from "./ui/loader/bus";
 
 export const DEFAULT_LOOK = "ext-mansion-tropical";
 
@@ -483,7 +484,7 @@ export async function confirmReview(prompt: string): Promise<void> {
     for (let i = 0; i < sets.length; i++) {
       const set = sets[i];
       const size = await imageSize(set[0]);
-      const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, kieEdit(), sets.length > 1 ? `View ${i + 1} of ${sets.length}` : "Rendering the new view");
+      const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, kieEdit(), sets.length > 1 ? `Creating view ${i + 1} of ${sets.length}` : "Creating the new view");
       const src = st.versions[st.lookIndex];
       const vm = editMeta({ look: `Same as ${src ? `${src.kind === "view" ? "View" : "v"}${st.lookIndex + 1}` : "the look source"}`, light: "From the look source" });
       for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta: vm, before: set[0], historyId: await record("view", prompt, set[0], img, { name: r.kind === "shots" ? "New view" : "New camera", model: kieEdit() }) });
@@ -537,13 +538,16 @@ async function runProvider(prompt: string, images: ImageData64[], aspectRatio: s
   const key = `${settings.backend}:${settings.kieModel}:${settings.kieResolution}`;
   const n = settings.backend === "browser" ? 1 : Math.max(1, Math.min(4, settings.imageCount));
   abort = typeof AbortController === "undefined" ? null : new AbortController();
-  setState({ busy: { label: label ?? (n > 1 ? `Rendering ${n} images` : "Rendering"), since: Date.now(), typical: typicalMs(key) } });
+  setState({ busy: { label: label ?? (n > 1 ? `Creating ${n} images` : "Creating your image"), since: Date.now(), typical: typicalMs(key) } });
   try {
     const runs = await Promise.allSettled(Array.from({ length: n }, () => provider.render({ prompt, images, aspectRatio }, abort?.signal)));
     const ok = runs.flatMap((x) => (x.status === "fulfilled" ? [x.value.image] : []));
     const failed = runs.find((x): x is PromiseRejectedResult => x.status === "rejected");
     if (failed && !ok.length) throw failed.reason;
     rememberDuration(key, Date.now() - getState().busy!.since);
+    // Let the loader play its reveal into the first image before anything moves on.
+    setState((x) => (x.busy ? { busy: { ...x.busy, revealing: true } } : {}));
+    await revealResult(ok[0]);
     if (failed) toast(`${ok.length} of ${n} done. One failed: ${(failed.reason as Error).message}`, "warn");
     else toast("Render ready", "ok");
     return ok;

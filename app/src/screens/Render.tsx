@@ -21,6 +21,7 @@ import { ModelPicker } from "../ui/ModelPicker";
 import { envPicture } from "../lib/envPreviews";
 import { useEnvTiles } from "../ui/EnvPicturesSheet";
 import { LightSceneSwitch } from "../ui/LightSceneSwitch";
+import { LoaderStatus, RenderLoader, StopButton } from "../ui/RenderLoader";
 import { Fittings } from "../ui/Fittings";
 import { DYN_ICONS } from "../ui/DynamicSheet";
 import { GENERATORS, countSet } from "../core/dynamic";
@@ -189,7 +190,7 @@ function Stage() {
           </div>
         </div>
       )}
-      {busy ? <Progress /> : null}
+      <LoaderStatus />
     </div>
   );
 }
@@ -200,12 +201,11 @@ function FitFrame({ src }: { src: string }) {
   const f = findFrame(frameId);
   const nat = useRatio(cap?.view);
   const r = f.ratio || nat;
-  const busy = useApp((s) => s.busy);
   return (
     <div className="fit">
       <div className="frame" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}` }}>
         <img src={src} alt="Your view" />
-        {busy ? <div className="scan" /> : null}
+        <RenderLoader under={cap?.view} holdResult />
       </div>
     </div>
   );
@@ -258,26 +258,6 @@ function FrameRow() {
   );
 }
 
-export function Progress() {
-  const busy = useApp((s) => s.busy)!;
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(t);
-  }, []);
-  const el = Math.max(0, Math.floor((now - busy.since) / 1000));
-  const left = Math.max(0, Math.round(busy.typical / 1000 - el));
-  return (
-    <div className="busy-chip" role="status" aria-live="polite" title={left > 0 ? `About ${left} s left` : "Almost done"}>
-      <Icon name="aperture" className="spin-slow" size={15} />
-      <span className="num">{busy.label} · {Math.floor(el / 60)}:{String(el % 60).padStart(2, "0")}</span>
-      <button type="button" aria-label="Cancel render" title="Cancel" onClick={() => void import("../actions").then((a) => a.cancelRender())}>
-        <Icon name="close" size={13} />
-      </button>
-    </div>
-  );
-}
-
 // ---------- right: settings ----------
 
 function RenderSide() {
@@ -326,11 +306,15 @@ function RenderSide() {
       </div>
       <div className="side-foot">
         <ModelPicker />
-        <button type="button" className="cta sheen" disabled={(!cap && !promptOnly) || Boolean(busy)} onClick={() => void openReview()}>
-          <Icon name={promptOnly ? "clipboard" : "aperture"} size={18} className={promptOnly ? undefined : "spin-slow"} />
-          {busy ? "Rendering…" : promptOnly ? "Get prompt · free" : `Render · ${cost.label}`}
-          <span className="kbd">R</span>
-        </button>
+        {busy ? (
+          <StopButton />
+        ) : (
+          <button type="button" className="cta sheen" disabled={!cap && !promptOnly} onClick={() => void openReview()}>
+            <Icon name={promptOnly ? "clipboard" : "aperture"} size={18} className={promptOnly ? undefined : "spin-slow"} />
+            {promptOnly ? "Get prompt · free" : `Render · ${cost.label}`}
+            <span className="kbd">R</span>
+          </button>
+        )}
       </div>
     </>
   );

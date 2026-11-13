@@ -3,6 +3,22 @@
 Paste this whole file into a new session. It holds everything decided so far about the
 animation that plays while a render is running.
 
+
+## Status (built)
+
+- Built in `app/src/ui/loader/engine.ts` (canvas engine), `app/src/ui/loader/bus.ts` (lets
+  `runProvider` wait for the reveal), `app/src/ui/RenderLoader.tsx` (layer, three-dot mark,
+  status line, Stop button, Customise preview). `Progress` and `.scan` are gone.
+- Default ("Glow particles and orb"): specks fly slowly toward the viewer over a CSS-blurred
+  aurora, fading in far away and out up close, with a gentle twinkle. When the image arrives
+  the status reads "Finishing up", half the specks drift into a spinning orb (4.5 s by
+  default; Settings → Developer → Orb gather time), the rest dim away, the orb rests 0.7 s,
+  then bursts while the picture sharpens from blurry to crisp.
+- Customise → Loading animation also offers: Colour blur to sharp, Specks into a grid,
+  Blueprint sweep, Ink bloom, Status words and orb, each with a looping preview.
+- The reveal plays before the Render tab switches to Edit; on the Edit tab the layer fades
+  away after the reveal to show the new version.
+
 ## The project
 
 - Repository: `phalldavid/AI-Tool-Suite`. Work on the branch `v2/beta`. The live site is
