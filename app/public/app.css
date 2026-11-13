@@ -689,3 +689,104 @@ figure.paste-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .stop-sq { width: 11px; height: 11px; border-radius: 2px; background: currentColor; }
 .loader-pick { display: flex; flex-direction: column; gap: 4px; }
 .calm .shimmer { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
+
+/* ================= phones (under 700 px wide) ================= */
+/* Touch screens: no keyboard hints; mouse screens: no touch-only labels. */
+@media (hover: none) and (pointer: coarse) { .desk-only, .kbd { display: none !important; } }
+@media (hover: hover), (pointer: fine) { .touch-only { display: none !important; } }
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
+
+/* Header: Day/Night · centred title (Behance) · Settings; then Render / Edit / History · Search */
+.topbar.m-top { display: block; padding: calc(6px + env(safe-area-inset-top)) 8px 8px; }
+.m-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; }
+.m-title { justify-self: center; max-width: 100%; text-align: center; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 350px) { .m-title { font-size: 17px; } }
+.m-ic { width: 42px; height: 42px; border-radius: 50%; border: 0; background: transparent; color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 160ms var(--ease); }
+.m-ic:active { transform: scale(0.88); }
+.m-ic .theme-ic { width: 21px; height: 21px; }
+.m-ic .theme-ic svg { width: 21px; height: 21px; }
+.m-row2 { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 0 4px; }
+.m-nav { flex: 1; min-width: 0; }
+.m-nav button { padding: 9px 0; font-size: 14px; }
+.m-ic.m-search { width: 40px; height: 40px; background: var(--raised); }
+/* Day/Night grows out of the button; the gear spins before Settings opens. */
+@keyframes thpop { 40% { transform: scale(1.28); } 100% { transform: scale(1); } }
+.pop { animation: thpop 460ms cubic-bezier(0.3, 1.5, 0.5, 1); }
+@keyframes gearspin { to { transform: rotate(120deg); } }
+.gear.gear-spin svg { animation: gearspin 520ms cubic-bezier(0.3, 1.3, 0.5, 1); }
+
+/* One bottom bar on phones: action button (+ the Edit dock), above the home bar. */
+.phone-bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; flex-direction: column; gap: 10px; padding: 14px 12px calc(10px + env(safe-area-inset-bottom)); pointer-events: none; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 30%); }
+.phone-bottom:empty { display: none; }
+.phone-bottom > * { pointer-events: auto; }
+.phonebar { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
+.phonebar .cta { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 12px 14px; border-radius: 18px; font-size: 15.5px; white-space: nowrap; }
+.phonebar .linkish { flex-basis: 100%; }
+.body.flow { padding-bottom: calc(var(--pb-h, 0px) + 8px); }
+.body.flow .side-foot { display: none; }
+/* The model shares the button row: a rounded square with the model's mark. */
+.phonebar .mp { position: static; flex: none; }
+.phonebar .mp-trigger { width: 54px; height: 54px; padding: 0; justify-content: center; border-radius: 18px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
+.phonebar .mp-trigger > :not(.mp-logo) { display: none; }
+.phonebar .mp-trigger .mp-logo { width: 32px !important; height: 32px !important; border-radius: 10px; }
+.phonebar .mp-trigger .mp-logo.plain { background: transparent; box-shadow: none; }
+.phonebar .mp-pop { left: 12px; right: 12px; bottom: calc(100% - 4px); max-height: 62dvh; }
+
+/* Edit tab dock: icons in a floating glass pill, the highlight slides between them. */
+.phonedock { display: flex; justify-content: center; }
+.refine.m-dock { width: 100%; flex-wrap: nowrap; justify-content: space-between; gap: 2px; padding: 6px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 55%, transparent); backdrop-filter: blur(22px) saturate(1.6); -webkit-backdrop-filter: blur(22px) saturate(1.6); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--text) 16%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent), 0 12px 32px rgba(0, 0, 0, 0.4); }
+.refine.m-dock button { flex: 1; height: 50px; padding: 0; justify-content: center; border-radius: 999px; color: var(--soft); -webkit-tap-highlight-color: transparent; transition: color 220ms, transform 150ms var(--ease); }
+.refine.m-dock button:active { transform: scale(0.88); }
+.refine.m-dock button[aria-pressed="true"] { color: var(--text); font-weight: 500; }
+.slide.refine.m-dock::before { background: color-mix(in srgb, var(--text) 14%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent), inset 0 -1px 0 rgba(0, 0, 0, 0.18); border-radius: 999px; }
+.slide.slide-ready.refine.m-dock::before { transition: transform 460ms cubic-bezier(0.3, 1.35, 0.45, 1), width 460ms cubic-bezier(0.3, 1.35, 0.45, 1), height 460ms, opacity 160ms; }
+:root.light .refine.m-dock { background: color-mix(in srgb, #fff 60%, transparent); }
+.body.flow .refine-wrap { display: none; }
+.img-acts { position: absolute; top: 10px; right: 10px; z-index: 4; display: flex; gap: 6px; }
+.img-acts .chip-img { width: 36px; height: 36px; padding: 0; justify-content: center; }
+.img-acts .chip-img:disabled { opacity: 0.4; }
+.body.flow .stage .img-acts { top: 20px; right: 20px; }
+
+/* Rendering: the status sits above the picture, one line, never over the animation. */
+.body.flow .busy-chip { position: static; order: -1; translate: none; align-self: flex-start; max-width: 100%; padding: 2px 4px; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; color: var(--soft); font-size: 14px; animation: none; white-space: nowrap; }
+.body.flow .busy-chip > span { overflow: hidden; text-overflow: ellipsis; }
+.body.flow .busy-chip button { display: none; }
+
+/* Picture chips: labels on phones (no hover tooltips on touch). */
+.body.flow .stage .chips.tl .lbl-md, .body.flow .stage .chips.tl .lbl-lg { display: inline !important; }
+/* Rows that scroll sideways fade at the edge so it's clear there is more. */
+.body.flow .stage .chips.tr { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+/* Touch: things that only showed on hover are always there. */
+@media (hover: none) { .chip-img.star { opacity: 1 !important; } }
+
+/* Sheets open from the bottom on phones, with a handle to drag them closed. */
+.sheet-grab { display: none; }
+@media (max-width: 699px) {
+  dialog.sheet, dialog.sheet.small, dialog.sheet.lib { width: 100vw; max-width: 100vw; margin: auto 0 0; max-height: calc(100dvh - 40px - env(safe-area-inset-top)); border-radius: 26px 26px 0 0; padding-bottom: env(safe-area-inset-bottom); transition: transform 280ms var(--ease); }
+  dialog.sheet[open] { animation: sheetup 380ms cubic-bezier(0.3, 1.15, 0.5, 1) both; }
+  dialog.sheet.lib { height: calc(100dvh - 40px - env(safe-area-inset-top)); }
+  .sheet-grab { display: flex; justify-content: center; padding: 8px 0 0; flex: none; touch-action: none; cursor: grab; }
+  .sheet-grab span { width: 38px; height: 5px; border-radius: 5px; background: var(--line2); }
+  .sheet-head { touch-action: none; padding: 8px 16px 12px; }
+  .sheet-body { padding: 14px 16px; }
+  .sheet-foot { padding: 12px 16px; }
+  .set-tabs { flex: none; padding: 0 16px 6px; }
+  .set-tabs .tabs3 button { padding: 9px 0; }
+  /* iPhone zooms into text boxes under 16 px. */
+  input, select, textarea, .input { font-size: 16px !important; }
+  /* Tap targets at least 44 px. */
+  .btn, .chip, .seg-mini button, .tabs2 button, .tabs3 button { min-height: 40px; }
+  .shell:has(.body.flow) { overscroll-behavior-y: none; }
+  /* Tour: a panel along the bottom, Skip and Next always in reach. */
+  .tour-card.m-sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; border-radius: 26px 26px 0 0; padding: 6px 18px calc(16px + env(safe-area-inset-bottom)); animation: sheetup 380ms cubic-bezier(0.3, 1.15, 0.5, 1) both; }
+  .tour-card.m-sheet .sheet-grab { display: flex; padding: 4px 0 6px; }
+  .tour-card.m-sheet .tour-foot { flex-wrap: nowrap; }
+  .tour-card.m-sheet .tour-never { flex: 1; min-width: 0; }
+  .langpick { margin: 0 14px; padding: 22px 16px !important; }
+  .langpick h2 { font-size: 20px !important; }
+  .langpick-row { gap: 10px !important; }
+}
+@keyframes sheetup { from { transform: translateY(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { dialog.sheet[open], .tour-card.m-sheet { animation: none; } }
+.phone-bottom > .phonebar { order: 1; }
+.phone-bottom > .phonedock { order: 2; }

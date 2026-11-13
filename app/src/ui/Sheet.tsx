@@ -27,6 +27,30 @@ export function Sheet({ open, onClose, title, children, foot, small, className, 
       (opener.current as HTMLElement | null)?.focus?.();
     }
   }, [open]);
+  // Phones: drag the handle or the title bar down to close.
+  const drag = useRef<{ y: number; dy: number } | null>(null);
+  const grab = {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (window.innerWidth >= 700 || (e.target as HTMLElement).closest("button")) return;
+      drag.current = { y: e.clientY, dy: 0 };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const d = drag.current;
+      if (!d || !ref.current) return;
+      d.dy = Math.max(0, e.clientY - d.y);
+      ref.current.style.transition = "none";
+      ref.current.style.transform = `translateY(${d.dy}px)`;
+    },
+    onPointerUp: () => {
+      const d = drag.current;
+      drag.current = null;
+      if (!d || !ref.current) return;
+      ref.current.style.transition = "";
+      ref.current.style.transform = "";
+      if (d.dy > 90) onClose();
+    },
+  };
   return (
     <dialog
       ref={ref}
@@ -42,8 +66,9 @@ export function Sheet({ open, onClose, title, children, foot, small, className, 
     >
       {open ? (
         <>
+          <div className="sheet-grab" aria-hidden="true" {...grab}><span /></div>
           {title ? (
-            <div className="sheet-head">
+            <div className="sheet-head" {...grab}>
               <h2 id={labelledBy}>{title}</h2>
               <button type="button" className="icon-btn close" aria-label="Close" onClick={onClose}>
                 <Icon name="close" />

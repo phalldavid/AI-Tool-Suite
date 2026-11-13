@@ -1,6 +1,7 @@
 // Exact sun: a top-down ring measured from the camera, plus a height arc.
 // Only the dragged marker moves during a drag; labels change 5° past each boundary.
 
+import { Foot } from "../ui/PhoneBar";
 import { useMemo, useRef } from "react";
 import { getState, setState, useApp } from "../store";
 import { sunNow } from "../actions";
@@ -348,7 +349,7 @@ function SunSide() {
           <div><small>Shadows fall</small><b>{FALL_SHORT[(sect + 4) % 8]}</b></div>
         </div>
       </div>
-      <div className="side-foot">
+      <Foot>
         <button
           type="button"
           className="cta sheen"
@@ -362,7 +363,7 @@ function SunSide() {
         {sun.exact ? (
           <button type="button" className="linkish" onClick={() => setSun({ exact: false })}>Stop using the exact direction</button>
         ) : null}
-      </div>
+      </Foot>
     </>
   );
 }

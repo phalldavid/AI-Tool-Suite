@@ -14,6 +14,8 @@ import { startTour } from "./Tour";
 import { setPrefs, usePrefs } from "../prefs";
 import { HELP_VIDEOS } from "../lib/help";
 import { toast } from "../toasts";
+import { useViewport } from "../layout";
+import { CustomiseBody } from "./Customise";
 
 /** How long the loader's specks take to gather into the orb once the image arrives. */
 function LoaderGatherSlider() {
@@ -78,13 +80,30 @@ export function SettingsSheet() {
   const dev = useDev();
   const st = backendStatus(s, check);
   const model = findKieModel(s.kieModel);
+  const phone = useViewport().phone;
+  const [pane, setPane] = useState<"mode" | "custom" | "help">("mode");
+  /** Phones show one of three panes; desktop shows everything (Customise has its own popover). */
+  const on = (x: "mode" | "custom" | "help") => (phone ? pane === x : x !== "custom");
   const pick = (id: string) => {
     if (id === "test") void updateSettings({ testMode: true });
     else void updateSettings({ testMode: false, backend: id as Settings["backend"] });
   };
   return (
     <Sheet open={open} onClose={close} title="Settings" labelledBy="settings-title">
-      <div className="sheet-body thin">
+      {phone ? (
+        <div className="set-tabs">
+          <div className="tabs3" role="tablist" aria-label="Settings">
+            {([["mode", "Mode"], ["custom", "Customize"], ["help", "Help"]] as const).map(([id, l]) => (
+              <button key={id} type="button" role="tab" aria-selected={pane === id} aria-checked={pane === id} onClick={() => setPane(id)}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className="sheet-body thin" key={phone ? pane : "all"}>
+        {on("custom") ? <CustomiseBody phone /> : null}
+        {on("mode") ? <>
         <section className="step">
           <div className="step-head">
             <h2>How renders are made</h2>
@@ -232,7 +251,8 @@ export function SettingsSheet() {
           </div>
         </section>
 
-        <section className="step">
+        </> : null}
+        {on("help") ? <section className="step">
           <h2 style={{ fontSize: 16 }}>Help</h2>
           <div>
             <button type="button" className="btn" onClick={() => startTour(true)}>
@@ -252,9 +272,9 @@ export function SettingsSheet() {
               </a>
             ))}
           </div>
-        </section>
+        </section> : null}
 
-        <DeveloperSection />
+        {on("mode") ? <DeveloperSection /> : null}
       </div>
       <div className="sheet-foot">
         <small style={{ color: "var(--muted)" }}>v{getState().host.kind === "sketchup" ? "2 · SketchUp" : "2 beta"} · settings saved automatically</small>

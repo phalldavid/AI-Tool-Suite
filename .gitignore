@@ -3,3 +3,4 @@ dist/
 plugin/ai_render_suite/ui/
 *.rbz
 .DS_Store
+qa-shots/

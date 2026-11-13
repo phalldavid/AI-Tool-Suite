@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { AppState, NotesSlot } from "../store";
 import { useRatio } from "../ui/useRatio";
+import { Foot } from "../ui/PhoneBar";
 import { captureFromSketchUp, clearView, lightCaption, lookPreset, openHistoryItem, openReview, pasteFromClipboard, pickFrame, updateSettings, useFile } from "../actions";
 import { FRAME_ROW, findFrame, swapFrameId } from "../core/frame";
 import { toDataUrl } from "../core/images";
@@ -155,8 +156,9 @@ function Stage() {
           </div>
           <div className="chips br">
             <button type="button" className="chip-img" aria-label="Paste from clipboard, Ctrl V" title="Paste · Ctrl V" onClick={() => void pasteFromClipboard()}>
+              <Icon name="clipboard" size={15} className="touch-only" />
               <span className="lbl-sm">Paste</span>
-              <span className="kbd">Ctrl V</span>
+              <span className="kbd desk-only">Ctrl V</span>
             </button>
             <button type="button" className="chip-img" aria-label="Clear image" title="Clear image" onClick={clearView}>
               <Icon name="trash" size={15} />
@@ -164,7 +166,7 @@ function Stage() {
             </button>
             <button type="button" className="chip-img light" aria-label={host.kind === "sketchup" ? "Capture from SketchUp" : "Upload a file"} title={host.kind === "sketchup" ? "Capture from SketchUp" : "Upload a file"} onClick={() => (host.kind === "sketchup" ? void captureFromSketchUp() : fileRef.current?.click())}>
               <Icon name={host.kind === "sketchup" ? "camera" : "image"} size={15} />
-              <span className="lbl-sm">{host.kind === "sketchup" ? "Capture from SketchUp" : "Upload"}</span>
+              <span className="lbl-sm">{host.kind === "sketchup" ? "Capture from SketchUp" : <><span className="desk-only">Upload</span><span className="touch-only">Photos</span></>}</span>
             </button>
           </div>
         </>
@@ -174,14 +176,15 @@ function Stage() {
             <Icon name="image" size={30} stroke={1.8} className="spin-slow" />
           </div>
           <h2>Drop, paste or capture your view</h2>
-          <p>
+          <p className="desk-only">
             Press <b className="kbd">Ctrl V</b> anywhere to paste a screenshot. SketchUp, CAD, a site photo or an iPad sketch all work.
           </p>
+          <p className="touch-only">Paste a screenshot or pick one from Photos. SketchUp, CAD, a site photo or an iPad sketch all work.</p>
           <div className="row">
             <button type="button" className="btn primary sheen" onClick={() => void pasteFromClipboard()}>
-              Paste from clipboard <span className="kbd" style={{ background: "color-mix(in srgb, var(--accent-ink) 14%, transparent)", color: "inherit" }}>Ctrl V</span>
+              Paste<span className="desk-only"> from clipboard</span> <span className="kbd desk-only" style={{ background: "color-mix(in srgb, var(--accent-ink) 14%, transparent)", color: "inherit" }}>Ctrl V</span>
             </button>
-            <button type="button" className="btn" onClick={() => fileRef.current?.click()}>Upload file</button>
+            <button type="button" className="btn" onClick={() => fileRef.current?.click()}><span className="desk-only">Upload file</span><span className="touch-only">Photos</span></button>
             {host.kind === "sketchup" ? (
               <button type="button" className="btn" onClick={() => void captureFromSketchUp()}>
                 <Icon name="camera" /> Capture from SketchUp
@@ -304,7 +307,7 @@ function RenderSide() {
         <AdditionalNotes />
         <Advanced />
       </div>
-      <div className="side-foot">
+      <Foot>
         <ModelPicker />
         {busy ? (
           <StopButton />
@@ -315,7 +318,7 @@ function RenderSide() {
             <span className="kbd">R</span>
           </button>
         )}
-      </div>
+      </Foot>
     </>
   );
 }
