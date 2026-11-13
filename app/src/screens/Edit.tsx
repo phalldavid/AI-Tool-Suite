@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { EditMode, Version } from "../store";
 import type { ImageData64 } from "../core/types";
-import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, effectiveLightScene, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
+import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
 import { toDataUrl } from "../core/images";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
@@ -19,7 +19,10 @@ import { SunDial, fmtHour } from "./SunDial";
 import { CameraControls, CameraPreview } from "./Camera";
 import { Progress } from "./Render";
 import { LightSceneSwitch } from "../ui/LightSceneSwitch";
-import { GLOBAL_PRESETS, MATERIALS, SURFACES, ZONE_GROUPS, appendLine, materialSentence } from "../lib/spot";
+import { GLOBAL_PRESETS, MATERIALS, PLANTS, SURFACES, ZONE_GROUPS, appendLine, materialSentence, removeLine } from "../lib/spot";
+import { AdditionalNotes } from "./Render";
+import { ModelPicker } from "../ui/ModelPicker";
+import { useRatio } from "../ui/useRatio";
 import { INTERIOR_RELIGHT } from "../core/prompt";
 
 let painter: ZonePainter | null = null;
@@ -222,7 +225,7 @@ function CompareStage({ v }: { v: Version }) {
   const drag = useRef(false);
   const a = useMemo(() => toDataUrl(after), [after]);
   const b = useMemo(() => (before ? toDataUrl(before) : ""), [before]);
-  const r = after.width && after.height ? after.width / after.height : 4 / 3;
+  const r = useRatio(after);
   const set = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setSplit(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
@@ -299,7 +302,7 @@ function PaintStage() {
     p.onChange = () => setState((s) => ({ paintRev: s.paintRev + 1 }));
     host.current.replaceChildren(surface);
   }, [img, p]);
-  const r = img?.width && img.height ? img.width / img.height : 4 / 3;
+  const r = useRatio(img);
   return (
     <div className="fit">
       <div ref={host} className="frame" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}` }} />
@@ -488,14 +491,25 @@ function SpotEditPanel() {
   const [material, setMaterial] = useState(MATERIALS[0]);
   const [ownMaterial, setOwnMaterial] = useState("");
   const [sizing, setSizing] = useState(false);
+  const [plant, setPlant] = useState("pothos");
   if (!p) return null;
   const refresh = () => bump((n) => n + 1);
   const tool = p.erase ? "eraser" : p.tool;
   const painted = p.paintedZones();
-  const cost = renderCost(s, s.backend === "kie" ? s.editModel || s.kieModel : s.kieModel);
+  const cost = renderCost(s, s.backend === "kie" ? editModelId() : s.kieModel);
   const promptOnly = s.backend === "browser" && !s.testMode;
   const active = ZONES.find((z) => z.id === p.active) ?? ZONES[0];
   const addToZone = (line: string) => setTexts((t) => ({ ...t, [active.id]: appendLine(t[active.id] ?? "", line) }));
+  /** Click once to add, again to take out. Adding one takes its opposite out (Add LED / Remove LED). */
+  const toggleAction = (a: { pair?: string }, line: string) =>
+    setTexts((t) => {
+      let v = t[active.id] ?? "";
+      if (v.includes(line)) return { ...t, [active.id]: removeLine(v, line) };
+      const opp = ZONE_GROUPS.flatMap((g) => g.actions).find((y) => y.id === a.pair);
+      if (opp) v = removeLine(v, opp.text);
+      if (opp?.id === "add-plants" || a.pair === "add-plants") for (const x of PLANTS) v = removeLine(v, x.text);
+      return { ...t, [active.id]: appendLine(v, line) };
+    });
   const globalText = [...GLOBAL_PRESETS.filter((g) => globalPicks.includes(g.id)).map((g) => g.text), ...(general.trim() ? [general.trim()] : [])].join(" ");
   const groupDef = ZONE_GROUPS.find((g) => g.id === group);
   return (
@@ -584,11 +598,38 @@ function SpotEditPanel() {
         </div>
         {groupDef ? (
           <div className="chips-row">
-            {groupDef.actions.map((a) => (
-              <button key={a.id} type="button" className="chip qchip" title={a.text} aria-pressed={(texts[active.id] ?? "").includes(a.text)} onClick={() => addToZone(a.text)}>
-                <Icon name={a.icon} size={13} /> {a.label}
-              </button>
-            ))}
+            {groupDef.actions.map((a) => {
+              const cur = texts[active.id] ?? "";
+              if (a.id === "add-plants") {
+                const on = PLANTS.find((x) => cur.includes(x.text));
+                return (
+                  <span key={a.id} className="chip split qchip" aria-pressed={Boolean(on)}>
+                    <button type="button" aria-pressed={Boolean(on)} title={(on ?? PLANTS.find((x) => x.id === plant))!.text} onClick={() => (on ? toggleAction(a, on.text) : toggleAction(a, PLANTS.find((x) => x.id === plant)!.text))}>
+                      <Icon name={on ? "check" : "plus"} size={13} /> Add
+                    </button>
+                    <select aria-label="Which plant" value={on?.id ?? plant} onChange={(e) => {
+                      const next = PLANTS.find((x) => x.id === e.target.value)!;
+                      setPlant(next.id);
+                      setTexts((t) => {
+                        let v = t[active.id] ?? "";
+                        for (const x of PLANTS) v = removeLine(v, x.text);
+                        const pair = groupDef.actions.find((y) => y.id === a.pair);
+                        if (pair) v = removeLine(v, pair.text);
+                        return { ...t, [active.id]: appendLine(v, next.text) };
+                      });
+                    }}>
+                      {PLANTS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                    </select>
+                  </span>
+                );
+              }
+              const on = a.id === "rm-plants" ? cur.includes(a.text) : cur.includes(a.text);
+              return (
+                <button key={a.id} type="button" className="chip qchip" title={on ? `${a.text}\n\nClick again to take it out.` : a.text} aria-pressed={on} onClick={() => toggleAction(a, a.text)}>
+                  <Icon name={on ? "check" : a.icon} size={13} /> {a.label}
+                </button>
+              );
+            })}
           </div>
         ) : (
           <div className="matrow">
@@ -627,6 +668,7 @@ function SpotEditPanel() {
         </button>
       </div>
       <p className="note" style={{ margin: 0 }}>{globalText ? "Global Edit changes the whole picture, so the result is not pasted back over the original." : "Everything outside your selection is pasted back from the original, so it stays exactly as it was."}</p>
+      <ModelPicker edit />
       <button type="button" className="cta sheen" disabled={Boolean(busy)} onClick={() => void runSpotEdit(p, texts, globalText).then(refresh)}>
         {promptOnly ? <><Icon name="clipboard" size={18} /> Get edit prompt + painted image</> : <>Apply edit · {cost.label}</>}
       </button>
@@ -649,14 +691,15 @@ const RELIGHT_INTERIOR: typeof RELIGHT = [
 ];
 
 function RelightPanel() {
-  useApp((s) => s.lightScene);
-  const interior = effectiveLightScene() === "interior";
+  useApp((s) => s.editScene);
+  useApp((s) => s.versions[s.activeVersion]);
+  const interior = editLightScene() === "interior";
   const cards = interior ? RELIGHT_INTERIOR : RELIGHT;
-  const [hour, setHour] = useState(() => getState().hour);
+  const [hour, setHour] = useState(() => getState().styleHour);
   const [card, setCard] = useState<string>("time");
   const busy = useApp((s) => s.busy);
   const s = useApp((x) => x.settings);
-  const cost = renderCost(s, s.backend === "kie" ? s.editModel || s.kieModel : s.kieModel);
+  const cost = renderCost(s, s.backend === "kie" ? editModelId() : s.kieModel);
   const id = card === "time" ? dialTimeId(hour) : card;
   const what = card === "time" ? fmtHour(hour) : cards.find((r) => r.id === card)?.label ?? RELIGHT.find((r) => r.id === card)?.label;
   return (
@@ -665,7 +708,7 @@ function RelightPanel() {
         <h2 style={{ fontSize: 22 }}>Relight</h2>
         <p className="sub">Same building and camera, new time of day.</p>
       </div>
-      <LightSceneSwitch info />
+      <LightSceneSwitch info edit />
       <section className="step cq">
         <div className="lightwrap">
           <div className="dialcol">
@@ -685,6 +728,7 @@ function RelightPanel() {
           </div>
         </div>
       </section>
+      <ModelPicker edit />
       <button type="button" className="cta sheen" disabled={Boolean(busy)} onClick={() => void runRelight(id)}>
         <Icon name="sun" size={18} /> Relight to {what} · {cost.label}
       </button>
@@ -700,7 +744,7 @@ function NewViewPanel() {
   const s = useApp((x) => x.settings);
   const lookIndex = useApp((x) => x.lookIndex);
   const look = useApp((x) => x.versions[x.lookIndex] ?? x.versions[0]);
-  const one = renderCost(s);
+  const one = renderCost(s, s.backend === "kie" ? editModelId() : s.kieModel);
   const n = source === "shot" ? shots.length : 1;
   const total = one.credits !== null && n > 1 ? `${one.credits * n} credits` : one.label;
   const promptOnly = s.backend === "browser" && !s.testMode;
@@ -748,12 +792,13 @@ function NewViewPanel() {
         </ol>
         {source === "camera" ? <CameraControls /> : null}
         <section className="field">
-          <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Lighting for</span>
-          <LightSceneSwitch info />
+          <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Scene</span>
+          <LightSceneSwitch info edit />
         </section>
-        <p className="note" style={{ margin: 0 }}>Additional Notes from the Render tab go on top of the prompt as the highest priority.</p>
+        <AdditionalNotes slot="view" />
       </div>
       <div className="side-foot">
+        <ModelPicker edit />
         <button type="button" className="cta sheen" disabled={Boolean(busy) || !look || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
           <Icon name="camera" size={18} />
           {promptOnly ? "Get prompt · free" : source === "shot" ? (n > 1 ? `Render ${n} views · ${total}` : `Render this view · ${total}`) : `Render new camera · ${one.label}`}
@@ -811,9 +856,9 @@ function StyleCopyPanel() {
   const activeIdx = useApp((s) => s.activeVersion);
   const light = useApp((s) => s.styleLight);
   const busy = useApp((s) => s.busy);
-  const hour = useApp((s) => s.hour);
+  const hour = useApp((s) => s.styleHour);
   const s = useApp((x) => x.settings);
-  const cost = renderCost(s);
+  const cost = renderCost(s, s.backend === "kie" ? editModelId() : s.kieModel);
   const promptOnly = s.backend === "browser" && !s.testMode;
   return (
     <>
@@ -827,8 +872,8 @@ function StyleCopyPanel() {
           <Slot title="Style reference" hint={ref ? undefined : "The photo whose materials, light and mood you want."} image={ref?.image} name={ref?.name} onClear={() => setState({ styleRef: null })} target="ref" />
         </ol>
         <section className="field">
-          <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Lighting for</span>
-          <LightSceneSwitch info />
+          <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Scene</span>
+          <LightSceneSwitch info edit />
         </section>
         <section className="field">
           <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Time of day and sun</span>
@@ -838,15 +883,16 @@ function StyleCopyPanel() {
           </div>
           {light === "dial" ? (
             <div className="dialcol" style={{ marginTop: 8 }}>
-              <SunDial hour={hour} onHour={(h) => setState({ hour: h, lighting: "time" })} />
+              <SunDial hour={hour} onHour={(h) => setState({ styleHour: h })} />
             </div>
           ) : (
             <small style={{ color: "var(--muted)" }}>The render copies the sun angle, time of day and sky of the reference photo.</small>
           )}
         </section>
-        <p className="note" style={{ margin: 0 }}>Additional Notes from the Render tab go on top of the prompt as the highest priority.</p>
+        <AdditionalNotes slot="style" />
       </div>
       <div className="side-foot">
+        <ModelPicker edit />
         <button type="button" className="cta sheen" disabled={Boolean(busy) || !ref || !base} onClick={() => void openReview("style")}>
           <Icon name="layers" size={18} />
           {promptOnly ? "Get prompt · free" : `Copy the style · ${cost.label}`}

@@ -1,7 +1,7 @@
 // Everything that changes state or talks to a backend. Screens call these.
 
 import { getState, setState } from "./store";
-import type { AppState, Version, VersionMeta } from "./store";
+import type { AppState, NotesSlot, Version, VersionMeta } from "./store";
 import { toast } from "./toasts";
 import { detectHost } from "./core/host";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SITES } from "./core/settings";
@@ -72,6 +72,9 @@ export async function init(): Promise<AppState> {
     shots: [],
     lookIndex: 0,
     lightScene: null,
+    editScene: null,
+    editNotes: { view: { notes: "", chips: [] }, style: { notes: "", chips: [] } },
+    styleHour: 16.5,
     styleRef: null,
     styleLight: "reference",
     fittings: loadFittings(),
@@ -177,7 +180,7 @@ export function clearBase(): void {
 
 /** Empties the Edit tab. Renders stay in History. */
 export function clearEdit(): void {
-  setState({ before: null, versions: [], activeVersion: 0, lookIndex: 0, shots: [], styleRef: null, editMode: "compare" });
+  setState({ before: null, versions: [], activeVersion: 0, lookIndex: 0, shots: [], styleRef: null, editMode: "compare", editScene: null });
 }
 
 /** A picture dropped or pasted on the Edit tab: a new view screenshot, or a render to edit. */
@@ -313,15 +316,39 @@ export function effectiveLightScene(): LightScene {
 }
 
 /** Additional Notes (chips + free text) on top of a prompt, as the highest priority. */
-export function withNotes(prompt: string): string {
-  return withOverride(prompt, currentNoteLines(), getState().notes);
+export function withNotes(prompt: string, slot?: NotesSlot): string {
+  const st = getState();
+  const n = slot ? st.editNotes[slot] : { notes: st.notes, chips: st.noteChips };
+  return withOverride(prompt, noteLines(n.chips, [...BUILT_IN_NOTES, ...loadCustomNotes()], st.glassColour), n.notes);
 }
 
-/** Sentences from the Additional Notes chips. */
+/** Sentences from the Render tab's Additional Notes chips. */
 export function currentNoteLines(): string[] {
   const st = getState();
   return noteLines(st.noteChips, [...BUILT_IN_NOTES, ...loadCustomNotes()], st.glassColour);
 }
+
+/** Interior or exterior for the Edit tab: its own switch, else the image's own render, else exterior. Never the Render tab. */
+export function editLightScene(): LightScene {
+  const st = getState();
+  if (st.editScene) return st.editScene;
+  const sc = st.versions[st.activeVersion]?.meta?.scene;
+  return sc === "interior" ? "interior" : "exterior";
+}
+
+/** Kie model for the Edit tab: its own pick, default the low-cost one. */
+export function editModelId(): string {
+  const s = getState().settings;
+  return s.editModel || "seedream/5-flash-image-to-image";
+}
+
+function modelLabel(id?: string): string {
+  const s = getState().settings;
+  return s.testMode ? "Test mode" : s.backend === "kie" ? findKieModel(id ?? s.kieModel).label : s.backend === "browser" ? "Prompt Copy" : s.backend === "gemini" ? "Gemini API" : "ComfyUI";
+}
+
+/** New views copy the light of the look source; the Render tab's sun is not used. */
+const VIEW_SUN = "the same sun direction, time of day and sky as the look source image";
 
 /** Where the sun is, in words tied to the building (for new views). */
 function sunForViews(): string {
@@ -340,9 +367,19 @@ function metaNow(): VersionMeta {
     look: st.preset.name,
     light: lightCaption().replace(/\.$/, ""),
     environment: env.length ? env.map(contextLabel).join(", ") : "As modelled",
-    model: s.testMode ? "Test mode" : s.backend === "kie" ? findKieModel(s.kieModel).label : s.backend === "browser" ? "Prompt Copy" : s.backend === "gemini" ? "Gemini API" : "ComfyUI",
+    model: modelLabel(s.kieModel),
     at: Date.now(),
   };
+}
+
+/** Summary for Edit tab results: only what was picked on the Edit tab. */
+function editMeta(extra: Partial<VersionMeta>): VersionMeta {
+  return { scene: editLightScene(), model: modelLabel(editModelId()), at: Date.now(), ...extra };
+}
+
+/** Style copy light from its own dial. */
+function styleDialWords(): string {
+  return (lightingText(dialTimeId(getState().styleHour)) ?? "").replace(/\.$/, "");
 }
 
 /** The sun as the Sun screen currently has it. */
@@ -380,10 +417,9 @@ export async function openReview(kind: "render" | "view" | "shots" | "style" = "
     const base = activeImage();
     if (!base) return void toast("Open or upload the SketchUp view first.", "warn");
     if (!st.styleRef) return void toast("Add the style reference photo: paste, drop or upload it.", "warn");
-    const fit = currentFittingsLine();
-    const prompt = withNotes(styleCopyPrompt({ scene: effectiveLightScene(), dialLight: st.styleLight === "dial" ? lightCaption().replace(/\.$/, "").toLowerCase() : null }).replace("\nStraight verticals", fit ? `\n- ${fit}\n\nStraight verticals` : "\nStraight verticals"));
-    const lint = lintPrompt(prompt);
     const size = await imageSize(base);
+    const prompt = withNotes(styleCopyPrompt({ scene: editLightScene(), dialLight: st.styleLight === "dial" ? styleDialWords().toLowerCase() : null, base: { width: size.width, height: size.height, ratio: nearestAspectRatio(size.width, size.height) } }), "style");
+    const lint = lintPrompt(prompt);
     setState({ review: { prompt: lint.prompt, lint, images: [base, st.styleRef.image], aspectRatio: nearestAspectRatio(size.width, size.height), kind } });
     return;
   }
@@ -396,11 +432,11 @@ export async function openReview(kind: "render" | "view" | "shots" | "style" = "
     const look = st.versions[st.lookIndex]?.image ?? activeImage();
     if (!look) return void toast("Open or upload a render first.", "warn");
     if (kind === "view") {
-      prompt = withNotes(cameraViewPrompt(cameraPromptLine(st.camera), sunForViews(), [], effectiveLightScene() === "interior"));
+      prompt = withNotes(cameraViewPrompt(cameraPromptLine(st.camera), VIEW_SUN, [], editLightScene() === "interior"), "view");
       images = [look];
     } else {
       if (!st.shots.length) return void toast("Paste, drop or upload a screenshot of the new view.", "warn");
-      prompt = withNotes(shotViewPrompt({ type: effectiveLightScene(), sun: sunForViews(), notes: [] }));
+      prompt = withNotes(shotViewPrompt({ type: editLightScene(), sun: VIEW_SUN, notes: [] }), "view");
       batch = st.shots.map((x) => [x.image, look]);
       images = batch[0];
     }
@@ -441,18 +477,21 @@ export async function confirmReview(prompt: string): Promise<void> {
     for (let i = 0; i < sets.length; i++) {
       const set = sets[i];
       const size = await imageSize(set[0]);
-      const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, undefined, sets.length > 1 ? `View ${i + 1} of ${sets.length}` : undefined);
-      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta, before: set[0], historyId: await record(tool, prompt, set[0], img) });
+      const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, kieEdit(), sets.length > 1 ? `View ${i + 1} of ${sets.length}` : "Rendering the new view");
+      const src = st.versions[st.lookIndex];
+      const vm = editMeta({ look: `Same as ${src ? `${src.kind === "view" ? "View" : "v"}${st.lookIndex + 1}` : "the look source"}`, light: "From the look source" });
+      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta: vm, before: set[0], historyId: await record(tool, prompt, set[0], img) });
     }
     if (!made.length) return;
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, shots: r.kind === "shots" ? [] : x.shots, editMode: "compare" }));
     return;
   }
   if (r.kind === "style") {
-    const out = await runProvider(prompt, r.images, r.aspectRatio, undefined, "Copying the style");
+    const out = await runProvider(prompt, r.images, r.aspectRatio, kieEdit(), "Copying the style");
     if (!out.length) return;
     const made: Version[] = [];
-    for (const img of out) made.push({ image: img, label: "Style copy", prompt, kind: "version", before: r.images[0], meta: { ...meta, look: `Reference: ${st.styleRef?.name ?? "photo"}`, light: st.styleLight === "dial" ? meta.light : "From the reference photo" }, historyId: await record(tool, prompt, r.images[0], img) });
+    const sm = editMeta({ look: `Reference: ${st.styleRef?.name ?? "photo"}`, light: st.styleLight === "dial" ? styleDialWords().replace(/^./, (c) => c.toUpperCase()) : "From the reference photo" });
+    for (const img of out) made.push({ image: img, label: "Style copy", prompt, kind: "version", before: r.images[0], meta: sm, historyId: await record(tool, prompt, r.images[0], img) });
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, editMode: "compare" }));
     return;
   }
@@ -463,6 +502,11 @@ export async function confirmReview(prompt: string): Promise<void> {
   for (const img of out) versions.push({ image: img, label: "Render", prompt, kind: "version", meta, historyId: await record(tool, prompt, before ?? img, img) });
   setState({ before, versions, activeVersion: 0, lookIndex: 0, tab: "edit", editMode: "compare" });
   void updateSettings({ lastSetup: { ...s.lastSetup, [st.preset.projectType]: { preset: st.preset, kieModel: s.kieModel, frameId: st.frameId } } });
+}
+
+/** The Edit tab's model, for Kie only. */
+function kieEdit(): string | undefined {
+  return getState().settings.backend === "kie" ? editModelId() : undefined;
 }
 
 let abort: AbortController | null = null;
@@ -500,6 +544,24 @@ async function runProvider(prompt: string, images: ImageData64[], aspectRatio: s
   } finally {
     abort = null;
     setState({ busy: null });
+    // Credits were spent (or a job failed after charging): refresh the balance shown in the header.
+    if (settings.backend === "kie" && !settings.testMode) {
+      void refreshCredits();
+      window.setTimeout(() => void refreshCredits(), 8000);
+    }
+  }
+}
+
+/** Reads the Kie balance again without touching the key status. */
+export async function refreshCredits(): Promise<void> {
+  const { settings: s, host } = getState();
+  if (s.backend !== "kie" || s.testMode || !s.kieKey.trim()) return;
+  try {
+    const p = new KieProvider(s.kieKey.trim(), s.kieModel, s.kieResolution, host.kind === "sketchup" ? hostTransport(host) : fetchTransport);
+    const credits = await p.balance();
+    if (typeof credits === "number") setState({ kieCredits: credits });
+  } catch {
+    /* keep the last number */
   }
 }
 
@@ -660,14 +722,14 @@ export async function runSpotEdit(painter: ZonePainter, instructions: Record<str
   const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: painter.canvases[z.id], colour: z.css }))) : src;
   const images = !zones.length ? [src] : s.singleImage ? [overlay] : [src, overlay];
   const size = await imageSize(src);
-  const out = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height), s.backend === "kie" ? s.editModel || undefined : undefined);
+  const out = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height), kieEdit());
   if (!out.length) return;
   const fitted = await resizeTo(out[0], size.width, size.height);
   // A plain zone edit is pasted back over the original, so nothing outside the selection changes.
   const merged = general.trim() || !zones.length ? fitted : await compositeMasked(src, fitted, painter.union());
   const id = await record("spot-edit", prompt, src, merged);
   painter.clearAll();
-  setState((x) => ({ versions: [...x.versions, { image: merged, label: "Spot edit", prompt, kind: "version", meta: x.versions[x.activeVersion]?.meta, historyId: id }], activeVersion: x.versions.length }));
+  setState((x) => ({ versions: [...x.versions, { image: merged, label: "Spot edit", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? {}), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
 
 /** lightId: a light card id, or a dial time from dialTimeId(). */
@@ -675,7 +737,7 @@ export async function runRelight(lightId: string): Promise<void> {
   const src = activeImage();
   if (!src) return;
   const light = relightText(lightId, getState().capture?.facts) ?? lightingText(lightId) ?? lightId;
-  const prompt = `Change only the lighting and sky of this image to: ${light}. ${lightingGuidance(effectiveLightScene())} ${currentFittingsLine() ? `${currentFittingsLine()} ` : ""}Shadows and reflections must match the new light. Keep every building, material, object and the camera exactly as they are. The result must look like a real photograph.`;
+  const prompt = `Change only the lighting and sky of this image to: ${light}. ${lightingGuidance(editLightScene())} Shadows and reflections must match the new light. Keep every building, material, object and the camera exactly as they are. The result must look like a real photograph.`;
   const size = await imageSize(src);
   const s = getState().settings;
   if (s.backend === "browser" && !s.testMode) {
@@ -683,10 +745,10 @@ export async function runRelight(lightId: string): Promise<void> {
     setState({ handoff: { prompt, images: [src], before: src, kind: "edit", names: ["Image"] } });
     return;
   }
-  const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), s.backend === "kie" ? s.editModel || undefined : undefined);
+  const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), kieEdit());
   if (!out.length) return;
   const id = await record("lighting", prompt, src, out[0]);
-  setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), light: light.replace(/^./, (ch) => ch.toUpperCase()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+  setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), scene: editLightScene(), light: light.replace(/^./, (ch) => ch.toUpperCase()), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
 
 export function openHistoryItem(item: HistoryItem): void {

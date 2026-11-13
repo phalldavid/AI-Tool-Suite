@@ -5,9 +5,11 @@ import { checkKey, init, updateSettings } from "./actions";
 import { applyPrefs, getPrefs, watchPrefs } from "./prefs";
 import { startTranslating } from "./lib/i18n";
 import { initSlidingPills } from "./ui/slide";
+import { initGuard } from "./ui/guard";
 
 applyPrefs();
 watchPrefs();
+initGuard();
 
 void (async () => {
   const state = await init();

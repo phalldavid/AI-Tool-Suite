@@ -22,9 +22,9 @@ function DeveloperSection() {
       <h2 style={{ fontSize: 16 }}>Developer</h2>
       {dev ? (
         <>
-          <p className="note" style={{ margin: 0 }}>Developer mode is on: "Pictures" appears in Browse all for looks and environments, to make card pictures from contact sheets.</p>
+          <p className="note" style={{ margin: 0 }}>Developer mode is on: "Pictures" appears in Browse all for looks and environments, to make card pictures from contact sheets. Test mode appears in the model list and How renders are made.</p>
           <div>
-            <button type="button" className="btn ghost" onClick={() => setDev(false)}>Turn off developer mode</button>
+            <button type="button" className="btn ghost" onClick={() => { setDev(false); if (getState().settings.testMode) void updateSettings({ testMode: false }); }}>Turn off developer mode</button>
           </div>
         </>
       ) : (
@@ -61,6 +61,7 @@ export function SettingsSheet() {
   const [show, setShow] = useState(false);
   const close = () => setState({ dialog: null });
   const current = s.testMode ? "test" : s.backend;
+  const dev = useDev();
   const st = backendStatus(s, check);
   const model = findKieModel(s.kieModel);
   const pick = (id: string) => {
@@ -79,7 +80,7 @@ export function SettingsSheet() {
             </span>
           </div>
           <div style={{ display: "grid", gap: 8 }}>
-            {BACKENDS.map((b) => (
+            {BACKENDS.filter((b) => b.id !== "test" || dev || s.testMode).map((b) => (
               <button key={b.id} type="button" className="fontopt" role="radio" aria-checked={current === b.id} onClick={() => pick(b.id)} style={{ alignItems: "flex-start", flexDirection: "column", gap: 2 }}>
                 <b style={{ color: "var(--text)" }}>{b.label}</b>
                 <small style={{ color: "var(--muted)" }}>{b.sub}</small>

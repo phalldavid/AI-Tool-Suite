@@ -11,6 +11,8 @@ import type { LintResult } from "./lib/lint";
 
 export type Tab = "render" | "edit" | "history" | "sun";
 
+export type NotesSlot = "view" | "style";
+
 export type EditMode = "compare" | "spot" | "relight" | "view" | "style";
 
 export interface SunState {
@@ -100,6 +102,12 @@ export interface AppState {
   lookIndex: number;
   /** Interior or exterior lighting; null follows the Scene chips. */
   lightScene: "interior" | "exterior" | null;
+  /** Edit tab's own Interior / Exterior switch; null = from the image's render, else exterior. */
+  editScene: "interior" | "exterior" | null;
+  /** Additional Notes for Multi-View and Style copy, kept apart from the Render tab's. */
+  editNotes: Record<NotesSlot, { notes: string; chips: string[] }>;
+  /** Style copy "My sun dial" time, separate from the Render tab's dial. */
+  styleHour: number;
   /** Style Copy: the reference photo, and where its light comes from. */
   styleRef: Shot | null;
   styleLight: "reference" | "dial";

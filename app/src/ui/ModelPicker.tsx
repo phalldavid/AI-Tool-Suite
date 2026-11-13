@@ -3,7 +3,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { setState, useApp } from "../store";
-import { updateSettings } from "../actions";
+import { editModelId, updateSettings } from "../actions";
+import { useDev } from "../lib/dev";
 import { KIE_MODELS, creditsFor, priceText, findKieModel } from "../core/providers/kie-models";
 import type { KieFamilyId, KieModel } from "../core/providers/kie-models";
 import { modelLogo } from "../core/model-logos";
@@ -24,6 +25,7 @@ export const MODEL_GROUPS: { id: string; label: string; ids: string[] }[] = [
 function capsFor(m: KieModel): string[] {
   const caps: string[] = [];
   if (m.id === "nano-banana-2-1") caps.push("Default");
+  if (m.id === "seedream/5-flash-image-to-image") caps.push("Lowest cost");
   if (m.resolutions.includes("4K")) caps.push("4K");
   else caps.push(`Up to ${m.resolutions.includes("2K") ? "2K" : "1K"}`);
   if (m.textId) caps.push("No image needed");
@@ -40,8 +42,10 @@ function Logo({ family, size = 32 }: { family: KieFamilyId; size?: number }) {
   );
 }
 
-export function ModelPicker() {
+/** edit: picks the Edit tab's model (default the low-cost one), not the Render tab's. */
+export function ModelPicker({ edit }: { edit?: boolean }) {
   const s = useApp((x) => x.settings);
+  const dev = useDev();
   const [open, setOpen] = useState(false);
   const [shut, setShut] = useState<string[]>([]);
   const box = useRef<HTMLDivElement>(null);
@@ -67,7 +71,8 @@ export function ModelPicker() {
   }, [open]);
 
   const kie = s.backend === "kie" && !s.testMode;
-  const m = findKieModel(s.kieModel);
+  const modelId = edit ? editModelId() : s.kieModel;
+  const m = findKieModel(modelId);
   const current = s.testMode ? "Test mode" : kie ? m.label : s.backend === "browser" ? "Prompt Copy" : s.backend === "gemini" ? "Gemini API" : "ComfyUI";
   const sub = s.testMode ? "No AI, free" : kie ? `${s.kieResolution} · ${creditsFor(m, s.kieResolution) ?? "?"} credits` : s.backend === "browser" ? "Free, paste into Gemini or ChatGPT" : "";
 
@@ -77,7 +82,7 @@ export function ModelPicker() {
   };
   const pickKie = (id: string) =>
     pick(async () => {
-      await updateSettings({ backend: "kie", testMode: false, kieModel: id });
+      await updateSettings(edit ? { backend: "kie", testMode: false, editModel: id } : { backend: "kie", testMode: false, kieModel: id });
       if (!s.kieKey.trim()) {
         toast("Add your Kie.ai key in Settings to render with this model.", "warn", { label: "Settings", run: () => setState({ dialog: "settings" }) });
       }
@@ -115,7 +120,7 @@ export function ModelPicker() {
                 {closed
                   ? null
                   : list.map((x) => {
-                      const on = kie && x.id === s.kieModel;
+                      const on = kie && x.id === modelId;
                       const cr = creditsFor(x, s.kieResolution);
                       return (
                         <button key={x.id} type="button" role="option" aria-selected={on} className="mp-item" onClick={pickKie(x.id)}>
@@ -145,13 +150,15 @@ export function ModelPicker() {
               <small>Get the prompt, render in Gemini or ChatGPT yourself</small>
             </span>
           </button>
-          <button type="button" role="option" aria-selected={s.testMode} className="mp-item" onClick={pick(() => updateSettings({ testMode: true }))}>
-            <span className="mp-logo plain"><Icon name="cube" size={16} /></span>
-            <span className="mp-text">
-              <span className="mp-name">Test mode</span>
-              <small>Sample image, no AI, nothing spent</small>
-            </span>
-          </button>
+          {dev || s.testMode ? (
+            <button type="button" role="option" aria-selected={s.testMode} className="mp-item" onClick={pick(() => updateSettings({ testMode: true }))}>
+              <span className="mp-logo plain"><Icon name="cube" size={16} /></span>
+              <span className="mp-text">
+                <span className="mp-name">Test mode<em>Developer</em></span>
+                <small>Sample image after about 12 s, no AI, nothing spent</small>
+              </span>
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

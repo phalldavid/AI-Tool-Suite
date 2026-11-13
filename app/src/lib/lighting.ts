@@ -38,6 +38,13 @@ export interface StyleCopyInput {
   scene: LightScene;
   /** null = copy the light from the reference photo. */
   dialLight: string | null;
+  /** Image 1's shape, so the output keeps its orientation even when Image 2's differs. */
+  base?: { width: number; height: number; ratio: string };
+}
+
+function orientation(w: number, h: number): string {
+  const r = w / h;
+  return r > 1.05 ? "landscape (wider than tall)" : r < 0.95 ? "portrait (taller than wide)" : "square";
 }
 
 export function styleCopyPrompt(p: StyleCopyInput): string {
@@ -56,6 +63,9 @@ export function styleCopyPrompt(p: StyleCopyInput): string {
       ? "- The exact room geometry, wall, floor and ceiling positions, openings, stairs, built-in joinery and furniture positions, and spatial layout."
       : "- The exact architectural geometry, massing, rooflines, building proportions, window and door openings, stairs and site layout.",
     "- The exact camera angle, focal length, perspective and framing.",
+    p.base
+      ? `- Output format: the result must have exactly the same orientation and aspect ratio as Image 1: ${orientation(p.base.width, p.base.height)}, ${p.base.ratio}. Ignore the orientation and aspect ratio of Image 2 completely, even if it is ${orientation(p.base.height, p.base.width).split(" (")[0]}. Do not crop, rotate, pad or re-frame Image 1.`
+      : "- Output format: keep the orientation and aspect ratio of Image 1, never those of Image 2. Do not crop, rotate or re-frame Image 1.",
     "- Do not copy the building shape, layout or architecture of Image 2. Take only its style, materials and mood.",
     "",
     "Transfer from Image 2:",
@@ -70,7 +80,7 @@ export function styleCopyPrompt(p: StyleCopyInput): string {
     "- Camera feel and colour grading: match the lens feel, depth of field, contrast and colour grading of Image 2, while keeping the camera position and framing of Image 1.",
     "",
     "Straight verticals, no lens distortion. No text, no watermark, no CGI look.",
-    "Priority if anything conflicts: geometry of Image 1 > camera of Image 1 > style of Image 2.",
+    "Priority if anything conflicts: geometry of Image 1 > camera and orientation of Image 1 > style of Image 2.",
   ];
   return lines.join("\n");
 }
