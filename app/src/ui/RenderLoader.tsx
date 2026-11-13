@@ -6,7 +6,8 @@ import { getState, useApp } from "../store";
 import type { ImageData64 } from "../core/types";
 import { toDataUrl } from "../core/images";
 import { isLight, reducedMotion, usePrefs } from "../prefs";
-import { LoaderEngine, STATUS_WORDS, loadImage } from "./loader/engine";
+import { LoaderEngine, loadImage } from "./loader/engine";
+import { FINISHING, slangLines, useSlang } from "../lib/slang";
 import type { LoaderStyle } from "./loader/engine";
 import { registerLoader } from "./loader/bus";
 import { makeDemo } from "./loader/demo";
@@ -14,12 +15,13 @@ import { Icon } from "./Icon";
 
 function useEngineOptions(style?: LoaderStyle) {
   const p = usePrefs();
+  const words = slangLines(useSlang());
   return {
     style: style ?? p.loader,
     light: isLight(p),
     reduced: reducedMotion(),
     gatherSec: p.loaderGather,
-    words: STATUS_WORDS,
+    words,
     lang: p.lang,
   };
 }
@@ -54,7 +56,7 @@ export function RenderLoader({ under, holdResult }: { under?: ImageData64 | null
   useEffect(() => {
     eng.current?.setOptions({ style: opts.style, light: opts.light, reduced: opts.reduced, gatherSec: opts.gatherSec, words: opts.words });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang]);
+  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang, opts.words.join("|")]);
 
   useEffect(() => {
     let live = true;
@@ -133,14 +135,15 @@ export function ThinkingDots({ size = 20 }: { size?: number }) {
 
 /** One slang line after another while a render runs, starting somewhere random. */
 function useStatusWord(on: boolean): string {
-  const [i, setI] = useState(() => Math.floor(Math.random() * STATUS_WORDS.length));
+  const list = slangLines(useSlang());
+  const [i, setI] = useState(() => Math.floor(Math.random() * list.length));
   useEffect(() => {
     if (!on) return;
-    setI(Math.floor(Math.random() * STATUS_WORDS.length));
-    const id = window.setInterval(() => setI((x) => (x + 1) % STATUS_WORDS.length), 2600);
+    setI(Math.floor(Math.random() * 1000));
+    const id = window.setInterval(() => setI((x) => x + 1), 2600);
     return () => window.clearInterval(id);
   }, [on]);
-  return STATUS_WORDS[i];
+  return list[i % list.length] ?? "";
 }
 
 /** The status line on the stage: three dots, a rotating slang line, and Stop. */
@@ -155,9 +158,9 @@ export function LoaderStatus() {
   return (
     <div className="busy-chip" role="status" aria-live="polite">
       <ThinkingDots />
-      <span className="sr-only">{busy.revealing ? "Finishing up" : busy.label}</span>
+      <span className="sr-only">{busy.revealing ? FINISHING : busy.label}</span>
       {busy.revealing ? (
-        <span className="shimmer" aria-hidden="true">Finishing up</span>
+        <span className="shimmer" aria-hidden="true" data-no-translate>{FINISHING}</span>
       ) : (
         <span className="shimmer sw" key={word} aria-hidden="true" data-no-translate>
           {word}
@@ -179,7 +182,7 @@ export function StopButton() {
   return (
     <button type="button" className="cta stop" disabled={revealing} onClick={() => void import("../actions").then((a) => a.cancelRender())}>
       {revealing ? <ThinkingDots size={18} /> : <span className="stop-sq" aria-hidden="true" />}
-      {revealing ? "Finishing up" : "Stop"}
+      {revealing ? <span data-no-translate>{FINISHING}</span> : "Stop"}
     </button>
   );
 }
@@ -222,6 +225,6 @@ export function LoaderPreview({ style }: { style: LoaderStyle }) {
   useEffect(() => {
     eng.current?.setOptions({ style: opts.style, light: opts.light, reduced: opts.reduced, gatherSec: opts.gatherSec, words: opts.words });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang]);
+  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang, opts.words.join("|")]);
   return <div ref={box} className="rl rl-preview" aria-hidden="true" />;
 }

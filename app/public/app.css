@@ -795,3 +795,5 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 @keyframes swin { from { opacity: 0; transform: translateY(6px); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
 .busy-chip .shimmer.sw { display: inline-block; }
 @media (prefers-reduced-motion: reduce) { .shimmer.sw { animation: none; color: inherit; -webkit-text-fill-color: currentColor; } }
+.slang-list { margin: 0; padding: 10px 12px 10px 28px; border-radius: 12px; background: var(--well); columns: 2; column-gap: 20px; font-size: 13px; color: var(--soft); }
+.slang-list li { break-inside: avoid; padding: 2px 0; }
