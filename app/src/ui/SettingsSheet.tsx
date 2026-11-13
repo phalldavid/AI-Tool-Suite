@@ -14,6 +14,10 @@ import { startTour } from "./Tour";
 import { setPrefs, usePrefs } from "../prefs";
 import { HELP_VIDEOS } from "../lib/help";
 import { toast } from "../toasts";
+import { useViewport } from "../layout";
+import { CustomiseBody } from "./Customise";
+import { FINISHING, setSlang, slangLines, useSlang } from "../lib/slang";
+import { STATUS_WORDS } from "./loader/engine";
 
 /** How long the loader's specks take to gather into the orb once the image arrives. */
 function LoaderGatherSlider() {
@@ -27,6 +31,38 @@ function LoaderGatherSlider() {
   );
 }
 
+/** Developer: your own status lines for the loader, one per line. */
+function SlangEditor() {
+  const sl = useSlang();
+  const [text, setText] = useState(() => sl.mine.join("\n"));
+  const [open, setOpen] = useState(false);
+  const save = () => setSlang({ mine: text.split("\n") });
+  const dirty = text.split("\n").map((x) => x.trim()).filter(Boolean).join("\n") !== sl.mine.join("\n");
+  return (
+    <div className="field" style={{ gap: 8 }}>
+      <label htmlFor="slang" style={{ fontWeight: 600 }}>Loader status lines</label>
+      <small style={{ color: "var(--muted)" }}>Your own lines, one per line. They rotate with the built-in ones while a render runs, shown exactly as typed.</small>
+      <textarea id="slang" className="input" rows={5} value={text} placeholder={"jol team ort?\ntmr jos site"} onChange={(e) => setText(e.target.value)} onBlur={save} data-no-translate />
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" className="btn primary" disabled={!dirty} onClick={() => { save(); toast("Status lines saved", "ok"); }}>Save lines</button>
+        <label className="tour-never" style={{ margin: 0 }}>
+          <input type="checkbox" checked={sl.hideBuiltIn} disabled={!sl.mine.length} onChange={(e) => setSlang({ hideBuiltIn: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
+          Only use my lines
+        </label>
+        <button type="button" className="linkish" style={{ marginLeft: "auto" }} aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "Hide" : "See"} the {STATUS_WORDS.length} built-in lines
+        </button>
+      </div>
+      {open ? (
+        <ul className="slang-list" data-no-translate>
+          {STATUS_WORDS.map((w) => <li key={w}>{w}</li>)}
+        </ul>
+      ) : null}
+      <small style={{ color: "var(--muted)" }}>In rotation now: {slangLines(sl).length} lines. While the result appears: “{FINISHING}”.</small>
+    </div>
+  );
+}
+
 function DeveloperSection() {
   const dev = useDev();
   const [word, setWord] = useState("");
@@ -37,6 +73,7 @@ function DeveloperSection() {
         <>
           <p className="note" style={{ margin: 0 }}>Developer mode is on: "Pictures" appears in Browse all for looks and environments, to make card pictures from contact sheets. Test mode appears in the model list and How renders are made.</p>
           <LoaderGatherSlider />
+          <SlangEditor />
           <div>
             <button type="button" className="btn ghost" onClick={() => { setDev(false); if (getState().settings.testMode) void updateSettings({ testMode: false }); }}>Turn off developer mode</button>
           </div>
@@ -78,13 +115,30 @@ export function SettingsSheet() {
   const dev = useDev();
   const st = backendStatus(s, check);
   const model = findKieModel(s.kieModel);
+  const phone = useViewport().phone;
+  const [pane, setPane] = useState<"mode" | "custom" | "help">("mode");
+  /** Phones show one of three panes; desktop shows everything (Customise has its own popover). */
+  const on = (x: "mode" | "custom" | "help") => (phone ? pane === x : x !== "custom");
   const pick = (id: string) => {
     if (id === "test") void updateSettings({ testMode: true });
     else void updateSettings({ testMode: false, backend: id as Settings["backend"] });
   };
   return (
     <Sheet open={open} onClose={close} title="Settings" labelledBy="settings-title">
-      <div className="sheet-body thin">
+      {phone ? (
+        <div className="set-tabs">
+          <div className="tabs3" role="tablist" aria-label="Settings">
+            {([["mode", "Mode"], ["custom", "Customize"], ["help", "Help"]] as const).map(([id, l]) => (
+              <button key={id} type="button" role="tab" aria-selected={pane === id} aria-checked={pane === id} onClick={() => setPane(id)}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className="sheet-body thin" key={phone ? pane : "all"}>
+        {on("custom") ? <CustomiseBody phone /> : null}
+        {on("mode") ? <>
         <section className="step">
           <div className="step-head">
             <h2>How renders are made</h2>
@@ -232,7 +286,8 @@ export function SettingsSheet() {
           </div>
         </section>
 
-        <section className="step">
+        </> : null}
+        {on("help") ? <section className="step">
           <h2 style={{ fontSize: 16 }}>Help</h2>
           <div>
             <button type="button" className="btn" onClick={() => startTour(true)}>
@@ -252,9 +307,9 @@ export function SettingsSheet() {
               </a>
             ))}
           </div>
-        </section>
+        </section> : null}
 
-        <DeveloperSection />
+        {on("mode") ? <DeveloperSection /> : null}
       </div>
       <div className="sheet-foot">
         <small style={{ color: "var(--muted)" }}>v{getState().host.kind === "sketchup" ? "2 · SketchUp" : "2 beta"} · settings saved automatically</small>

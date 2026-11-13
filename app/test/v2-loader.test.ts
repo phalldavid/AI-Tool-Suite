@@ -37,8 +37,10 @@ test("loader: every label, hint, status word and busy line has Khmer", () => {
     assert.ok(KM[s.label], s.label);
     assert.ok(KM[s.hint], s.hint);
   }
-  for (const w of STATUS_WORDS) assert.ok(KM[w], w);
-  for (const w of ["Creating your image", "Creating the new view", "Copying the style", "Finishing up", "Stop", "Loading animation", "Orb gather time"]) assert.ok(KM[w], w);
+  // The slang status lines are written the way people type them and are never translated.
+  assert.ok(STATUS_WORDS.length >= 10);
+  for (const w of STATUS_WORDS) assert.ok(!KM[w], w);
+  for (const w of ["Creating your image", "Creating the new view", "Copying the style", "Stop", "Loading animation", "Orb gather time"]) assert.ok(KM[w], w);
   assert.equal(translate("Creating 3 images"), "កំពុងបង្កើតរូបភាព 3");
   assert.equal(translate("Creating view 2 of 4"), "កំពុងបង្កើតទិដ្ឋភាព 2 នៃ 4");
 });
@@ -46,4 +48,11 @@ test("loader: every label, hint, status word and busy line has Khmer", () => {
 test("loader: the default style is the orb, and it is listed first", () => {
   assert.equal(LOADER_STYLES[0].id, "orb");
   assert.equal(new Set(LOADER_STYLES.map((s) => s.id)).size, LOADER_STYLES.length);
+});
+
+test("own status lines join the built-in ones; hiding built-ins needs lines of your own", async () => {
+  const { slangLines } = await import("../src/lib/slang");
+  assert.equal(slangLines({ mine: [], hideBuiltIn: true }).length, STATUS_WORDS.length);
+  assert.deepEqual(slangLines({ mine: ["jol team ort?", "new one"], hideBuiltIn: false }).slice(-1), ["new one"]);
+  assert.deepEqual(slangLines({ mine: ["new one"], hideBuiltIn: true }), ["new one"]);
 });

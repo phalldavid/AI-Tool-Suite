@@ -109,9 +109,17 @@ export function Tour() {
 
   useLayoutEffect(() => {
     if (!s?.target) return setRect(null);
-    const el = document.querySelector<HTMLElement>(`[data-tour="${s.target}"]`);
+    const phone = window.innerWidth < 700;
+    // The first visible match (a phone and a desktop copy can both exist); things tucked away
+    // on phones (language, Customise) point at Settings instead.
+    const shown = (x: HTMLElement) => x.getClientRects().length > 0 && x.getBoundingClientRect().width > 0;
+    const el = [...document.querySelectorAll<HTMLElement>(`[data-tour="${s.target}"]`)].find(shown) ?? (phone ? [...document.querySelectorAll<HTMLElement>('[data-tour="settings"]')].find(shown) : undefined);
     if (!el) return setRect(null);
-    el.scrollIntoView({ block: "nearest", behavior: "auto" });
+    if (phone) {
+      // Keep the target in the top part of the screen, above the tour panel.
+      const r = el.getBoundingClientRect();
+      if (r.bottom > window.innerHeight * 0.5 || r.top < 0) window.scrollBy({ top: r.top - window.innerHeight * 0.18, behavior: "auto" });
+    } else el.scrollIntoView({ block: "nearest", behavior: "auto" });
     const measure = () => setRect(el.getBoundingClientRect());
     measure();
     const id = window.setTimeout(measure, 120);
@@ -152,7 +160,7 @@ export function Tour() {
               <small>អង់គ្លេស</small>
             </button>
           </div>
-          <small style={{ color: "var(--muted)" }}>ប្ដូរបានពេលក្រោយនៅជាប់ប៊ូតុងថ្ងៃ/យប់ · You can switch any time next to the Day/Night button</small>
+          <small style={{ color: "var(--muted)" }}>{window.innerWidth < 700 ? "ប្ដូរបានពេលក្រោយនៅក្នុងការកំណត់ · You can switch any time in Settings" : "ប្ដូរបានពេលក្រោយនៅជាប់ប៊ូតុងថ្ងៃ/យប់ · You can switch any time next to the Day/Night button"}</small>
         </div>
       </div>
     );
@@ -167,12 +175,13 @@ export function Tour() {
   // Card next to the spotlight: to the left of things on the right, else below or above.
   const pad = 10;
   const W = 360;
-  let style: React.CSSProperties = { left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
-  if (rect) {
+  const phone = window.innerWidth < 700;
+  let style: React.CSSProperties = { left: "max(16px, calc(50% - 180px))", top: "max(16px, calc(50% - 160px))" };
+  if (phone) style = {};
+  else if (rect) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    if (vw < 700) style = { left: 12, right: 12, bottom: 12 };
-    else if (rect.left > vw / 2 && rect.left - W - 24 > 0) style = { left: rect.left - W - 24, top: Math.min(Math.max(16, rect.top), vh - 300) };
+    if (rect.left > vw / 2 && rect.left - W - 24 > 0) style = { left: rect.left - W - 24, top: Math.min(Math.max(16, rect.top), vh - 300) };
     else if (rect.bottom + 260 < vh) style = { left: Math.min(Math.max(16, rect.left), vw - W - 16), top: rect.bottom + 16 };
     else style = { left: Math.min(Math.max(16, rect.left), vw - W - 16), top: Math.max(16, rect.top - 280) };
   }
@@ -183,7 +192,8 @@ export function Tour() {
       ) : (
         <div className="tour-dim" />
       )}
-      <div className="tour-card rise" style={{ ...style, width: style.right !== undefined ? undefined : W }} key={step}>
+      <div className={`tour-card ${phone ? "m-sheet" : "rise"}`} style={phone ? undefined : { ...style, width: W }} key={step}>
+        {phone ? <div className="sheet-grab" aria-hidden="true"><span /></div> : null}
         <div className="tour-top">
           <span className="num">{km ? `ជំហាន ${step + 1} នៃ ${STEPS.length}` : `Step ${step + 1} of ${STEPS.length}`}</span>
           <div className="tour-dots" aria-hidden="true">

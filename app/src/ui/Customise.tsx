@@ -4,11 +4,9 @@ import { Icon } from "./Icon";
 import { LoaderPreview } from "./RenderLoader";
 import { LOADER_STYLES } from "./loader/engine";
 
-export function Customise() {
-  const open = useApp((s) => s.customiseOpen);
+/** Everything in Customise: on desktop in its popover, on phones in Settings → Customize. */
+export function CustomiseBody({ phone }: { phone?: boolean }) {
   const p = usePrefs();
-  if (!open) return null;
-  const close = () => setState({ customiseOpen: false });
   const seg = <T extends string>(label: string, value: T, opts: [T, string][], set: (v: T) => void, cls = "tabs3") => (
     <section className="step" style={{ gap: 8 }}>
       <h3>{label}</h3>
@@ -23,22 +21,8 @@ export function Customise() {
   );
   return (
     <>
-      <div className="scrim" onClick={close} />
-      <div
-        className="popover rise thin"
-        role="dialog"
-        aria-label="Customise"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") close();
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <h2 style={{ fontSize: 18 }}>Customise</h2>
-          <button type="button" className="icon-btn" style={{ marginLeft: "auto", width: 32, height: 32 }} aria-label="Close" onClick={close}>
-            <Icon name="close" size={14} />
-          </button>
-        </div>
-        {seg("Theme", p.theme, [["dark", "Night"], ["light", "Day"], ["auto", "Auto"]], (theme) => setPrefs({ theme }))}
+        {phone ? seg("Language", p.lang, [["km", "ខ្មែរ"], ["en", "English"]], (lang) => setPrefs({ lang }), "tabs2") : null}
+        {phone ? null : seg("Theme", p.theme, [["dark", "Night"], ["light", "Day"], ["auto", "Auto"]], (theme) => setPrefs({ theme }))}
         <section className="step" style={{ gap: 8 }}>
           <h3>Accent</h3>
           <div className="swatches" role="radiogroup" aria-label="Accent colour">
@@ -58,7 +42,7 @@ export function Customise() {
             ))}
           </div>
         </section>
-        {seg("Language", p.lang, [["en", "English"], ["km", "ខ្មែរ"]], (lang) => setPrefs({ lang }), "tabs2")}
+        {phone ? null : seg("Language", p.lang, [["en", "English"], ["km", "ខ្មែរ"]], (lang) => setPrefs({ lang }), "tabs2")}
         {seg("Motion", p.motion, [["full", "Full"], ["reduced", "Reduced"]], (motion) => setPrefs({ motion }), "tabs2")}
         {seg("Background", p.bg, [["moving", "Moving"], ["still", "Still"], ["plain", "Plain"]], (bg) => setPrefs({ bg }))}
         <section className="step" style={{ gap: 8 }}>
@@ -77,6 +61,32 @@ export function Customise() {
         <button type="button" className="linkish" style={{ alignSelf: "flex-start", color: "var(--muted)" }} onClick={resetPrefs}>
           Reset to defaults
         </button>
+    </>
+  );
+}
+
+export function Customise() {
+  const open = useApp((s) => s.customiseOpen);
+  if (!open) return null;
+  const close = () => setState({ customiseOpen: false });
+  return (
+    <>
+      <div className="scrim" onClick={close} />
+      <div
+        className="popover rise thin"
+        role="dialog"
+        aria-label="Customise"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") close();
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <h2 style={{ fontSize: 18 }}>Customise</h2>
+          <button type="button" className="icon-btn" style={{ marginLeft: "auto", width: 32, height: 32 }} aria-label="Close" onClick={close}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+        <CustomiseBody />
       </div>
     </>
   );

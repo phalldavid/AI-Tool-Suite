@@ -24,6 +24,18 @@ export function initGuard(): void {
     },
     true,
   );
+  // No pinch-zoom on the page (iPhone Safari ignores user-scalable=no). The Compare picture
+  // keeps its own pinch-zoom, handled in the Edit screen.
+  const own = (t: EventTarget | null) => Boolean((t as HTMLElement | null)?.closest?.("[data-pinch]"));
+  document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false } as AddEventListenerOptions);
+  document.addEventListener("gesturechange", (e) => e.preventDefault(), { passive: false } as AddEventListenerOptions);
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches.length > 1 && !own(e.target)) e.preventDefault();
+    },
+    { passive: false },
+  );
   // Pictures can't be dragged out to the desktop by accident; Download is the way out.
   document.addEventListener("dragstart", (e) => {
     if ((e.target as HTMLElement | null)?.tagName === "IMG" && !isDev()) e.preventDefault();

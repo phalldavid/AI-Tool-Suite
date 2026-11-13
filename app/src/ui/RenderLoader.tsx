@@ -1,13 +1,13 @@
 // The animation that plays over the stage while a render runs, its status line with the
 // three-dot mark, the Stop button, and a small looping preview for Customise.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getState, useApp } from "../store";
 import type { ImageData64 } from "../core/types";
 import { toDataUrl } from "../core/images";
 import { isLight, reducedMotion, usePrefs } from "../prefs";
-import { t } from "../lib/i18n";
-import { LoaderEngine, STATUS_WORDS, loadImage } from "./loader/engine";
+import { LoaderEngine, loadImage } from "./loader/engine";
+import { FINISHING, slangLines, useSlang } from "../lib/slang";
 import type { LoaderStyle } from "./loader/engine";
 import { registerLoader } from "./loader/bus";
 import { makeDemo } from "./loader/demo";
@@ -15,12 +15,13 @@ import { Icon } from "./Icon";
 
 function useEngineOptions(style?: LoaderStyle) {
   const p = usePrefs();
+  const words = slangLines(useSlang());
   return {
     style: style ?? p.loader,
     light: isLight(p),
     reduced: reducedMotion(),
     gatherSec: p.loaderGather,
-    words: STATUS_WORDS.map((w) => t(w)),
+    words,
     lang: p.lang,
   };
 }
@@ -55,7 +56,7 @@ export function RenderLoader({ under, holdResult }: { under?: ImageData64 | null
   useEffect(() => {
     eng.current?.setOptions({ style: opts.style, light: opts.light, reduced: opts.reduced, gatherSec: opts.gatherSec, words: opts.words });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang]);
+  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang, opts.words.join("|")]);
 
   useEffect(() => {
     let live = true;
@@ -132,15 +133,40 @@ export function ThinkingDots({ size = 20 }: { size?: number }) {
   );
 }
 
-/** The status line on the stage: three dots, what is happening, and Stop. */
+/** One slang line after another while a render runs, starting somewhere random. */
+function useStatusWord(on: boolean): string {
+  const list = slangLines(useSlang());
+  const [i, setI] = useState(() => Math.floor(Math.random() * list.length));
+  useEffect(() => {
+    if (!on) return;
+    setI(Math.floor(Math.random() * 1000));
+    const id = window.setInterval(() => setI((x) => x + 1), 2600);
+    return () => window.clearInterval(id);
+  }, [on]);
+  return list[i % list.length] ?? "";
+}
+
+/** The status line on the stage: three dots, a rotating slang line, and Stop. */
 export function LoaderStatus() {
   const busy = useApp((s) => s.busy);
+  const word = useStatusWord(Boolean(busy) && !busy?.revealing);
   if (!busy) return null;
-  const text = busy.revealing ? "Finishing up" : busy.label;
+  // Keep counts that matter ("View 2 of 3", "4 images") next to the slang.
+  // Written as symbols so it reads the same in Khmer and English: "×4", "2/3".
+  const m = busy.revealing ? null : /(\d+) of (\d+)|(\d+) images?/.exec(busy.label);
+  const count = !m ? null : m[3] ? `×${m[3]}` : `${m[1]}/${m[2]}`;
   return (
     <div className="busy-chip" role="status" aria-live="polite">
       <ThinkingDots />
-      <span className="shimmer">{text}</span>
+      <span className="sr-only">{busy.revealing ? FINISHING : busy.label}</span>
+      {busy.revealing ? (
+        <span className="shimmer" aria-hidden="true" data-no-translate>{FINISHING}</span>
+      ) : (
+        <span className="shimmer sw" key={word} aria-hidden="true" data-no-translate>
+          {word}
+          {count ? <span className="sw-n"> · {count}</span> : null}
+        </span>
+      )}
       {busy.revealing ? null : (
         <button type="button" aria-label="Stop the render" title="Stop" onClick={() => void import("../actions").then((a) => a.cancelRender())}>
           <Icon name="stop" size={12} />
@@ -156,7 +182,7 @@ export function StopButton() {
   return (
     <button type="button" className="cta stop" disabled={revealing} onClick={() => void import("../actions").then((a) => a.cancelRender())}>
       {revealing ? <ThinkingDots size={18} /> : <span className="stop-sq" aria-hidden="true" />}
-      {revealing ? "Finishing up" : "Stop"}
+      {revealing ? <span data-no-translate>{FINISHING}</span> : "Stop"}
     </button>
   );
 }
@@ -199,6 +225,6 @@ export function LoaderPreview({ style }: { style: LoaderStyle }) {
   useEffect(() => {
     eng.current?.setOptions({ style: opts.style, light: opts.light, reduced: opts.reduced, gatherSec: opts.gatherSec, words: opts.words });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang]);
+  }, [opts.style, opts.light, opts.reduced, opts.gatherSec, opts.lang, opts.words.join("|")]);
   return <div ref={box} className="rl rl-preview" aria-hidden="true" />;
 }

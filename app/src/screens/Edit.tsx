@@ -23,6 +23,8 @@ import { GLOBAL_PRESETS, MATERIALS, PLANTS, SURFACES, ZONE_GROUPS, appendLine, m
 import { AdditionalNotes } from "./Render";
 import { ModelPicker } from "../ui/ModelPicker";
 import { useRatio } from "../ui/useRatio";
+import { Foot, PhoneDock } from "../ui/PhoneBar";
+import { useViewport } from "../layout";
 import { hoverSlot, hoveredSlot, onHoverSlot } from "../lib/pasteTarget";
 import { copyImageToClipboard as copyImage, deleteVersion, renameVersion } from "../actions";
 import { INTERIOR_RELIGHT } from "../core/prompt";
@@ -157,6 +159,7 @@ const TOOLS_ROW: [EditMode | "download" | "again" | "copy", string, string][] = 
 ];
 
 function EditWork() {
+  const phone = useViewport().phone;
   const versions = useApp((s) => s.versions);
   const active = useApp((s) => s.activeVersion);
   const mode = useApp((s) => s.editMode);
@@ -190,34 +193,61 @@ function EditWork() {
         {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : <CompareStage v={v} />}
         <LoaderLayer />
         <LoaderStatus />
+        {phone && v && (mode === "compare" || mode === "relight") ? (
+          <div className="img-acts">
+            <button type="button" className="chip-img" aria-label="Copy image" title="Copy image" onClick={() => void copyImage(v.image)}><Icon name="clipboard" size={16} /></button>
+            <button type="button" className="chip-img" aria-label="Try again" title="Try again" disabled={!cap || Boolean(busy)} onClick={() => void openReview()}><Icon name="refresh" size={16} /></button>
+            {mode !== "compare" ? <button type="button" className="chip-img" aria-label="Download" title="Download" onClick={() => void download(v.image, `v${active + 1}`)}><Icon name="download" size={16} /></button> : null}
+          </div>
+        ) : null}
       </div>
-      <div className="refine-wrap">
-        <nav className="refine glass" aria-label="Edit tools">
-          {TOOLS_ROW.map(([id, label, icon]) => {
-            const disabled = (id === "again" && (!cap || Boolean(busy))) || (!v && id !== "view" && id !== "style");
-            return (
+      {phone ? (
+        <PhoneDock>
+          <nav className="refine m-dock" aria-label="Edit tools">
+            {TOOLS_ROW.filter(([id]) => id !== "again" && id !== "copy" && id !== "download").map(([id, label, icon]) => (
               <button
                 key={id}
                 type="button"
-                aria-pressed={id === "copy" || id === "download" || id === "again" ? undefined : mode === id}
+                aria-pressed={mode === id}
                 aria-label={label}
-                title={id === "again" && !cap ? "Try again needs the view on the Render tab" : id === "copy" ? "Copy image, then paste into chat or slides" : label}
-                disabled={disabled}
-                onClick={() => {
-                  if (id === "download") return void (v && download(v.image, `v${active + 1}`));
-                  if (id === "copy") return void (v && copyImage(v.image));
-                  if (id === "again") return void openReview();
-                  if (id === "view") return setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion }));
-                  setState({ editMode: id });
-                }}
+                title={label}
+                disabled={!v && id !== "view" && id !== "style"}
+                onClick={() => (id === "view" ? setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion })) : setState({ editMode: id as EditMode }))}
               >
-                <Icon name={icon} />
-                <span className="lbl-md">{label}</span>
+                <Icon name={icon} size={22} />
               </button>
-            );
-          })}
-        </nav>
-      </div>
+            ))}
+          </nav>
+        </PhoneDock>
+      ) : (
+      <div className="refine-wrap">
+          <nav className="refine glass" aria-label="Edit tools">
+            {TOOLS_ROW.map(([id, label, icon]) => {
+              const disabled = (id === "again" && (!cap || Boolean(busy))) || (!v && id !== "view" && id !== "style");
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={id === "copy" || id === "download" || id === "again" ? undefined : mode === id}
+                  aria-label={label}
+                  title={id === "again" && !cap ? "Try again needs the view on the Render tab" : id === "copy" ? "Copy image, then paste into chat or slides" : label}
+                  disabled={disabled}
+                  onClick={() => {
+                    if (id === "download") return void (v && download(v.image, `v${active + 1}`));
+                    if (id === "copy") return void (v && copyImage(v.image));
+                    if (id === "again") return void openReview();
+                    if (id === "view") return setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion }));
+                    setState({ editMode: id });
+                  }}
+                >
+                  <Icon name={icon} />
+                  <span className="lbl-md">{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      )}
     </>
   );
 }
@@ -258,6 +288,9 @@ function CompareStage({ v }: { v: Version }) {
   const [panning, setPanning] = useState(false);
   const drag = useRef<null | "split" | { px: number; py: number; x: number; y: number }>(null);
   const box = useRef<HTMLDivElement>(null);
+  // Two fingers: pinch to zoom about the middle of the fingers.
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d: number; z: number; x: number; y: number; mx: number; my: number } | null>(null);
   const a = useMemo(() => toDataUrl(after), [after]);
   const b = useMemo(() => (before ? toDataUrl(before) : ""), [before]);
   const r = useRatio(after);
@@ -300,8 +333,19 @@ function CompareStage({ v }: { v: Version }) {
         aria-valuemax={100}
         aria-valuenow={Math.round(split)}
         style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}`, cursor: zoomed ? undefined : before ? "ew-resize" : "zoom-in", touchAction: "none", userSelect: "none" }}
+        data-pinch
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
+          if (e.pointerType === "touch") {
+            fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (fingers.current.size === 2) {
+              const [a, b] = [...fingers.current.values()];
+              const rect = e.currentTarget.getBoundingClientRect();
+              pinch.current = { d: Math.hypot(a.x - b.x, a.y - b.y), z: zoom.z, x: zoom.x, y: zoom.y, mx: (a.x + b.x) / 2 - rect.left, my: (a.y + b.y) / 2 - rect.top };
+              drag.current = null;
+              return;
+            }
+          }
           // Zoomed: drag moves the picture; Shift-drag (or the line itself) still moves the divider.
           if (zoomed && !e.shiftKey) {
             drag.current = { px: e.clientX, py: e.clientY, x: zoom.x, y: zoom.y };
@@ -313,6 +357,17 @@ function CompareStage({ v }: { v: Version }) {
           set(e);
         }}
         onPointerMove={(e) => {
+          if (fingers.current.has(e.pointerId)) fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          const pc = pinch.current;
+          if (pc && fingers.current.size >= 2) {
+            const [a, b] = [...fingers.current.values()];
+            const rect = e.currentTarget.getBoundingClientRect();
+            const z = Math.max(1, Math.min(8, (pc.z * Math.hypot(a.x - b.x, a.y - b.y)) / pc.d));
+            if (z === 1) return setZoom({ z: 1, x: 0, y: 0 });
+            const k = z / pc.z;
+            const clamp = (t: number, size: number) => Math.min(0, Math.max(size * (1 - z), t));
+            return setZoom({ z, x: clamp(pc.mx - (pc.mx - pc.x) * k, rect.width), y: clamp(pc.my - (pc.my - pc.y) * k, rect.height) });
+          }
           const d = drag.current;
           if (!d) return;
           if (d === "split") return set(e);
@@ -320,8 +375,8 @@ function CompareStage({ v }: { v: Version }) {
           const clamp = (t: number, size: number) => Math.min(0, Math.max(size * (1 - zoom.z), t));
           setZoom((o) => ({ ...o, x: clamp(d.x + e.clientX - d.px, rect.width), y: clamp(d.y + e.clientY - d.py, rect.height) }));
         }}
-        onPointerUp={() => { drag.current = null; setPanning(false); }}
-        onPointerCancel={() => { drag.current = null; setPanning(false); }}
+        onPointerUp={(e) => { fingers.current.delete(e.pointerId); if (fingers.current.size < 2) pinch.current = null; drag.current = null; setPanning(false); }}
+        onPointerCancel={(e) => { fingers.current.delete(e.pointerId); pinch.current = null; drag.current = null; setPanning(false); }}
         onDoubleClick={() => setZoom({ z: 1, x: 0, y: 0 })}
         onKeyDown={(e) => {
           if (e.key === "0") return setZoom({ z: 1, x: 0, y: 0 });
@@ -535,8 +590,22 @@ function EditSide() {
   if (mode === "style") return <StyleCopyPanel />;
   return (
     <div className="side-scroll thin">
-      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : <SummaryPanel />}
+      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : <><SummaryPanel /><CompareFoot /></>}
     </div>
+  );
+}
+
+/** Phones, Compare: the main button is Download. */
+function CompareFoot() {
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const active = useApp((s) => s.activeVersion);
+  if (!v) return null;
+  return (
+    <Foot phoneOnly>
+      <button type="button" className="cta" onClick={() => void download(v.image, `v${active + 1}`)}>
+        <Icon name="download" size={18} /> Download
+      </button>
+    </Foot>
   );
 }
 
@@ -799,10 +868,12 @@ function SpotEditPanel() {
         </button>
       </div>
       <p className="note" style={{ margin: 0 }}>{globalText ? "Global Edit changes the whole picture, so the result is not pasted back over the original." : "Everything outside your selection is pasted back from the original, so it stays exactly as it was."}</p>
+      <Foot inline>
       <ModelPicker edit />
       {busy ? <StopButton /> : <button type="button" className="cta sheen" onClick={() => void runSpotEdit(p, texts, globalText).then(refresh)}>
         {promptOnly ? <><Icon name="clipboard" size={18} /> Get edit prompt + painted image</> : <>Apply edit · {cost.label}</>}
       </button>}
+      </Foot>
     </>
   );
 }
@@ -859,10 +930,12 @@ function RelightPanel() {
           </div>
         </div>
       </section>
+      <Foot inline>
       <ModelPicker edit />
       {busy ? <StopButton /> : <button type="button" className="cta sheen" onClick={() => void runRelight(id)}>
         <Icon name="sun" size={18} /> Relight to {what} · {cost.label}
       </button>}
+      </Foot>
     </>
   );
 }
@@ -928,13 +1001,13 @@ function NewViewPanel() {
         </section>
         <AdditionalNotes slot="view" />
       </div>
-      <div className="side-foot">
+      <Foot>
         <ModelPicker edit />
         {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!look || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
           <Icon name="camera" size={18} />
           {promptOnly ? "Get prompt · free" : source === "shot" ? (n > 1 ? `Render ${n} views · ${total}` : `Render this view · ${total}`) : `Render new camera · ${one.label}`}
         </button>}
-      </div>
+      </Foot>
     </>
   );
 }
@@ -1023,13 +1096,13 @@ function StyleCopyPanel() {
         </section>
         <AdditionalNotes slot="style" />
       </div>
-      <div className="side-foot">
+      <Foot>
         <ModelPicker edit />
         {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!ref || !base} onClick={() => void openReview("style")}>
           <Icon name="layers" size={18} />
           {promptOnly ? "Get prompt · free" : `Copy the style · ${cost.label}`}
         </button>}
-      </div>
+      </Foot>
     </>
   );
 }
