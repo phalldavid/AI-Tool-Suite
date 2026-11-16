@@ -92,6 +92,12 @@ test("kie model helpers: prices, resolutions, ratios, results", () => {
   assert.equal(creditsFor(flash, "1K"), 3.24);
   assert.equal(creditsFor(findKieModel("gpt-image-2-5-flare-image-to-image"), "4K"), 16);
   assert.equal(creditsFor(findKieModel("gpt-image-2-image-to-image"), "2K"), 10);
+  const flare26 = findKieModel("gpt-image-2-6/flare-image-to-image");
+  assert.equal(creditsFor(flare26, "2K"), null, "2.6 is token-billed, no per-image price");
+  assert.equal(priceText(flare26, "2K"), "price on kie.ai");
+  assert.equal(flare26.input("p", ["u"], "16:9", "2K").background, undefined, "background only at 1K");
+  assert.equal(flare26.input("p", ["u"], "16:9", "1K").background, "opaque");
+  assert.equal(resolutionFor(findKieModel("gpt-image-2-6/sunburst-image-to-image"), "4K"), "1K");
   assert.equal(creditNumber(3.24 * 2), "6.48");
   assert.equal(resolutionFor(findKieModel("seedream/5-pro-image-to-image"), "4K"), "2K");
   assert.equal(ratioFor(nb, "21:9"), "21:9");

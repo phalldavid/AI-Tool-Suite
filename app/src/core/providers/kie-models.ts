@@ -82,11 +82,45 @@ export const KIE_MODELS: KieModel[] = [
     input: nanoInput,
   },
   {
+    // GPT Image 2.6 Flare. Source: kie.ai/gpt-image-2-6 (2026-11-16); the docs.kie.ai page
+    // (docs.kie.ai/market/gpt/gpt-image-2-6-flare-image-to-image) could not be read that day.
+    // Kie bills 2.6 by tokens, not per image, so credits are left out ("price on kie.ai").
+    // "background" is only accepted at 1K, so it is sent only then.
+    id: "gpt-image-2-6/flare-image-to-image",
+    family: "gpt",
+    label: "GPT Image 2.6 Flare",
+    short: "2.6 Flare",
+    note: "Newest GPT, quicker",
+    resolutions: ["1K", "2K", "4K"],
+    ratios: GPT_RATIOS,
+    input: (prompt, urls, ratio, res) => ({
+      prompt,
+      input_urls: urls,
+      aspect_ratio: ratio,
+      resolution: res,
+      output_format: "png",
+      ...(res === "1K" ? { background: "opaque" } : {}),
+    }),
+  },
+  {
+    // GPT Image 2.6 Sunburst. Source: docs.kie.ai/market/gpt/gpt-image-2-6-sunburst-image-to-image
+    // and kie.ai/gpt-image-2-6 (2026-11-16). The docs example sends resolution "1K"; no other
+    // size is published, so it is offered at 1K only. Token-billed, so credits are left out.
+    id: "gpt-image-2-6/sunburst-image-to-image",
+    family: "gpt",
+    label: "GPT Image 2.6 Sunburst",
+    short: "2.6 Sunburst",
+    note: "Newest GPT, best detail, 1K",
+    resolutions: ["1K"],
+    ratios: ["1:1", "16:9", "9:16", "3:2", "2:3", "21:9", "4:3"],
+    input: (prompt, urls, ratio, res) => ({ prompt, input_urls: urls, aspect_ratio: ratio, resolution: res, background: "opaque", output_format: "png" }),
+  },
+  {
     id: "gpt-image-2-5-flare-image-to-image",
     family: "gpt",
     label: "GPT Image 2.5 Flare",
     short: "2.5 Flare",
-    note: "Newest GPT, quicker",
+    note: "Quicker GPT, fixed price",
     credits: { "1K": 6, "2K": 10, "4K": 16 },
     resolutions: ["1K", "2K", "4K"],
     ratios: GPT_RATIOS,
@@ -97,7 +131,7 @@ export const KIE_MODELS: KieModel[] = [
     family: "gpt",
     label: "GPT Image 2.5 Sunburst",
     short: "2.5 Sunburst",
-    note: "Newest GPT, best detail",
+    note: "Detailed GPT, up to 4K",
     credits: { "1K": 6, "2K": 10, "4K": 16 },
     resolutions: ["1K", "2K", "4K"],
     ratios: GPT_RATIOS,
