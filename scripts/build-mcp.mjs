@@ -6,7 +6,7 @@ import { mkdirSync } from "node:fs";
 
 mkdirSync("dist/mcp", { recursive: true });
 await esbuild.build({
-  entryPoints: ["web/src/agent-api.ts"],
+  entryPoints: ["app/src/core/agent-api.ts"],
   bundle: true,
   format: "esm",
   platform: "node",

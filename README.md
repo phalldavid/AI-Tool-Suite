@@ -42,7 +42,7 @@ Create one at [Google AI Studio](https://aistudio.google.com/apikey). A Gemini a
 
 ## Use it from an AI assistant or the command line
 
-The prompt builder can run without the panel. `web/src/agent-api.ts` lists presets, reads the options and builds the same prompt as Prompt Copy. `scripts/mcp-server.mjs` wraps it as an MCP server (no extra packages) and as a small command line.
+The prompt builder can run without the panel. `app/src/core/agent-api.ts` lists presets, reads the options and builds the same prompt as Prompt Copy. `scripts/mcp-server.mjs` wraps it as an MCP server (no extra packages) and as a small command line.
 
 ```sh
 npm run build:mcp                                   # once, builds dist/mcp/agent-api.mjs
@@ -74,7 +74,6 @@ Layout:
   - `host.ts` the only place that differs between SketchUp and the browser
   - `prompt.ts` prompt templates, lighting and environment options
   - `presets.ts` hand-written presets; `library.ts` builds the rest from styles x building types, rooms and aerial types
-  - `agent-api.ts` prompt API used by the MCP server and command line
   - `providers/` Gemini and ComfyUI backends behind one interface
 - `plugin/` SketchUp extension in Ruby
   - `capture.rb` exports the view, the hidden-line pass and camera facts

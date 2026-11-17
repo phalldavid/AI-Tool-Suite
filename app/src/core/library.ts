@@ -57,6 +57,9 @@ export const EXT_TYPES: Subject[] = [
   { id: "retail", group: "Work and Public", label: "Retail / showroom", text: "two-storey retail showroom with a full-height glass shopfront and parking forecourt", lighting: "afternoon", environment: "boulevard" },
   { id: "civic", group: "Work and Public", label: "Civic / school", text: "public building or school with shaded walkways, a courtyard and a raised entrance", lighting: "morning", environment: "tropical-garden" },
   { id: "warehouse", group: "Work and Public", label: "Warehouse / factory", text: "single-storey warehouse and factory with loading bays, office block at the front and truck yard", lighting: "noon", environment: "rural" },
+  { id: "khmer-stilt", group: "Residential", label: "Khmer stilt house", text: "traditional Khmer timber house raised on tall round posts, stepped gable roofs with terracotta tiles, carved gable panels, curved roof-end finials, wide veranda and open timber stairs", lighting: "afternoon", environment: "tropical-garden" },
+  { id: "pagoda", group: "Work and Public", label: "Pagoda hall", text: "Khmer pagoda prayer hall on a raised base, tiered tiled roofs with curved finials, entrance steps with serpent-shaped balustrades, paved courtyard and shade trees", lighting: "morning", environment: "tropical-garden" },
+  { id: "sala", group: "Work and Public", label: "Open pavilion (sala)", text: "open-sided Khmer pavilion on a raised plinth with round columns, a stepped tiled roof, stone steps and a pond beside it", lighting: "afternoon", environment: "tropical-garden" },
 ];
 
 // ---------- Interior ----------
@@ -113,6 +116,7 @@ export const ROOMS: Subject[] = [
   { id: "laundry", label: "Laundry", group: "Residential", text: "laundry room with stacked washer and dryer, folding counter, sink and hanging rail", lighting: day, environment: "keep" },
   { id: "balcony", label: "Balcony", group: "Residential", text: "covered balcony with outdoor chairs, side table, planters and a view out", lighting: "time:17:30", environment: city },
   { id: "rooftop", label: "Rooftop terrace", group: "Residential", text: "rooftop terrace with a pergola, outdoor lounge, dining table, planters and city view", lighting: "blue-hour", environment: city },
+  { id: "khmer-hall", label: "Khmer house main hall", group: "Residential", text: "main hall of a Khmer timber house with a polished plank floor, low platform seating with woven mats, a carved teak cabinet, shuttered openings and a view out to the veranda", lighting: day, environment: garden },
   // Hospitality
   { id: "hotel-lobby", label: "Hotel lobby", group: "Hospitality", text: "hotel lobby with a reception desk, lounge seating groups, feature chandelier and double-height ceiling", lighting: eve, environment: city },
   { id: "hotel-room", label: "Hotel room", group: "Hospitality", text: "hotel guest room with a king bed, desk, lounge chair, minibar unit and full-height window", lighting: eve, environment: city },
@@ -145,6 +149,8 @@ export const AERIAL_TYPES: Subject[] = [
   { id: "riverside", label: "Riverside", text: "aerial view of a riverside development along the Mekong: promenade, towers set back from the bank and a public park", lighting: "time:17:30", environment: "mp-river" },
   { id: "township", label: "New township", text: "aerial view of a new township: road grid, neighbourhood blocks, a town centre, schools and parks", lighting: "blue-hour", environment: "mp-suburb" },
   { id: "eco", label: "Eco village", text: "aerial view of an eco village among rice fields: clusters of timber houses, ponds, farm plots and palm trees", lighting: "morning", environment: "mp-farmland" },
+  { id: "khmer-village", label: "Khmer village", text: "aerial view of a Khmer village: timber stilt houses with red terracotta roofs around shared yards, red laterite paths, sugar palms, fruit trees, small ponds and rice fields beyond", lighting: "morning", environment: "mp-farmland" },
+  { id: "pagoda-compound", label: "Pagoda compound", text: "aerial view of a Khmer pagoda compound: a main prayer hall with tiered roofs, monks' quarters, a stupa, shade trees, a surrounding wall and a paved courtyard", lighting: "morning", environment: "mp-farmland" },
   { id: "plan", label: "Top-down site plan", text: "straight top-down satellite-style site plan view of the development, true north up, crisp roofs, roads and planting", lighting: "noon", environment: "keep" },
 ];
 

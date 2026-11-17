@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildBatch, buildPrompt, inferView, listOptions, listPresets, resolvePreset } from "../src/agent-api";
-import { libraryItems } from "../src/library";
+import { buildBatch, buildPrompt, inferView, listOptions, listPresets, resolvePreset } from "../src/core/agent-api";
+import { libraryItems } from "../src/core/library";
 
 test("preset search finds Khmer presets and resolves by id, name and words", () => {
   const r = listPresets({ query: "khmer stilt", scene: "exterior" });
@@ -52,4 +52,13 @@ test("options and library stay consistent", () => {
   assert.equal(o.presetCount, libraryItems().length);
   assert.ok(o.lighting.some((l) => l.id === "overcast"));
   assert.ok(o.environments.length > 0);
+});
+
+test("the preset count shown in the UI matches the library", async () => {
+  const { readFileSync } = await import("node:fs");
+  const n = String(libraryItems().length);
+  for (const file of ["src/ui/Header.tsx", "src/ui/Palette.tsx", "src/lib/i18n.ts"]) {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.ok(text.includes(n), `${file} should mention ${n} presets`);
+  }
 });

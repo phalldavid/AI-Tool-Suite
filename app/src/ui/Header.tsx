@@ -116,7 +116,7 @@ function DesktopHeader() {
       <button type="button" className="search" data-tour="search" aria-label="Search, Ctrl K" title="Search · Ctrl K" onClick={() => setState({ dialog: "palette" })}>
         <Icon name="search" />
         <span className="t" style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          Search 932 styles, light, places, actions
+          Search 1000 styles, light, places, actions
         </span>
         <span className="kbd t">Ctrl K</span>
       </button>

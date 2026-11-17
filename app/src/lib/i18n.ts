@@ -13,7 +13,7 @@ export const KM: Record<string, string> = {
   History: "ប្រវត្តិ",
   Settings: "ការកំណត់",
   Customise: "ប្ដូរតាមចិត្ត",
-  "Search 932 styles, light, places, actions": "ស្វែងរករចនាបថ ពន្លឺ ទីកន្លែង និងសកម្មភាព",
+  "Search 1000 styles, light, places, actions": "ស្វែងរករចនាបថ ពន្លឺ ទីកន្លែង និងសកម្មភាព",
   "Search looks, light, places, actions": "ស្វែងរករចនាបថ ពន្លឺ ទីកន្លែង សកម្មភាព",
   "Switch to night mode": "ប្ដូរទៅរបៀបយប់",
   "Switch to day mode": "ប្ដូរទៅរបៀបថ្ងៃ",

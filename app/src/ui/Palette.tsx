@@ -199,7 +199,7 @@ export function Palette() {
           <div className="foot">
             <span>↑ ↓ move</span>
             <span>Enter apply</span>
-            <span style={{ marginLeft: "auto" }}>932 looks · {LIGHTING.length} lights</span>
+            <span style={{ marginLeft: "auto" }}>1000 looks · {LIGHTING.length} lights</span>
           </div>
         </>
       ) : null}
