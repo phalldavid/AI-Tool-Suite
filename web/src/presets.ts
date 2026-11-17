@@ -364,6 +364,78 @@ export const BUILT_IN_PRESETS: Preset[] = [
     style:
       "a marker sketch in the New Khmer style: board-formed concrete, deep sun-shading fins, raised floor on pilotis, verandas",
   },
+  {
+    id: "khmer-stilt-house-day",
+    name: "Khmer stilt house, afternoon",
+    projectType: "exterior",
+    lighting: "afternoon",
+    environment: "tropical-garden",
+    style:
+      "traditional Khmer timber house on tall round posts, dark red-brown hardwood, several stepped gable roofs with terracotta clay tiles, carved timber gable panels, curved finials at the roof ends, deep eaves, wide veranda with turned-baluster railing, carved timber fretwork under the eaves, open timber stairs, round posts standing on carved stone bases, red brick paver terrace, frangipani trees",
+  },
+  {
+    id: "khmer-stilt-house-rice",
+    name: "Khmer stilt house, rice fields",
+    projectType: "exterior",
+    lighting: "morning",
+    environment: "rural",
+    style:
+      "single Khmer timber stilt house on round hardwood posts, aged red-brown timber walls, steep terracotta tile roof with a carved gable end, small veranda with turned balusters, open timber stairs, shaded space under the floor with a wooden bench and hammock, water jar at the stair foot, sugar palms and green rice paddy around",
+  },
+  {
+    id: "khmer-stilt-house-dusk",
+    name: "Khmer stilt house, blue hour",
+    projectType: "exterior",
+    lighting: "blue-hour",
+    environment: "riverside",
+    style:
+      "traditional Khmer timber house on tall posts, dark red-brown hardwood, steep terracotta roofs, warm 2700K lanterns along the veranda and stairs, glowing windows, carved gable panels lit from below, brick paver path, still water in front reflecting the lights",
+  },
+  {
+    id: "khmer-under-house",
+    name: "Under a Khmer stilt house",
+    projectType: "exterior",
+    lighting: "noon",
+    environment: "keep",
+    style:
+      "shaded open ground floor under a Khmer timber house, forest of round hardwood posts on stone bases, timber floor beams overhead, brick paver floor, wooden benches and low tables, hammocks, rattan chairs, bright tropical garden seen between the posts, dappled shade",
+  },
+  {
+    id: "khmer-cafe-timber",
+    name: "Cafe in a Khmer timber house",
+    projectType: "interior",
+    lighting: "interior-evening",
+    environment: "keep",
+    style:
+      "cafe inside a restored Khmer timber house, dark hardwood floor and walls, carved timber screens, exposed roof beams, rattan chairs and teak tables, woven pendant lamps at 2700K, terracotta tile accents, plants in stone jars, open veranda doors",
+  },
+  {
+    id: "khmer-heritage-shophouse",
+    name: "Heritage shophouse, Phnom Penh",
+    projectType: "exterior",
+    lighting: "morning",
+    environment: "pp-street",
+    style:
+      "restored two-storey Khmer-French shophouse, warm yellow lime-wash render, white mouldings, tall timber shutters, ornamental iron balcony railings, terracotta barrel-tile roof, arched ground-floor openings, aged colour with light weathering, old street lamps",
+  },
+  {
+    id: "khmer-resort-villa",
+    name: "Khmer-style resort villa, pool",
+    projectType: "exterior",
+    lighting: "afternoon",
+    environment: "tropical-garden",
+    style:
+      "resort villa inspired by the Khmer stilt house, raised on slim timber posts, dark red-brown hardwood cladding, steep terracotta tile roof with deep overhangs, carved screen panels, long veranda, timber stairs down to a pool, low-iron glass, stone paving, frangipani and areca palms",
+  },
+  {
+    id: "sketch-khmer-stilt",
+    name: "Khmer stilt house sketch to photo",
+    projectType: "sketch",
+    lighting: "morning",
+    environment: "tropical-garden",
+    style:
+      "traditional Khmer timber stilt house as drawn: dark red-brown hardwood, terracotta tile roofs, carved gable panels, turned-baluster veranda, round posts on stone bases; keep every line of the sketch as a real built edge",
+  },
 ];
 
 export function newPresetId(name: string): string {

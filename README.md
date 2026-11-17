@@ -40,6 +40,22 @@ Create one at [Google AI Studio](https://aistudio.google.com/apikey). A Gemini a
 2. Build a workflow. Put `{{PROMPT}}` in the positive prompt text, `{{IMAGE_1}}` as the Load Image file name for the view, and `{{IMAGE_2}}` for the line pass (for example into a lineart ControlNet).
 3. **Export (API)** and paste the JSON into Settings > ComfyUI.
 
+## Use it from an AI assistant or the command line
+
+The prompt builder can run without the panel. `web/src/agent-api.ts` lists presets, reads the options and builds the same prompt as Prompt Copy. `scripts/mcp-server.mjs` wraps it as an MCP server (no extra packages) and as a small command line.
+
+```sh
+npm run build:mcp                                   # once, builds dist/mcp/agent-api.mjs
+node scripts/mcp-server.mjs                         # MCP server over stdio
+node scripts/mcp-server.mjs --cli list "bathroom khmer"
+node scripts/mcp-server.mjs --cli build --preset int-bathroom-khmer --view vanity --led --kelvin 3000
+node scripts/mcp-server.mjs --cli batch --folder <images> --preset "bathroom stone"
+```
+
+MCP tools: `list_presets`, `get_options`, `build_prompt`, `build_batch`. Batch writes one `.txt` per image plus `prompts.json`, guesses the view (wide, entry, corridor, detail, vanity, shower, tub) from each file name, and never overwrites an existing file unless you pass `--force`.
+
+To add it to an assistant, point its MCP config at `node <repo>/scripts/mcp-server.mjs`.
+
 ## Develop
 
 Requires Node 22.
@@ -57,7 +73,8 @@ Layout:
 - `web/src` shared interface in TypeScript, bundled into one plain script so it loads from `file://` inside SketchUp
   - `host.ts` the only place that differs between SketchUp and the browser
   - `prompt.ts` prompt templates, lighting and environment options
-  - `presets.ts` built-in presets
+  - `presets.ts` hand-written presets; `library.ts` builds the rest from styles x building types, rooms and aerial types
+  - `agent-api.ts` prompt API used by the MCP server and command line
   - `providers/` Gemini and ComfyUI backends behind one interface
 - `plugin/` SketchUp extension in Ruby
   - `capture.rb` exports the view, the hidden-line pass and camera facts
