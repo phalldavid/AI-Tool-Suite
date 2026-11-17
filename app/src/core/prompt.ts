@@ -97,6 +97,20 @@ export const LIGHTING: Option[] = [
   },
 ];
 
+/**
+ * The sky and sun options are written for buildings seen from outside (shadows on
+ * the ground, wet ground, facade lights). In an interior scene those words leak into
+ * the prompt, so these versions say the same thing from inside the room.
+ * Blue hour is left out on purpose: it already works for rooftops and balconies.
+ */
+export const INTERIOR_SKY: Record<string, string> = {
+  morning: "early morning sun from the east coming in through the windows, soft warm light, gentle sun patches on the floor and walls",
+  noon: "bright midday tropical daylight through the windows, short crisp sun patches close to the windows, the rest of the room softly lit",
+  afternoon: "low late-afternoon sun from the west coming in through the windows, warm golden light stretching across the floor",
+  overcast: "overcast monsoon sky outside, soft even daylight falling into the room, no hard shadows",
+  night: "night, dark sky outside the windows, the room lit only by warm 2700K lights, realistic light falloff, no lens flare",
+};
+
 // Extra relight presets for the Edit tab, beside the time-of-day ones.
 export const INTERIOR_RELIGHT: Option[] = [
   { id: "interior-day", sub: "Daylight + 3000K", swatch: ["#d9c7a4", "#f4ead6"], label: "Interior daylight", text: "natural daylight entering through the windows, balanced with warm 3000K ceiling lights, no blown-out windows" },
@@ -430,7 +444,7 @@ export function buildRenderPrompt(input: RenderPromptInput): string {
   const cgi = input.look === "cgi";
   const strength = input.lineStrength ?? 0.8;
   const type = PROJECT_TYPES[preset.projectType];
-  const lighting = lightingText(preset.lighting, facts);
+  const lighting = (preset.projectType === "interior" ? INTERIOR_SKY[preset.lighting] : undefined) ?? lightingText(preset.lighting, facts);
   const env = contextText(preset.environment);
 
   const lines: string[] = [];
