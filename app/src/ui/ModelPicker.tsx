@@ -16,8 +16,8 @@ const TINT: Record<KieFamilyId, string> = { nano: "#4f7cff", gpt: "#19a37f", see
 /** Groups by what each model is for. Every model is in exactly one group. */
 export const MODEL_GROUPS: { id: string; label: string; ids: string[] }[] = [
   { id: "rec", label: "Recommended", ids: ["nano-banana-2-1"] },
-  { id: "quality", label: "Best quality", ids: ["nano-banana-pro", "gpt-image-2-5-sunburst-image-to-image", "seedream/5-pro-image-to-image"] },
-  { id: "fast", label: "Fast and low cost", ids: ["seedream/5-5-image-to-image", "seedream/5-flash-image-to-image", "gpt-image-2-5-flare-image-to-image"] },
+  { id: "quality", label: "Best quality", ids: ["nano-banana-pro", "gpt-image-2-6/sunburst-image-to-image", "gpt-image-2-5-sunburst-image-to-image", "seedream/5-pro-image-to-image"] },
+  { id: "fast", label: "Fast and low cost", ids: ["seedream/5-5-image-to-image", "seedream/5-flash-image-to-image", "gpt-image-2-6/flare-image-to-image", "gpt-image-2-5-flare-image-to-image"] },
   { id: "text", label: "Signs and lettering", ids: ["gpt-image-2-image-to-image"] },
 ];
 
