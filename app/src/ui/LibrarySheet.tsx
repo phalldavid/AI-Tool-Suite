@@ -16,6 +16,7 @@ import { useLookTiles } from "./EnvPicturesSheet";
 import { envMadeCount, envPicture } from "../lib/envPreviews";
 import { lookTile } from "../lib/lookPreviews";
 import { useDev } from "../lib/dev";
+import { clearPicker, pickTarget } from "../lib/pickTarget";
 
 /** A look card's picture: shipped with the app, else made on this computer. */
 function lookPic(x: LibItem): string | null {
@@ -52,7 +53,10 @@ function folderPic(type: ProjectType, subject: string | null): string | null {
 
 export function LibrarySheet() {
   const open = useApp((s) => s.libOpen);
-  const close = () => setState({ libOpen: null });
+  const close = () => {
+    clearPicker();
+    setState({ libOpen: null });
+  };
   return (
     <Sheet open={open === "look" || open === "env"} onClose={close} className="lib">
       {open === "look" ? <LookBrowser close={close} /> : open === "env" ? <EnvBrowser close={close} /> : null}
@@ -81,14 +85,23 @@ function LookBrowser({ close }: { close: () => void }) {
   useLookTiles();
   const dev = useDev();
   const [words, setWords] = useState("");
-  const preset = useApp((s) => s.preset);
+  const appPreset = useApp((s) => s.preset);
+  // Picking for a node on the Advanced tab: start from the node's look, hand the pick back.
+  const [target] = useState(() => pickTarget("look"));
+  const targetItem = target ? libraryItems().find((x) => x.id === target.current) : undefined;
+  const preset = targetItem ?? appPreset;
   const favorites = useApp((s) => s.settings.favorites);
-  const [level, setLevel] = useState<Level>(() => (preset.projectType === "sketch" ? { type: "sketch", subject: "all" } : { type: preset.projectType, subject: "all" }));
+  const [level, setLevel] = useState<Level>(() => (target && !targetItem ? { type: "home" } : preset.projectType === "sketch" ? { type: "sketch", subject: "all" } : { type: preset.projectType, subject: "all" }));
   const [q, setQ] = useState("");
   const current = libraryItems().find((x) => x.id === preset.id);
   const [picked, setPicked] = useState<string>(preset.id);
   const apply = () => {
     const x = libraryItems().find((i) => i.id === picked);
+    if (target) {
+      if (x) target.onPick(x.id);
+      close();
+      return;
+    }
     const own = words.trim();
     if (x) {
       setState((s) => {
@@ -177,7 +190,7 @@ function LookBrowser({ close }: { close: () => void }) {
       </div>
       <div className="sheet-body thin">{body}</div>
       <div className="sheet-foot lib-foot">
-        <input className="input own" value={words} onChange={(e) => setWords(e.target.value)} placeholder="Your own words (optional), e.g. darker timber, more glass" aria-label="Your own words for the look" />
+        {target ? <span style={{ flex: 1 }} /> : <input className="input own" value={words} onChange={(e) => setWords(e.target.value)} placeholder="Your own words (optional), e.g. darker timber, more glass" aria-label="Your own words for the look" />}
         {dev ? (
           <button type="button" className="btn ghost" title="Developer: make or update the pictures" onClick={() => setState({ libOpen: "look-pics" })}>
             <Icon name="image" /> Pictures
@@ -208,11 +221,16 @@ function EnvBrowser({ close }: { close: () => void }) {
   useEnvTiles();
   const dev = useDev();
   const preset = useApp((s) => s.preset);
-  const [picks, setPicks] = useState<string[]>(() => parseContexts(preset.environment));
+  // Picking for a Surroundings node on the Advanced tab: start from its list, hand the pick back.
+  const [target] = useState(() => pickTarget("env"));
+  const startEnv = target ? target.current : preset.environment;
+  const [picks, setPicks] = useState<string[]>(() => parseContexts(startEnv));
   const [own, setOwn] = useState("");
   const [q, setQ] = useState("");
   const [group, setGroup] = useState<string | null>(null);
-  useEffect(() => setPicks(parseContexts(preset.environment)), [preset.environment]);
+  useEffect(() => {
+    if (!target) setPicks(parseContexts(preset.environment));
+  }, [preset.environment, target]);
   const typed = q.trim().toLowerCase();
   const found = useMemo(
     () => (typed ? CONTEXT_GROUPS.flatMap((g) => g.items.filter((i) => `${i.label} ${i.sub} ${i.text} ${g.label}`.toLowerCase().includes(typed)).map((i) => ({ i, g }))) : []),
@@ -221,6 +239,11 @@ function EnvBrowser({ close }: { close: () => void }) {
   const toggle = (id: string) => setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const apply = (list: string[]) => {
     const all = own.trim() ? [...list, `custom:${own.trim()}`] : list;
+    if (target) {
+      target.onPick(joinContexts(all));
+      close();
+      return;
+    }
     setState((s) => ({ preset: { ...s.preset, environment: joinContexts(all) } }));
     close();
   };

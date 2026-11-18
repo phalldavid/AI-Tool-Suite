@@ -80,7 +80,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .thin { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
 .noscroll { scrollbar-width: none; } .noscroll::-webkit-scrollbar { display: none; }
 
-.topbar { flex: none; position: relative; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px) minmax(0, 1fr); align-items: center; gap: 16px; padding: 10px 20px; box-shadow: 0 1px 0 var(--line); }
+.topbar { flex: none; position: relative; z-index: 20; display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, 440px) minmax(max-content, 1fr); align-items: center; gap: 16px; padding: 10px 20px; box-shadow: 0 1px 0 var(--line); }
 .topbar .left { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .topbar .right { justify-self: end; display: flex; align-items: center; gap: 8px; }
 .brand { font-weight: 700; font-size: 17px; white-space: nowrap; }
@@ -799,8 +799,9 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .slang-list li { break-inside: avoid; padding: 2px 0; }
 
 /* ---------- Advanced tab: node canvas ---------- */
-/* With a fourth tab in the header, the left side takes the room it needs and the search box gives way. */
-.topbar.has-adv { grid-template-columns: auto minmax(0, 440px) minmax(0, 1fr); }
+/* Search stays centred: the side columns are equal unless one needs more room, and the search box never sits under them.
+   With the fourth tab on a narrower desktop, the brand name gives way (the logo stays). */
+@media (max-width: 1600px) { .topbar.has-adv .brand { display: none; } }
 .gwork { gap: 8px; }
 .gnarrow { max-width: 560px; gap: 14px; }
 .gbar { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; overflow-x: auto; padding: 2px; }
@@ -877,8 +878,35 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .gprompt-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .gprompt-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gtag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
-.gtext { margin: 0; max-height: 140px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-size: 11.5px; color: var(--soft); user-select: text; }
+.gtext { margin: 0; max-height: 140px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-size: 11.5px; color: var(--soft); }
 .gpending { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: var(--glass-strong); box-shadow: 0 0 0 1px var(--line2); font-size: 12.5px; pointer-events: none; }
-.gadd { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); width: 300px; padding: 12px; border-radius: 14px; box-shadow: 0 0 0 1px var(--line2), 0 18px 40px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; gap: 8px; cursor: default; z-index: 5; }
+.gadd { position: absolute; width: 280px; padding: 12px; border-radius: 14px; box-shadow: 0 0 0 1px var(--line2), 0 18px 40px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; gap: 8px; cursor: default; z-index: 5; }
 .gadd .grow b { flex: 1; }
 .gadd .gclose { width: 28px; height: 28px; }
+/* v-02: menus, templates, render button, no text selection on the canvas */
+.gcanvas { user-select: none; -webkit-user-select: none; }
+.gcanvas input, .gcanvas textarea, .gcanvas select { user-select: text; -webkit-user-select: text; }
+.gend { margin-left: auto; display: flex; align-items: center; gap: 8px; padding-left: 8px; }
+.btn.grender { padding: 11px 22px; font-size: 15px; font-weight: 800; border-radius: 12px; gap: 10px; }
+.btn.grender:disabled { opacity: 0.55; }
+.gsoon { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent-ink) 18%, transparent); }
+.gtpl { position: fixed; z-index: 40; width: 320px; padding: 8px; border-radius: 14px; box-shadow: 0 0 0 1px var(--line2), 0 18px 40px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; gap: 2px; }
+.gtpl button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; border: 0; background: transparent; color: var(--text); padding: 8px 10px; border-radius: 9px; cursor: pointer; }
+.gtpl button small { color: var(--muted); font-size: 12px; }
+.gtpl button:hover, .gtpl button:focus-visible { background: var(--raised); transform: none; }
+.gtpl .gmuted { padding: 6px 10px 2px; }
+.gmenu { position: absolute; z-index: 6; width: 240px; padding: 6px; border-radius: 12px; box-shadow: 0 0 0 1px var(--line2), 0 18px 40px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; cursor: default; }
+.gmenu button { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 0; background: transparent; color: var(--text); padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; text-align: left; }
+.gmenu button:hover, .gmenu button:focus-visible { background: var(--raised); transform: none; outline: none; }
+.gmenu .kbd { font-size: 11px; }
+.gmenu-head { font-size: 11px; color: var(--muted); padding: 8px 10px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+.gdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; background: var(--line3); vertical-align: middle; }
+.gdot.k-image { background: #6fa8c9; }
+.gdot.k-look, .gdot.k-light, .gdot.k-surroundings, .gdot.k-fittings { background: var(--accent); }
+.gdot.k-prompt { background: var(--ok); }
+.gdot.k-note { background: var(--warn); }
+.gdial { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.gdial .dial { width: 100%; }
+.gthumb.glook { height: 110px; }
+.hthumb-wait { position: absolute; inset: 0; background: linear-gradient(110deg, var(--panel) 30%, var(--raised) 50%, var(--panel) 70%); background-size: 200% 100%; animation: hwait 1.4s linear infinite; }
+@keyframes hwait { to { background-position: -200% 0; } }

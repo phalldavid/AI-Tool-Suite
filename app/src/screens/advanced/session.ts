@@ -25,8 +25,21 @@ export interface CanvasState {
   selectedWire: string | null;
   pending: Pending | null;
   pictures: Record<string, Picture>;
-  /** Canvas point where "Add node" puts the new node; null when the menu is closed. */
-  addAt: { x: number; y: number } | null;
+  /** Canvas point where "Add node" puts the new node, and where the menu shows on screen; null when closed. */
+  addAt: MenuAt | null;
+  /** Right-click menu; null when closed. */
+  menu: (MenuAt & { node: string | null; wire: string | null }) | null;
+  /** Nodes copied with Ctrl C, as JSON of the graph slice. */
+  copied: Graph | null;
+}
+
+export interface MenuAt {
+  /** canvas units */
+  x: number;
+  y: number;
+  /** px inside the canvas box */
+  sx: number;
+  sy: number;
 }
 
 let state: CanvasState | null = null;
@@ -34,7 +47,7 @@ const listeners = new Set<() => void>();
 let saveTimer = 0;
 
 function init(): CanvasState {
-  return { undo: startUndo(loadLastGraph() ?? starterGraph()), selected: [], selectedWire: null, pending: null, pictures: {}, addAt: null };
+  return { undo: startUndo(loadLastGraph() ?? starterGraph()), selected: [], selectedWire: null, pending: null, pictures: {}, addAt: null, menu: null, copied: null };
 }
 
 export function getCanvas(): CanvasState {
@@ -111,8 +124,35 @@ export function setPending(p: Pending | null): void {
   set({ pending: p });
 }
 
-export function openAdd(at: { x: number; y: number } | null): void {
-  set({ addAt: at });
+export function openAdd(at: MenuAt | null): void {
+  set({ addAt: at, menu: null });
+}
+
+export function openMenu(m: CanvasState["menu"]): void {
+  set({ menu: m, addAt: null });
+}
+
+/** Ctrl C: keeps the selected nodes and the wires between them. */
+export function copyNodes(ids: string[]): void {
+  const g = getCanvas().undo.present;
+  const set_ = new Set(ids);
+  if (!set_.size) return;
+  set({
+    copied: {
+      ...g,
+      nodes: g.nodes.filter((n) => set_.has(n.id)),
+      wires: g.wires.filter((w) => set_.has(w.from.node) && set_.has(w.to.node)),
+    },
+  });
+}
+
+/** Pictures follow copied Image nodes to their copies. */
+export function sharePictures(from: string[], to: string[]): void {
+  const pics = { ...getCanvas().pictures };
+  from.forEach((id, i) => {
+    if (pics[id] && to[i]) pics[to[i]] = pics[id];
+  });
+  set({ pictures: pics });
 }
 
 export function setPicture(nodeId: string, pic: Picture): void {

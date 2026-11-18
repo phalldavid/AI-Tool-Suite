@@ -5,8 +5,12 @@ import type { ChangeEvent } from "react";
 import { NODE_DEFS, lookFor, updateSettings } from "../../core/graph";
 import type { GraphNode, NodeOutput, PortDef, PromptItem, SettingsByKind } from "../../core/graph";
 import { libraryItems, findLibraryItem, matchesWords, searchWords } from "../../core/library";
-import { CONTEXT_GROUPS, contextLabel } from "../../core/context";
-import { LIGHTING } from "../../core/prompt";
+import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "../../core/context";
+import { LIGHTING, dialTimeId, parseDialTime } from "../../core/prompt";
+import { previewFile } from "../../core/preview-files";
+import { lookTile } from "../../lib/lookPreviews";
+import { openPicker } from "../../lib/pickTarget";
+import { SunDial, fmtHour } from "../SunDial";
 import { EXTERIOR_FITTINGS, INTERIOR_FITTINGS, KELVIN_OPTIONS, LEVELS } from "../../lib/fittings";
 import { Icon } from "../../ui/Icon";
 import { toast } from "../../toasts";
@@ -71,6 +75,8 @@ export const NodeCard = memo(function NodeCard({ node, output, selected, dx, dy,
         title={p.label}
         aria-pressed={Boolean(isPending)}
         onPointerDown={(e) => {
+          // The middle button still pans the canvas over a port.
+          if (e.button !== 0) return;
           e.stopPropagation();
           if (side === "out") ui.outDown(e, node.id, p.id);
         }}
@@ -94,7 +100,7 @@ export const NodeCard = memo(function NodeCard({ node, output, selected, dx, dy,
     >
       <div className="gnode-head" onPointerDown={(e) => ui.headerDown(e, node.id)}>
         <span className="gnode-title">{name}</span>
-        <button type="button" className="gnode-x" aria-label={S.deleteNode} title={S.deleteNode} onPointerDown={(e) => e.stopPropagation()} onClick={() => ui.remove(node.id)}>
+        <button type="button" className="gnode-x" aria-label={S.deleteNode} title={S.deleteNode} onPointerDown={(e) => e.button === 0 && e.stopPropagation()} onClick={() => ui.remove(node.id)}>
           <Icon name="close" size={14} />
         </button>
       </div>
@@ -200,13 +206,24 @@ function LookBody({ node }: { node: GraphNode<"look"> }) {
   return (
     <>
       {picked ? (
-        <div className="gpicked">
-          <b data-no-translate>{picked.name}</b>
-          <button type="button" className="linkish" onClick={() => set<"look">(node.id, { presetId: null })}>{S.clearLook}</button>
-        </div>
+        <>
+          <LookPicture id={picked.id} />
+          <div className="gpicked">
+            <b data-no-translate>{picked.name}</b>
+            <button type="button" className="linkish" onClick={() => set<"look">(node.id, { presetId: null })}>{S.clearLook}</button>
+          </div>
+        </>
       ) : (
         <p className="gmuted">{S.noLook}</p>
       )}
+      <button
+        type="button"
+        className="btn gsmall"
+        onClick={() => openPicker({ kind: "look", current: node.settings.presetId ?? "", onPick: (id) => set<"look">(node.id, { presetId: id }) })}
+      >
+        <Icon name="grid" size={14} />
+        {S.browseLooks}
+      </button>
       <input className="input" value={q} placeholder={S.searchLooks} aria-label={S.searchLooks} onChange={(e) => setQ(e.target.value)} />
       {q.trim() ? (
         <div className="glist gscroll" role="listbox" aria-label={S.searchLooks}>
@@ -237,18 +254,30 @@ function LookBody({ node }: { node: GraphNode<"look"> }) {
 
 function LightBody({ node }: { node: GraphNode<"light"> }) {
   const s = node.settings;
-  const known = LIGHTING.some((o) => o.id === s.lighting);
+  const dial = parseDialTime(s.lighting);
+  const known = dial !== null || LIGHTING.some((o) => o.id === s.lighting);
   return (
     <>
       <label className="gfield">
         <span>{S.timeOfDay}</span>
-        <select className="input" value={s.lighting} onChange={(e) => set<"light">(node.id, { lighting: e.target.value })}>
+        <select
+          className="input"
+          value={dial !== null ? "dial" : s.lighting}
+          onChange={(e) => set<"light">(node.id, { lighting: e.target.value === "dial" ? dialTimeId(16.5) : e.target.value })}
+        >
           {known ? null : <option value={s.lighting}>{s.lighting}</option>}
+          <option value="dial">{S.sunDial}</option>
           {LIGHTING.map((o) => (
             <option key={o.id} value={o.id}>{o.label}</option>
           ))}
         </select>
       </label>
+      {dial !== null ? (
+        <div className="gdial">
+          <SunDial id={`dial-${node.id}`} hour={dial} onHour={(h) => set<"light">(node.id, { lighting: dialTimeId(h) }, `dial:${node.id}`)} />
+          <span className="gmuted num" data-no-translate>{fmtHour(dial)}</span>
+        </div>
+      ) : null}
       <label className="gfield">
         <span>{S.lightFor}</span>
         <select className="input" value={s.scene} onChange={(e) => set<"light">(node.id, { scene: e.target.value as SettingsByKind["light"]["scene"] })}>
@@ -287,6 +316,14 @@ function SurroundingsBody({ node }: { node: GraphNode<"surroundings"> }) {
           <span className="gmuted">{S.asModelled}</span>
         )}
       </div>
+      <button
+        type="button"
+        className="btn gsmall"
+        onClick={() => openPicker({ kind: "env", current: joinContexts(list), onPick: (env) => put(parseContexts(env)) })}
+      >
+        <Icon name="grid" size={14} />
+        {S.browsePlaces}
+      </button>
       <select
         className="input"
         value=""
@@ -449,6 +486,19 @@ function PromptBody({ node, items }: { node: GraphNode<"prompt">; items: PromptI
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** The look's card picture, when the library has one. */
+function LookPicture({ id }: { id: string }) {
+  const item = findLibraryItem(id);
+  const pic = item ? previewFile(item.id) ?? lookTile(item) : null;
+  const [broken, setBroken] = useState<string | null>(null);
+  if (!pic || broken === pic) return null;
+  return (
+    <div className="gthumb glook">
+      <img src={pic} alt="" loading="lazy" draggable={false} onError={() => setBroken(pic)} />
     </div>
   );
 }
