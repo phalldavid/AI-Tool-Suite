@@ -13,6 +13,7 @@ import { contextLabel, parseContexts, joinContexts } from "../core/context";
 import type { ProjectType } from "../core/types";
 import { renderCost } from "../lib/cost";
 import { splitTypology } from "../lib/typology";
+import { roomStarter } from "../lib/room";
 import { resetSize, setSizes, useSizes } from "../layout";
 import { Panels } from "../ui/Panels";
 import { Splitter } from "../ui/Splitter";
@@ -293,7 +294,7 @@ function RenderSide() {
                 onClick={() => {
                   if (preset.projectType === id) return;
                   const last = s.lastSetup?.[id]?.preset?.id;
-                  setState({ preset: { ...lookPreset(last ?? STARTERS[id][0]), lighting: preset.lighting, environment: id === "interior" ? "keep" : preset.environment } });
+                  setState({ preset: { ...lookPreset(last ?? (id === "interior" ? roomStarter(getState().captureName) : null) ?? STARTERS[id][0]), lighting: preset.lighting, environment: id === "interior" ? "keep" : preset.environment } });
                 }}
               >
                 {label}

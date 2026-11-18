@@ -6,6 +6,7 @@ import { renderCost, usd } from "../lib/cost";
 import { findKieModel } from "../core/providers/kie-models";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
+import { baseName } from "../lib/room";
 
 /** Saves text as a file in the browser's downloads. */
 function saveText(name: string, text: string, type: string): void {
@@ -26,6 +27,7 @@ export function ReviewSheet() {
   const s = useApp((x) => x.settings);
   const balance = useApp((x) => x.kieCredits);
   const preset = useApp((x) => x.preset);
+  const imageName = useApp((x) => x.captureName);
   const [text, setText] = useState("");
   useEffect(() => setText(review?.prompt ?? ""), [review]);
   if (!review) return <Sheet open={false} onClose={closeReview}>{null}</Sheet>;
@@ -125,7 +127,7 @@ export function ReviewSheet() {
             >
               <Icon name="clipboard" /> Copy
             </button>
-            <button type="button" className="btn ghost" onClick={() => saveText(`${fileName("prompt")}.txt`, `${text}\n`, "text/plain")}>
+            <button type="button" className="btn ghost" onClick={() => saveText(`${fileName(baseName(imageName) || "prompt")}.txt`, `${text}\n`, "text/plain")}>
               <Icon name="download" /> Save as .txt
             </button>
             <button
@@ -133,7 +135,7 @@ export function ReviewSheet() {
               className="btn ghost"
               onClick={() =>
                 saveText(
-                  `${fileName("prompt")}.json`,
+                  `${fileName(baseName(imageName) || "prompt")}.json`,
                   `${JSON.stringify({ app: "David Render Studio", saved: new Date().toISOString(), preset: { id: preset.id, name: preset.name }, prompt: text }, null, 2)}\n`,
                   "application/json",
                 )

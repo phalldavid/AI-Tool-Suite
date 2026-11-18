@@ -21,6 +21,7 @@ function matches(f: string, tool: ToolId, starred?: boolean): boolean {
 }
 import { toDataUrl } from "../core/images";
 import { Icon } from "../ui/Icon";
+import { toast } from "../toasts";
 
 export function HistoryScreen() {
   const history = useApp((s) => s.history);
@@ -79,6 +80,25 @@ export function HistoryScreen() {
                   <button type="button" className="chip-img" style={{ padding: 8 }} aria-label="Copy image" title="Copy image" onClick={() => void copyImage(h.after)}>
                     <Icon name="clipboard" size={14} />
                   </button>
+                  {h.prompt ? (
+                    <button
+                      type="button"
+                      className="chip-img"
+                      style={{ padding: 8 }}
+                      aria-label="Copy prompt"
+                      title="Copy prompt"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(h.prompt);
+                          toast("Prompt copied", "ok");
+                        } catch {
+                          toast("Couldn't copy. Select the text and press Ctrl C.", "error");
+                        }
+                      }}
+                    >
+                      <Icon name="clipboard" size={14} />
+                    </button>
+                  ) : null}
                   <button type="button" className="chip-img" style={{ padding: 8 }} aria-label="Download" title="Download" onClick={() => void download(h.after, h.presetName ?? "render")}>
                     <Icon name="download" size={14} />
                   </button>

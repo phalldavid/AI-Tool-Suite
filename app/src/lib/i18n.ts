@@ -288,6 +288,7 @@ export const KM: Record<string, string> = {
   "Not enough credits": "ក្រេឌីតមិនគ្រប់",
   "Render anyway": "រេនឌ័រទោះយ៉ាងណា",
   "Copy image": "ចម្លងរូបភាព",
+  "Copy prompt": "ចម្លង Prompt",
   "Rename this version": "ប្តូរឈ្មោះកំណែនេះ",
   "Remove this version (it stays in History)": "ដកកំណែនេះចេញ (នៅតែមានក្នុងប្រវត្តិ)",
   "Drag to compare · scroll to zoom": "អូសដើម្បីប្រៀបធៀប · រំកិលដើម្បីពង្រីក",
