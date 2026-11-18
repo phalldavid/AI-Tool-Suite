@@ -74,7 +74,7 @@ export function ConfirmRun({ n, cost, where, backend, testMode, balance, skipped
         </dl>
         <p className="note">{sent}</p>
         <p className="note">{S.oneByOne}</p>
-        {skipped ? <p className="gmuted num">{`${skipped} skipped: already rendered or no picture`}</p> : null}
+        {skipped ? <p className="gmuted num">{`${skipped} skipped: already made, or nothing to work on`}</p> : null}
         {cost.unknown ? (
           <div className="check warn">
             <Icon name="warn" size={18} style={{ color: "var(--warn)", marginTop: 1 }} />

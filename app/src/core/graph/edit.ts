@@ -130,14 +130,21 @@ export const ADD_MENU: { kind: NodeKind; words: string }[] = [
   { kind: "note", words: "note comment text reminder" },
   { kind: "render", words: "render run image ai make generate" },
   { kind: "result", words: "result output picture before after" },
+  { kind: "relight", words: "relight light time night day sky change light" },
+  { kind: "view", words: "new view camera angle orbit multi view move" },
+  { kind: "edit", words: "edit change words fix add remove" },
+  { kind: "style", words: "style copy reference photo match mood" },
 ];
 
+/** Kinds that match every word; ones whose name matches come first, so Enter picks what you typed. */
 export function searchAddMenu(query: string): NodeKind[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return ADD_MENU.filter((m) => {
-    const hay = `${NODE_DEFS[m.kind].label.toLowerCase()} ${m.words}`;
-    return words.every((w) => hay.includes(w));
-  }).map((m) => m.kind);
+  const q = query.toLowerCase().trim();
+  const words = q.split(/\s+/).filter(Boolean);
+  const score = (label: string) => (!q ? 0 : label.startsWith(q) ? 3 : label.includes(q) ? 2 : words.every((w) => label.includes(w)) ? 1 : 0);
+  return ADD_MENU.map((m, i) => ({ m, i, label: NODE_DEFS[m.kind].label.toLowerCase() }))
+    .filter(({ m, label }) => words.every((w) => `${label} ${m.words}`.includes(w)))
+    .sort((a, b) => score(b.label) - score(a.label) || a.i - b.i)
+    .map(({ m }) => m.kind);
 }
 
 /**

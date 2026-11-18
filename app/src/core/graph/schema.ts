@@ -3,7 +3,7 @@
 
 import { findLibraryItem } from "../library";
 import { CONTEXT_GROUPS } from "../context";
-import { LIGHTING, parseDialTime } from "../prompt";
+import { INTERIOR_RELIGHT, LIGHTING, URBAN_RELIGHT, parseDialTime } from "../prompt";
 import { EXTERIOR_FITTINGS, INTERIOR_FITTINGS, KELVIN_OPTIONS, LEVELS } from "../../lib/fittings";
 import type { FittingState } from "../../lib/fittings";
 import { NODE_DEFS, isNodeKind } from "./nodes";
@@ -61,6 +61,13 @@ const LIGHT_IDS = new Set(["sketchup", ...LIGHTING.map((o) => o.id)]);
 const CONTEXT_IDS = new Set(CONTEXT_GROUPS.flatMap((g) => g.items.map((c) => c.id)));
 const FITTING_IDS = new Set([...INTERIOR_FITTINGS, ...EXTERIOR_FITTINGS].map((f) => f.id));
 const KELVINS = new Set(KELVIN_OPTIONS.map((o) => o.k));
+
+const RELIGHT_IDS = new Set([...INTERIOR_RELIGHT, ...URBAN_RELIGHT].map((o) => o.id));
+
+/** Any light the Edit tab's Relight offers (time of day, interior, street) or a dial time. */
+export function isRelightId(v: unknown): v is string {
+  return isLightingId(v) || (typeof v === "string" && RELIGHT_IDS.has(v));
+}
 
 export function isLightingId(v: unknown): v is string {
   if (typeof v !== "string") return false;
@@ -150,6 +157,29 @@ function readSettings<K extends NodeKind>(r: Reader, kind: K, raw: unknown): Set
     case "render":
     case "result":
       return {} as SettingsByKind[K];
+    case "relight": {
+      const lighting = get(o, "lighting");
+      const scene = get(o, "scene");
+      const ok = isRelightId(lighting);
+      if (lighting !== undefined && !ok) r.warn("A Relight node had an unknown light; it was reset.");
+      return { lighting: ok ? lighting : "blue-hour", scene: scene === "interior" || scene === "exterior" ? scene : "auto" } as SettingsByKind[K];
+    }
+    case "view":
+      return {
+        orbit: Math.round(r.num(get(o, "orbit"), -180, 180, 35)),
+        tilt: Math.round(r.num(get(o, "tilt"), 0, 85, 15)),
+        lensMm: Math.round(r.num(get(o, "lensMm"), 10, 200, 35)),
+        distanceM: Math.round(r.num(get(o, "distanceM"), 1, 1000, 35)),
+      } as SettingsByKind[K];
+    case "edit":
+      return { change: r.text(get(o, "change"), LIMITS.text, "An edit") } as SettingsByKind[K];
+    case "style": {
+      const light = get(o, "light");
+      return {
+        scene: get(o, "scene") === "interior" ? "interior" : "exterior",
+        light: light === "reference" || isLightingId(light) ? light : "reference",
+      } as SettingsByKind[K];
+    }
   }
   return d as SettingsByKind[K];
 }

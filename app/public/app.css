@@ -937,7 +937,7 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .gjobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
 .gjobs.list { max-height: none; }
 .gjob { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; padding: 5px 8px; border-radius: 8px; background: var(--well); }
-.gjob b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gjob b { font-weight: 600; }
 .gjob > span:last-child { color: var(--muted); white-space: nowrap; }
 .gjob-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line3); }
 .gjob.t-rendering .gjob-dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; color: var(--accent); }
@@ -955,3 +955,8 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .gport.t-result, .gwire.t-result { background: #b58ad6; stroke: #b58ad6; }
 .gdot.k-render { background: var(--ok); }
 .gdot.k-result { background: #b58ad6; }
+.gjob-text { min-width: 0; display: flex; flex-direction: column; }
+.gjob-text b, .gjob-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gjob-text small { color: var(--muted); font-size: 11px; }
+.gslider input[type="range"] { width: 100%; accent-color: var(--accent); }
+.gslider > span { display: flex; justify-content: space-between; gap: 8px; }

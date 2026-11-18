@@ -8,7 +8,7 @@ export const HEADER_H = 38;
 export const PORT_TOP = 54;
 export const PORT_GAP = 30;
 
-const WIDTH: Partial<Record<NodeKind, number>> = { prompt: 380, note: 240, fittings: 290, render: 260, result: 340 };
+const WIDTH: Partial<Record<NodeKind, number>> = { prompt: 380, note: 240, fittings: 290, render: 260, result: 340, relight: 280, view: 290, edit: 280, style: 290 };
 
 export function nodeWidth(kind: NodeKind): number {
   return WIDTH[kind] ?? 270;

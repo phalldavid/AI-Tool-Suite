@@ -6,7 +6,7 @@ import { setState, useApp } from "../store";
 import { toast } from "../toasts";
 import { Icon } from "../ui/Icon";
 import { useViewport } from "../layout";
-import { TEMPLATES, allJobs, planRun, runBlocker, runCost, allPrompts, applyTemplate, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, zipFiles } from "../core/graph";
+import { RUNNER_KINDS, TEMPLATES, allJobs, planRun, runBlocker, runCost, allPrompts, applyTemplate, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, zipFiles } from "../core/graph";
 import type { EvalCache } from "../core/graph";
 import { Canvas, addPictureFiles } from "./advanced/Canvas";
 import { commit, commitView, endTypingRun, graph, openAdd, redo, replaceGraph, setPanel, undo, useCanvas } from "./advanced/session";
@@ -14,6 +14,7 @@ import { Panel } from "./advanced/Panel";
 import { ConfirmRun } from "./advanced/ConfirmRun";
 import { runJobs, stopAll, whereLabel } from "./advanced/runner";
 import { renderCost } from "../lib/cost";
+import { editModelId } from "../actions";
 import { useRunCap } from "../lib/advanced";
 import { screenToWorld, zoomAt } from "./advanced/geometry";
 import { S } from "./advanced/strings";
@@ -93,11 +94,15 @@ function AdvancedDesktop() {
   const [confirm, setConfirm] = useState(false);
   const jobs = result.ok ? allJobs(g, result.outputs) : [];
   const plan = planRun(jobs, (id) => Boolean(pictures[id]), results, again);
-  const cost = runCost(plan.jobs.length, renderCost({ ...settings, imageCount: 1 }), Boolean(settings.testMode));
+  // A render costs what the Render tab's model costs; steps on a picture use the Edit tab's model.
+  const one = { ...settings, imageCount: 1 };
+  const renderOne = renderCost(one);
+  const editOne = renderCost(one, settings.backend === "kie" ? editModelId() : one.kieModel);
+  const cost = runCost(plan.jobs.map((j) => (j.kind === "render" ? renderOne : editOne)), Boolean(settings.testMode));
   const blocker = runBlocker({
     backend: settings.backend,
     testMode: Boolean(settings.testMode),
-    renderNodes: g.nodes.filter((n) => n.kind === "render").length,
+    renderNodes: g.nodes.filter((n) => RUNNER_KINDS.includes(n.kind)).length,
     plan,
     cost,
     cap,
@@ -296,7 +301,7 @@ function AdvancedDesktop() {
         <div className="gstatus">
           <span className="num">{`${prompts.length} prompts ready`}</span>
           <span className="num">{`${images} of 30 images`}</span>
-          {g.nodes.some((n) => n.kind === "render") ? null : <span>{S.promptsOnly}</span>}
+          {g.nodes.some((n) => RUNNER_KINDS.includes(n.kind)) ? null : <span>{S.promptsOnly}</span>}
           {result.ok ? null : <span className="gbad">{result.error}</span>}
           {blocker && !running ? <span className="gwarn">{blocker}</span> : null}
         </div>
@@ -312,7 +317,7 @@ function AdvancedDesktop() {
             backend={settings.backend}
             testMode={Boolean(settings.testMode)}
             balance={balance}
-            skipped={plan.done.length + plan.noPicture.length}
+            skipped={plan.done.length + plan.noPicture.length + plan.noSource.length}
             onCancel={() => setConfirm(false)}
             onGo={() => {
               setConfirm(false);

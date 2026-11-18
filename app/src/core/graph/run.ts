@@ -17,22 +17,40 @@ export interface RunPlan {
   done: RenderJob[];
   /** The Image node has no picture loaded (after a reload, for example). */
   noPicture: RenderJob[];
+  /** Chain steps whose source picture is neither made nor made in this run. */
+  noSource: RenderJob[];
 }
 
 /**
- * Splits the jobs into ones to render, ones already rendered with the same
- * prompt, and ones whose picture is missing. `again` renders finished ones too.
+ * Splits the jobs (in wire order) into ones to render, ones already rendered
+ * with the same prompt, and ones that can't run: no picture, or the step before
+ * them isn't made. A step runs again when its source is made again in this run.
+ * `again` renders finished ones too.
  */
 export function planRun(jobs: RenderJob[], hasPicture: (imageNodeId: string) => boolean, done: Record<string, DoneMark | undefined>, again = false): RunPlan {
-  const plan: RunPlan = { jobs: [], done: [], noPicture: [] };
+  const plan: RunPlan = { jobs: [], done: [], noPicture: [], noSource: [] };
   const seen = new Set<string>();
+  const scheduled = new Set<string>();
   for (const j of jobs) {
     const key = resultKey(j);
     if (seen.has(key)) continue;
     seen.add(key);
-    if (!hasPicture(j.imageNodeId)) plan.noPicture.push(j);
+    if (j.sourceKey) {
+      const remade = scheduled.has(j.sourceKey);
+      if (!remade && !done[j.sourceKey]) plan.noSource.push(j);
+      else if (!again && !remade && done[key]?.promptHash === j.promptHash) plan.done.push(j);
+      else {
+        plan.jobs.push(j);
+        scheduled.add(key);
+      }
+      continue;
+    }
+    if (!hasPicture(j.imageNodeId) || (j.refImageNodeId && !hasPicture(j.refImageNodeId))) plan.noPicture.push(j);
     else if (!again && done[key]?.promptHash === j.promptHash) plan.done.push(j);
-    else plan.jobs.push(j);
+    else {
+      plan.jobs.push(j);
+      scheduled.add(key);
+    }
   }
   return plan;
 }
@@ -54,11 +72,13 @@ export interface RunCost {
   label: string;
 }
 
-export function runCost(n: number, one: OneCost, testMode: boolean): RunCost {
+/** Total cost of a run, one cost per job (renders and edit steps can use different models). */
+export function runCost(costs: OneCost[], testMode: boolean): RunCost {
   if (testMode) return { credits: null, unknown: false, paid: false, label: "Test, nothing is spent" };
-  if (!one.paid) return { credits: null, unknown: false, paid: false, label: one.label === "Local" ? "Your own PC, free" : "Free" };
-  if (one.credits === null) return { credits: null, unknown: true, paid: true, label: "Cost unknown" };
-  const credits = Math.round(one.credits * n * 100) / 100;
+  const paid = costs.filter((c) => c.paid);
+  if (!paid.length) return { credits: null, unknown: false, paid: false, label: costs.some((c) => c.label === "Local") ? "Your own PC, free" : "Free" };
+  if (paid.some((c) => c.credits === null)) return { credits: null, unknown: true, paid: true, label: "Cost unknown" };
+  const credits = Math.round(paid.reduce((n, c) => n + (c.credits ?? 0), 0) * 100) / 100;
   return { credits, unknown: false, paid: true, label: `about ${credits} credits` };
 }
 
@@ -83,6 +103,7 @@ export function runBlocker(c: RunCheck): string | null {
   const n = c.plan.jobs.length;
   if (!n) {
     if (c.plan.noPicture.length) return "The images have no picture loaded. Choose the pictures again on the Image nodes.";
+    if (c.plan.noSource.length) return "These steps work on a render that isn't made yet. Render the step before them first.";
     if (c.plan.done.length) return "Everything here is already rendered. Change a prompt, or use Render again.";
     return "Nothing to render yet. Wire images into a Prompt node, then the Prompt node into a Render node.";
   }

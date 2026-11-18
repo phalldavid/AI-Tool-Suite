@@ -96,8 +96,14 @@ test("undo keeps the current pan and zoom", () => {
 test("add-node search finds kinds by plain words", () => {
   assert.deepEqual(searchAddMenu("sun"), ["light"]);
   assert.deepEqual(searchAddMenu("screenshot"), ["image"]);
-  assert.equal(searchAddMenu("").length, 9);
+  assert.equal(searchAddMenu("").length, 13);
   assert.deepEqual(searchAddMenu("zzz"), []);
+  // the node whose name you typed comes first, so Enter adds it
+  assert.equal(searchAddMenu("style")[0], "style");
+  assert.equal(searchAddMenu("new view")[0], "view");
+  assert.equal(searchAddMenu("re")[0], "render");
+  assert.equal(searchAddMenu("rel")[0], "relight");
+  assert.equal(searchAddMenu("light")[0], "light");
 });
 
 test("save all prompts: one txt per image, unique names, prompts.json like the CLI batch", () => {

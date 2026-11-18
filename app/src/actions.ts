@@ -23,9 +23,10 @@ import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
 import { cameraPromptLine } from "./lib/camera";
 import { composeRenderPrompt } from "./core/render-prompt";
+import { VIEW_SUN, relightPrompt } from "./core/edit-prompts";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
-import { lightingGuidance, styleCopyPrompt, withOverride } from "./lib/lighting";
+import { styleCopyPrompt, withOverride } from "./lib/lighting";
 import type { LightScene } from "./lib/lighting";
 import { fittingsLine, loadFittings } from "./lib/fittings";
 import { findKieModel } from "./core/providers/kie-models";
@@ -344,8 +345,6 @@ function modelLabel(id?: string): string {
   return s.testMode ? "Test mode" : s.backend === "kie" ? findKieModel(id ?? s.kieModel).label : s.backend === "browser" ? "Prompt Copy" : s.backend === "gemini" ? "Gemini API" : "ComfyUI";
 }
 
-/** New views copy the light of the look source; the Render tab's sun is not used. */
-const VIEW_SUN = "the same sun direction, time of day and sky as the look source image";
 
 /** Where the sun is, in words tied to the building (for new views). */
 function sunForViews(): string {
@@ -748,7 +747,8 @@ export async function runRelight(lightId: string): Promise<void> {
   const src = activeImage();
   if (!src) return;
   const light = relightText(lightId, getState().capture?.facts) ?? lightingText(lightId) ?? lightId;
-  const prompt = `Change only the lighting and sky of this image to: ${light}. ${lightingGuidance(editLightScene())} Shadows and reflections must match the new light. Keep every building, material, object and the camera exactly as they are. The result must look like a real photograph.`;
+  // Same text as before, now shared with the Advanced tab's Relight node (core/edit-prompts.ts).
+  const prompt = relightPrompt(lightId, editLightScene(), getState().capture?.facts);
   const size = await imageSize(src);
   const s = getState().settings;
   if (s.backend === "browser" && !s.testMode) {
