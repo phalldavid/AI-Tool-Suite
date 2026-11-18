@@ -1,15 +1,17 @@
 // The node canvas: pan, zoom, move nodes, draw wires. Nodes move with CSS
 // transforms and wires are SVG paths; the graph is only committed when a drag ends.
+// The browser's own right-click menu is replaced by the canvas menu.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NODE_DEFS, addImages, addNode, cannotAdd, moveNodes, removeNodes, removeWires, searchAddMenu, setView, wire, wiresInto } from "../../core/graph";
+import { NODE_DEFS, addImages, addNode, cannotAdd, duplicateNodes, moveNodes, pasteNodes, removeNodes, removeWires, searchAddMenu, setView, wire, wiresInto, wiresOf } from "../../core/graph";
 import type { EvalCache, GraphView, NodeKind, PortRef } from "../../core/graph";
 import { fileToImage, shrinkJpeg, toDataUrl } from "../../core/images";
 import { toast } from "../../toasts";
 import { Icon } from "../../ui/Icon";
 import { NodeCard } from "./NodeCard";
 import type { PortHandlers } from "./NodeCard";
-import { commit, commitView, getCanvas, graph, openAdd, redo, select, selectWire, setPending, setPicture, undo, useCanvas } from "./session";
+import { commit, commitView, copyNodes, getCanvas, graph, openAdd, openMenu, redo, select, selectWire, setPending, setPicture, sharePictures, undo, useCanvas } from "./session";
+import type { MenuAt } from "./session";
 import { fitView, portPoint, screenToWorld, wirePath, zoomAt } from "./geometry";
 import { S } from "./strings";
 
@@ -18,7 +20,7 @@ type Gesture =
   | { type: "move"; id: number; sx: number; sy: number; ids: string[]; moved: boolean }
   | { type: "link"; id: number; sx: number; sy: number; moved: boolean };
 
-const KIND_NAME: Record<NodeKind, string> = {
+export const KIND_NAME: Record<NodeKind, string> = {
   image: S.image,
   look: S.look,
   light: S.light,
@@ -61,6 +63,35 @@ export function addPictureFiles(files: File[], at: { x: number; y: number }): vo
   r.added.forEach((id, i) => void loadPicture(id, pics[i]));
 }
 
+/** Ctrl D (and Ctrl Shift D, which keeps the wires coming in). */
+export function duplicateSelection(keepInputs: boolean): string[] {
+  const ids = getCanvas().selected;
+  if (!ids.length) return [];
+  // Copies go just below the originals, so they never hide them.
+  const nodes = graph().nodes.filter((n) => ids.includes(n.id));
+  const top = Math.min(...nodes.map((n) => n.y));
+  const bottom = Math.max(...nodes.map((n) => n.y + (document.querySelector<HTMLElement>(`[data-node-id="${n.id}"]`)?.offsetHeight ?? 200)));
+  const r = duplicateNodes(graph(), ids, 0, bottom - top + 30, keepInputs);
+  if ("reason" in r) {
+    toast(r.reason, "warn");
+    return [];
+  }
+  commit(r.graph);
+  sharePictures(ids, r.ids);
+  select(r.ids);
+  return r.ids;
+}
+
+export function pasteAt(at: { x: number; y: number }): void {
+  const slice = getCanvas().copied;
+  if (!slice) return;
+  const r = pasteNodes(graph(), slice, at.x, at.y);
+  if ("reason" in r) return void toast(r.reason, "warn");
+  commit(r.graph);
+  sharePictures(r.from, r.ids);
+  select(r.ids);
+}
+
 export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: number }) {
   const g = useCanvas((s) => s.undo.present);
   const selected = useCanvas((s) => s.selected);
@@ -68,6 +99,8 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
   const pending = useCanvas((s) => s.pending);
   const pictures = useCanvas((s) => s.pictures);
   const addAt = useCanvas((s) => s.addAt);
+  const menu = useCanvas((s) => s.menu);
+  const copied = useCanvas((s) => s.copied);
   const root = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const [view, setLiveView] = useState<GraphView>(g.view);
@@ -77,6 +110,8 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
   const [link, setLink] = useState<{ x: number; y: number } | null>(null);
   const focusNext = useRef<string | null>(null);
   const wheelTimer = useRef(0);
+  /** Last pointer position inside the canvas, for Shift A and Ctrl V. */
+  const mouse = useRef<{ sx: number; sy: number } | null>(null);
 
   // Undo, a new graph or an opened file bring their own view.
   useEffect(() => setLiveView(g.view), [g.view]);
@@ -106,10 +141,17 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     const { sx, sy } = local(clientX, clientY);
     return screenToWorld(viewRef.current, sx, sy);
   };
-  const centre = () => {
+  /** Where a menu or a new node goes: the mouse if it is over the canvas, else the middle. */
+  const here = (): MenuAt => {
     const r = root.current?.getBoundingClientRect();
-    const p = screenToWorld(viewRef.current, (r?.width ?? 800) / 2 - 130, (r?.height ?? 600) / 3);
-    return { x: Math.round(p.x), y: Math.round(p.y) };
+    const m = mouse.current ?? { sx: (r?.width ?? 800) / 2 - 130, sy: (r?.height ?? 600) / 3 };
+    const p = screenToWorld(viewRef.current, m.sx, m.sy);
+    return { x: Math.round(p.x), y: Math.round(p.y), sx: m.sx, sy: m.sy };
+  };
+  const atClient = (clientX: number, clientY: number): MenuAt => {
+    const { sx, sy } = local(clientX, clientY);
+    const p = screenToWorld(viewRef.current, sx, sy);
+    return { x: Math.round(p.x), y: Math.round(p.y), sx, sy };
   };
 
   const tryConnect = (from: PortRef, to: PortRef) => {
@@ -125,13 +167,17 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     else if (s.selected.length) commit(removeNodes(graph(), s.selected));
   };
 
-  // Wheel zoom needs a non-passive listener to stop the page from scrolling.
+  // Wheel zooms the canvas. Inside the selected node, a list or text that can
+  // scroll gets the wheel instead, so a node you are not working in never traps it.
   useEffect(() => {
     const el = root.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      const scroller = (e.target as HTMLElement).closest(".gscroll") as HTMLElement | null;
-      if (scroller && scroller.scrollHeight > scroller.clientHeight && !e.ctrlKey) return;
+      const t = e.target as HTMLElement;
+      const scroller = t.closest(".gscroll") as HTMLElement | null;
+      const node = t.closest<HTMLElement>("[data-node-id]");
+      const inSelected = node && getCanvas().selected.includes(node.dataset.nodeId!);
+      if (!e.ctrlKey && scroller && inSelected && scroller.scrollHeight > scroller.clientHeight) return;
       e.preventDefault();
       const { sx, sy } = local(e.clientX, e.clientY);
       const v = zoomAt(viewRef.current, sx, sy, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
@@ -143,12 +189,12 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // Focus a node that was just added from the menu, for keyboard users.
+  // Focus a node that was just added, for keyboard users.
   useEffect(() => {
     if (!focusNext.current) return;
     const el = root.current?.querySelector<HTMLElement>(`[data-node-id="${focusNext.current}"]`);
     focusNext.current = null;
-    el?.focus();
+    el?.focus({ preventScroll: true });
   });
 
   const ui: PortHandlers = useMemo(
@@ -220,17 +266,25 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 && e.button !== 1) return;
-    if ((e.target as HTMLElement).closest(".gnode, .gwire-hit, .gadd")) return;
+    const target = e.target as HTMLElement;
+    if (getCanvas().menu && !target.closest(".gmenu")) openMenu(null);
+    // Middle button pans from anywhere, nodes included, and never starts the
+    // browser's auto-scroll inside a node.
+    const middle = e.button === 1;
+    if (!middle && e.button !== 0) return;
+    if (!middle && target.closest(".gnode, .gwire-hit, .gadd, .gmenu")) return;
     e.preventDefault();
     root.current?.focus({ preventScroll: true });
-    if (getCanvas().pending) setPending(null);
-    select([]);
+    if (!middle) {
+      if (getCanvas().pending) setPending(null);
+      select([]);
+    }
     root.current?.setPointerCapture(e.pointerId);
     gesture.current = { type: "pan", id: e.pointerId, sx: e.clientX, sy: e.clientY, view: viewRef.current, moved: false };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    mouse.current = local(e.clientX, e.clientY);
     const gs = gesture.current;
     if (!gs || gs.id !== e.pointerId) return;
     const dxs = e.clientX - gs.sx;
@@ -272,47 +326,82 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     }
   };
 
+  const onContextMenu = (e: React.MouseEvent) => {
+    // Text fields keep the browser menu (paste, spelling); everything else gets ours.
+    if (typing(e.target)) return;
+    e.preventDefault();
+    const t = e.target as HTMLElement;
+    const nodeEl = t.closest<HTMLElement>("[data-node-id]");
+    const wireEl = t.closest<SVGElement>("[data-wire-id]");
+    const node = nodeEl?.dataset.nodeId ?? null;
+    if (node && !getCanvas().selected.includes(node)) select([node]);
+    const wireId = wireEl?.getAttribute("data-wire-id") ?? null;
+    if (wireId) selectWire(wireId);
+    openMenu({ ...atClient(e.clientX, e.clientY), node, wire: wireId });
+  };
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest(".gnode, .gwire-hit, .gadd, .gmenu")) return;
+    openAdd(atClient(e.clientX, e.clientY));
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (typing(e.target) && e.key !== "Escape") return;
+    const t = e.target as HTMLElement;
+    if ((typing(t) || t.closest('[role="slider"]')) && e.key !== "Escape") return;
     const mod = e.ctrlKey || e.metaKey;
-    const k = e.key;
+    const k = e.key.toLowerCase();
     const s = getCanvas();
-    if (mod && k.toLowerCase() === "z") {
+    if (mod && k === "z") {
       e.preventDefault();
       if (e.shiftKey) redo();
       else undo();
-    } else if (mod && k.toLowerCase() === "y") {
+    } else if (mod && k === "y") {
       e.preventDefault();
       redo();
-    } else if (mod && k.toLowerCase() === "a") {
+    } else if (mod && k === "a") {
       e.preventDefault();
       select(graph().nodes.map((n) => n.id));
+    } else if (mod && k === "d") {
+      e.preventDefault();
+      focusNext.current = duplicateSelection(e.shiftKey)[0] ?? null;
+    } else if (mod && k === "c") {
+      if (s.selected.length) {
+        e.preventDefault();
+        copyNodes(s.selected);
+      }
+    } else if (mod && k === "v") {
+      if (s.copied) {
+        e.preventDefault();
+        pasteAt(here());
+      }
     } else if (mod) {
       return;
-    } else if (k === "Delete" || k === "Backspace") {
+    } else if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       removeSelection();
-    } else if (k === "Escape") {
-      if (s.addAt) openAdd(null);
+    } else if (e.key === "Escape") {
+      if (s.menu) openMenu(null);
+      else if (s.addAt) openAdd(null);
       else if (s.pending) setPending(null);
       else select([]);
-    } else if (k.startsWith("Arrow")) {
+    } else if (e.key.startsWith("Arrow")) {
       e.preventDefault();
       const step = e.shiftKey ? 50 : 10;
-      const dx = k === "ArrowLeft" ? -step : k === "ArrowRight" ? step : 0;
-      const dy = k === "ArrowUp" ? -step : k === "ArrowDown" ? step : 0;
+      const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+      const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
       if (s.selected.length) commit(moveNodes(graph(), s.selected, dx, dy), `move:${s.selected.join(",")}`);
       else keepView({ ...viewRef.current, x: viewRef.current.x - dx * 4, y: viewRef.current.y - dy * 4 });
-    } else if (k === "a" || k === "A" || k === "/") {
+    } else if (k === "a" || e.key === "/") {
+      // A, Shift A (as in Blender) and / open Add node at the mouse.
       e.preventDefault();
-      openAdd(centre());
-    } else if (k === "+" || k === "=") {
+      openAdd(here());
+    } else if (e.key === "+" || e.key === "=") {
       const r = root.current!.getBoundingClientRect();
       keepView(zoomAt(viewRef.current, r.width / 2, r.height / 2, 1.2));
-    } else if (k === "-") {
+    } else if (e.key === "-") {
       const r = root.current!.getBoundingClientRect();
       keepView(zoomAt(viewRef.current, r.width / 2, r.height / 2, 1 / 1.2));
-    } else if (k === "0") {
+    } else if (e.key === "0") {
       fit();
     }
   };
@@ -329,6 +418,16 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
       return;
     }
     addPictureFiles(files, world(e.clientX, e.clientY));
+  };
+
+  const addAtPoint = (kind: NodeKind, at: { x: number; y: number }) => {
+    const r = addNode(graph(), kind, at.x, at.y);
+    openAdd(null);
+    openMenu(null);
+    if ("reason" in r) return void toast(r.reason, "warn");
+    commit(r.graph);
+    select([r.id!]);
+    focusNext.current = r.id!;
   };
 
   const byId = useMemo(() => new Map(g.nodes.map((n) => [n.id, n])), [g.nodes]);
@@ -360,6 +459,15 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={() => {
+        mouse.current = null;
+      }}
+      onMouseDown={(e) => {
+        // Stops the browser's middle-button auto-scroll everywhere on the canvas.
+        if (e.button === 1) e.preventDefault();
+      }}
+      onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
       onKeyDown={onKeyDown}
       onDragOver={(e) => {
         if ([...(e.dataTransfer?.types ?? [])].includes("Files")) {
@@ -385,7 +493,9 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
                 <path
                   className="gwire-hit"
                   d={d}
+                  data-wire-id={w.id}
                   onPointerDown={(e) => {
+                    if (e.button !== 0) return;
                     e.stopPropagation();
                     selectWire(w.id);
                     root.current?.focus({ preventScroll: true });
@@ -421,27 +531,49 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
           {pending.side === "out" ? S.pickInput : S.pickOutput}
         </div>
       ) : null}
-      {addAt ? (
-        <AddMenu
-          onPick={(kind) => {
-            const r = addNode(graph(), kind, addAt.x, addAt.y);
-            openAdd(null);
-            if ("reason" in r) return void toast(r.reason, "warn");
-            commit(r.graph);
-            select([r.id!]);
-            focusNext.current = r.id!;
-          }}
+      {addAt ? <AddMenu at={addAt} onPick={(kind) => addAtPoint(kind, addAt)} /> : null}
+      {menu ? (
+        <ContextMenu
+          at={menu}
+          onAdd={(kind) => addAtPoint(kind, menu)}
+          items={[
+            ...(menu.wire ? [{ label: S.deleteWire, key: "Delete", run: () => commit(removeWires(graph(), [menu.wire!])) }] : []),
+            ...(menu.node
+              ? [
+                  { label: S.duplicate, key: "Ctrl D", run: () => void duplicateSelection(false) },
+                  { label: S.duplicateWithInputs, key: "Ctrl Shift D", run: () => void duplicateSelection(true) },
+                  { label: S.copy, key: "Ctrl C", run: () => copyNodes(getCanvas().selected) },
+                  { label: S.disconnect, key: "", run: () => commit(removeWires(graph(), wiresOf(graph(), getCanvas().selected))) },
+                  { label: S.deleteNode, key: "Delete", run: () => commit(removeNodes(graph(), getCanvas().selected)) },
+                ]
+              : []),
+            ...(copied ? [{ label: S.paste, key: "Ctrl V", run: () => pasteAt(menu) }] : []),
+            ...(!menu.node && !menu.wire
+              ? [
+                  { label: S.selectAll, key: "Ctrl A", run: () => select(graph().nodes.map((n) => n.id)) },
+                  { label: S.fit, key: "0", run: fit },
+                ]
+              : []),
+          ]}
         />
       ) : null}
     </div>
   );
 }
 
-function AddMenu({ onPick }: { onPick: (k: NodeKind) => void }) {
+/** Keeps a floating menu inside the canvas box. */
+function placeMenu(at: MenuAt, w: number, h: number): React.CSSProperties {
+  const box = document.querySelector(".gcanvas")?.getBoundingClientRect();
+  const maxX = (box?.width ?? 1200) - w - 8;
+  const maxY = (box?.height ?? 800) - h - 8;
+  return { left: Math.max(8, Math.min(at.sx, maxX)), top: Math.max(8, Math.min(at.sy, maxY)) };
+}
+
+function AddMenu({ at, onPick }: { at: MenuAt; onPick: (k: NodeKind) => void }) {
   const [q, setQ] = useState("");
   const kinds = searchAddMenu(q);
   return (
-    <div className="gadd glass" role="dialog" aria-label={S.addTitle} onPointerDown={(e) => e.stopPropagation()}>
+    <div className="gadd glass" style={placeMenu(at, 280, 330)} role="dialog" aria-label={S.addTitle} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <div className="grow">
         <b>{S.addTitle}</b>
         <button type="button" className="icon-btn gclose" aria-label={S.close} title={S.close} onClick={() => openAdd(null)}>
@@ -469,6 +601,7 @@ function AddMenu({ onPick }: { onPick: (k: NodeKind) => void }) {
         {kinds.length ? (
           kinds.map((k) => (
             <button key={k} type="button" role="option" aria-selected={false} onClick={() => onPick(k)}>
+              <span className={`gdot k-${k}`} aria-hidden="true" />
               {KIND_NAME[k]}
             </button>
           ))
@@ -480,3 +613,58 @@ function AddMenu({ onPick }: { onPick: (k: NodeKind) => void }) {
   );
 }
 
+interface MenuItem {
+  label: string;
+  key: string;
+  run: () => void;
+}
+
+function ContextMenu({ at, items, onAdd }: { at: MenuAt; items: MenuItem[]; onAdd: (k: NodeKind) => void }) {
+  const first = useRef<HTMLButtonElement>(null);
+  useEffect(() => first.current?.focus({ preventScroll: true }), []);
+  const kinds = searchAddMenu("");
+  return (
+    <div
+      className="gmenu glass"
+      style={placeMenu(at, 240, 34 * (items.length + kinds.length) + 40)}
+      role="menu"
+      aria-label={S.menu}
+      onPointerDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.preventDefault()}
+      onKeyDown={(e) => {
+        const list = [...(e.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>("button")];
+        const i = list.indexOf(document.activeElement as HTMLButtonElement);
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          e.stopPropagation();
+          list[(i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length]?.focus();
+        }
+      }}
+    >
+      {items.map((it, i) => (
+        <button
+          key={it.label}
+          ref={i === 0 ? first : undefined}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            openMenu(null);
+            it.run();
+          }}
+        >
+          <span>{it.label}</span>
+          {it.key ? <kbd className="kbd">{it.key}</kbd> : null}
+        </button>
+      ))}
+      <div className="gmenu-head">{S.addNode}</div>
+      {kinds.map((k, i) => (
+        <button key={k} ref={!items.length && i === 0 ? first : undefined} type="button" role="menuitem" onClick={() => onAdd(k)}>
+          <span>
+            <span className={`gdot k-${k}`} aria-hidden="true" />
+            {KIND_NAME[k]}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}

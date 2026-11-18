@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { HistoryItem } from "../core/types";
+import { forgetThumbs, readyThumb, thumbFor } from "../lib/thumbs";
 import { useApp } from "../store";
 import { copyImageToClipboard as copyImage, deleteHistoryItem, download, openHistoryItem, toggleStar } from "../actions";
 import type { ToolId } from "../core/types";
@@ -23,8 +25,55 @@ import { toDataUrl } from "../core/images";
 import { Icon } from "../ui/Icon";
 import { toast } from "../toasts";
 
+/**
+ * A small thumbnail made in the background when the card comes near the screen.
+ * The full image is only used if a thumbnail can't be made.
+ */
+function Thumb({ item }: { item: HistoryItem }) {
+  const [url, setUrl] = useState<string | null>(() => readyThumb(item.id) ?? null);
+  const [failed, setFailed] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (url) return;
+    const el = box.current;
+    let live = true;
+    const start = () => {
+      void thumbFor(item.id, item.after).then((u) => {
+        if (!live) return;
+        if (u) setUrl(u);
+        else setFailed(true);
+      });
+    };
+    if (!el || typeof IntersectionObserver === "undefined") {
+      start();
+      return () => {
+        live = false;
+      };
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          start();
+        }
+      },
+      { rootMargin: "600px" },
+    );
+    io.observe(el);
+    return () => {
+      live = false;
+      io.disconnect();
+    };
+  }, [item.id, item.after, url]);
+  if (url) return <img src={url} alt="" decoding="async" />;
+  if (failed) return <img src={toDataUrl(item.after)} alt="" loading="lazy" decoding="async" />;
+  return <span ref={box} className="hthumb-wait" aria-hidden="true" />;
+}
+
 export function HistoryScreen() {
   const history = useApp((s) => s.history);
+  // Thumbnails of deleted renders are freed.
+  useEffect(() => forgetThumbs(new Set(history.map((h) => h.id))), [history]);
   const [q, setQ] = useState("");
   const [f, setF] = useState("all");
   const shown = useMemo(() => {
@@ -64,7 +113,7 @@ export function HistoryScreen() {
             {shown.map((h) => (
               <div key={h.id} style={{ position: "relative" }}>
                 <button type="button" className="hcard lift" style={{ width: "100%" }} onClick={() => openHistoryItem(h)}>
-                  <img src={toDataUrl(h.after)} alt="" loading="lazy" />
+                  <Thumb item={h} />
                   <span className="meta">
                     <b style={{ display: "block" }}>{h.presetName ?? "Render"}</b>
                     <span className="num" style={{ opacity: 0.8 }}>

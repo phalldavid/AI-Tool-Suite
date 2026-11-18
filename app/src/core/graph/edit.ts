@@ -139,26 +139,87 @@ export function searchAddMenu(query: string): NodeKind[] {
 }
 
 /**
- * The starter graph for a new canvas: one Look, one Light and one Prompt,
- * wired, ready for images.
+ * Copies nodes (Ctrl D). Wires between the copied nodes are copied too. With
+ * `keepInputs`, wires coming in from other nodes are copied as well, where the
+ * input takes another wire. Returns the new ids in the same order.
  */
-export function starterGraph(): Graph {
-  let g = emptyGraph("One look, many images");
-  const add = <K extends NodeKind>(kind: K, x: number, y: number, s?: Partial<SettingsByKind[K]>) => {
-    const r = addNode(g, kind, x, y, s);
-    if ("graph" in r) g = r.graph;
-    return r.id!;
+export function duplicateNodes(graph: Graph, ids: string[], dx = 40, dy = 40, keepInputs = false): { graph: Graph; ids: string[] } | { reason: string } {
+  const src = graph.nodes.filter((n) => ids.includes(n.id));
+  if (!src.length) return { graph, ids: [] };
+  if (graph.nodes.length + src.length > LIMITS.nodes) return { reason: `A graph can have at most ${LIMITS.nodes} nodes.` };
+  const imgs = src.filter((n) => n.kind === "image").length;
+  if (imgs && graph.nodes.filter((n) => n.kind === "image").length + imgs > LIMITS.images) return { reason: `A graph can have at most ${LIMITS.images} images.` };
+  let g = graph;
+  const map = new Map<string, string>();
+  for (const n of src) {
+    const id = nextId(g, n.kind);
+    map.set(n.id, id);
+    const settings = JSON.parse(JSON.stringify(n.settings)) as GraphNode["settings"];
+    g = { ...g, nodes: [...g.nodes, { ...n, id, x: Math.round(n.x + dx), y: Math.round(n.y + dy), settings } as GraphNode] };
+  }
+  // Prompt edits follow copied images to their copies.
+  g = {
+    ...g,
+    nodes: g.nodes.map((n) => {
+      if (n.kind !== "prompt" || ![...map.values()].includes(n.id)) return n;
+      const edits = (n.settings as SettingsByKind["prompt"]).edits;
+      return { ...n, settings: { edits: Object.fromEntries(Object.entries(edits).map(([k, v]) => [map.get(k) ?? k, v])) } };
+    }),
   };
-  const look = add("look", 340, 40);
-  const light = add("light", 640, 40);
-  const prompt = add("prompt", 940, 40);
-  add("note", 40, 40, { text: "Drop screenshots on the canvas. Each image gets its own prompt with this look and light." });
-  for (const [f, t] of [
-    [look, light],
-    [light, prompt],
-  ]) {
-    const r = wire(g, { node: f, port: "look" }, { node: t, port: "look" });
+  for (const w of graph.wires) {
+    const from = map.get(w.from.node);
+    const to = map.get(w.to.node);
+    if (to && (from || keepInputs)) {
+      const r = connect(g, { node: from ?? w.from.node, port: w.from.port }, { node: to, port: w.to.port }, nextId(g, "w"));
+      if ("graph" in r) g = r.graph;
+    }
+  }
+  return { graph: g, ids: src.map((n) => map.get(n.id)!) };
+}
+
+/** Wires touching these nodes, for "Disconnect". */
+export function wiresOf(graph: Graph, ids: string[]): string[] {
+  const set = new Set(ids);
+  return graph.wires.filter((w) => set.has(w.from.node) || set.has(w.to.node)).map((w) => w.id);
+}
+
+/**
+ * Ctrl V: puts copied nodes (and the wires between them) into the graph, with
+ * new ids, their top-left corner at (x, y). Returns old and new ids in order.
+ */
+export function pasteNodes(graph: Graph, slice: Pick<Graph, "nodes" | "wires">, x: number, y: number): { graph: Graph; from: string[]; ids: string[] } | { reason: string } {
+  if (!slice.nodes.length) return { graph, from: [], ids: [] };
+  if (graph.nodes.length + slice.nodes.length > LIMITS.nodes) return { reason: `A graph can have at most ${LIMITS.nodes} nodes.` };
+  const imgs = slice.nodes.filter((n) => n.kind === "image").length;
+  if (imgs && graph.nodes.filter((n) => n.kind === "image").length + imgs > LIMITS.images) return { reason: `A graph can have at most ${LIMITS.images} images.` };
+  const minX = Math.min(...slice.nodes.map((n) => n.x));
+  const minY = Math.min(...slice.nodes.map((n) => n.y));
+  let g = graph;
+  const map = new Map<string, string>();
+  for (const n of slice.nodes) {
+    const id = nextId(g, n.kind);
+    map.set(n.id, id);
+    const settings = JSON.parse(JSON.stringify(n.settings)) as GraphNode["settings"];
+    if (n.kind === "prompt") {
+      const edits = (settings as SettingsByKind["prompt"]).edits;
+      (settings as SettingsByKind["prompt"]).edits = Object.fromEntries(Object.entries(edits).filter(([k]) => slice.nodes.some((m) => m.id === k)));
+    }
+    g = { ...g, nodes: [...g.nodes, { ...n, id, x: Math.round(x + n.x - minX), y: Math.round(y + n.y - minY), settings } as GraphNode] };
+  }
+  g = {
+    ...g,
+    nodes: g.nodes.map((n) => {
+      if (n.kind !== "prompt" || ![...map.values()].includes(n.id)) return n;
+      const edits = (n.settings as SettingsByKind["prompt"]).edits;
+      return { ...n, settings: { edits: Object.fromEntries(Object.entries(edits).map(([k, v]) => [map.get(k) ?? k, v])) } };
+    }),
+  };
+  for (const w of slice.wires) {
+    const from = map.get(w.from.node);
+    const to = map.get(w.to.node);
+    if (!from || !to) continue;
+    const r = connect(g, { node: from, port: w.from.port }, { node: to, port: w.to.port }, nextId(g, "w"));
     if ("graph" in r) g = r.graph;
   }
-  return g;
+  return { graph: g, from: slice.nodes.map((n) => n.id), ids: slice.nodes.map((n) => map.get(n.id)!) };
 }

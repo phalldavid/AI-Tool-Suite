@@ -6,7 +6,7 @@ import { setState, useApp } from "../store";
 import { toast } from "../toasts";
 import { Icon } from "../ui/Icon";
 import { useViewport } from "../layout";
-import { allPrompts, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, starterGraph, zipFiles } from "../core/graph";
+import { TEMPLATES, allPrompts, applyTemplate, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, zipFiles } from "../core/graph";
 import type { EvalCache } from "../core/graph";
 import { Canvas, addPictureFiles } from "./advanced/Canvas";
 import { commit, commitView, endTypingRun, graph, openAdd, redo, replaceGraph, undo, useCanvas } from "./advanced/session";
@@ -53,6 +53,15 @@ function AdvancedDesktop() {
   const settings = useApp((s) => s.settings);
   const cache = useRef<EvalCache | undefined>(undefined);
   const [fitSignal, setFitSignal] = useState(0);
+  const [tplAt, setTplAt] = useState<{ left: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!tplAt) return;
+    const close = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement).closest(".gtpl, [aria-haspopup]")) setTplAt(null);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [tplAt]);
   const openInput = useRef<HTMLInputElement>(null);
   const imagesInput = useRef<HTMLInputElement>(null);
 
@@ -133,7 +142,7 @@ function AdvancedDesktop() {
             onChange={(e) => commit(rename(graph(), e.target.value), "graph-name")}
             onBlur={endTypingRun}
           />
-          <button type="button" className="btn primary" onClick={() => openAdd(screenToWorld(graph().view, 200, 120))}>
+          <button type="button" className="btn primary" title={`${S.addNode} · Shift A`} onClick={() => openAdd({ ...screenToWorld(graph().view, 200, 120), sx: 200, sy: 120 })}>
             <Icon name="plus" size={16} />
             {S.addNode}
           </button>
@@ -175,7 +184,19 @@ function AdvancedDesktop() {
             <Icon name="expand" size={16} />
           </button>
           <span className="gsep" />
-          <button type="button" className="btn ghost" onClick={() => replaceGraph(starterGraph())}>{S.newGraph}</button>
+          <button
+            type="button"
+            className="btn ghost"
+            aria-expanded={Boolean(tplAt)}
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setTplAt(tplAt ? null : { left: r.left, top: r.bottom + 6 });
+            }}
+          >
+            <Icon name="layers" size={16} />
+            {S.templates}
+          </button>
           <button type="button" className="btn ghost" onClick={() => openInput.current?.click()}>{S.openGraph}</button>
           <input
             ref={openInput}
@@ -192,11 +213,41 @@ function AdvancedDesktop() {
             <Icon name="download" size={16} />
             {S.saveGraph}
           </button>
-          <button type="button" className="btn primary" disabled={!prompts.length} onClick={saveAll}>
-            <Icon name="download" size={16} />
-            {S.saveAll}
-          </button>
+          <span className="gend">
+            <button type="button" className="btn" disabled={!prompts.length} onClick={saveAll}>
+              <Icon name="download" size={16} />
+              {S.saveAll}
+            </button>
+            {/* Rendering from the canvas arrives with Stage 2, with the cost check and confirm step. */}
+            <button type="button" className="btn primary grender" disabled title={S.renderSoon} aria-describedby="grender-note">
+              <Icon name="aperture" size={18} />
+              {S.render}
+              <span className="gsoon">{S.soon}</span>
+            </button>
+            <span id="grender-note" className="sr-only">{S.renderSoon}</span>
+          </span>
         </div>
+        {tplAt ? (
+          <div className="gtpl glass" role="menu" aria-label={S.templates} style={{ left: tplAt.left, top: tplAt.top }} onKeyDown={(e) => e.key === "Escape" && setTplAt(null)}>
+            {TEMPLATES.map((t, i) => (
+              <button
+                key={t.id}
+                type="button"
+                role="menuitem"
+                autoFocus={i === 0}
+                onClick={() => {
+                  setTplAt(null);
+                  replaceGraph(applyTemplate(graph(), t.build()));
+                  window.setTimeout(() => setFitSignal((n) => n + 1), 50);
+                }}
+              >
+                <b>{t.name}</b>
+                <small>{t.note}</small>
+              </button>
+            ))}
+            <p className="gmuted">{S.templatesKeep}</p>
+          </div>
+        ) : null}
         <div className="gstatus">
           <span className="num">{`${prompts.length} prompts ready`}</span>
           <span className="num">{`${images} of 30 images`}</span>

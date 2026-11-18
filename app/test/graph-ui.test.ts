@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { KM, translate } from "../src/lib/i18n";
 import { S } from "../src/screens/advanced/strings";
-import { NODE_DEFS, makeNode, starterGraph } from "../src/core/graph";
+import { NODE_DEFS, TEMPLATES, makeNode, starterGraph } from "../src/core/graph";
 import { LIGHTING } from "../src/core/prompt";
 import { fitView, nodeWidth, portPoint, screenToWorld, wirePath, zoomAt } from "../src/screens/advanced/geometry";
 import { loadLastGraph, saveLastGraph } from "../src/lib/advanced";
@@ -13,6 +13,7 @@ test("every Advanced tab string has a Khmer entry", () => {
   assert.deepEqual(missing, []);
   for (const d of Object.values(NODE_DEFS)) for (const p of [...d.inputs, ...d.outputs]) assert.ok(km[p.label], p.label);
   for (const o of LIGHTING) assert.ok(km[o.label], o.label);
+  for (const t of TEMPLATES) for (const x of [t.name, t.note]) assert.ok(km[x], x);
 });
 
 test("Advanced tab text with numbers is translated", () => {

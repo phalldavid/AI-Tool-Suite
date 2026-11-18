@@ -10,3 +10,4 @@ export * from "./evaluate";
 export * from "./edit";
 export * from "./history";
 export * from "./export";
+export * from "./templates";
