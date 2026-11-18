@@ -76,6 +76,20 @@ export const NODE_DEFS: { [K in NodeKind]: NodeDef<K> } = {
     outputs: [],
     defaults: () => ({ text: "" }),
   },
+  render: {
+    kind: "render",
+    label: "Render",
+    inputs: [{ id: "prompts", type: "prompt", label: "Prompt text in", multi: true }],
+    outputs: [{ id: "results", type: "result", label: "Results out" }],
+    defaults: () => ({}),
+  },
+  result: {
+    kind: "result",
+    label: "Result",
+    inputs: [{ id: "results", type: "result", label: "Results in" }],
+    outputs: [],
+    defaults: () => ({}),
+  },
 };
 
 export const NODE_KINDS = Object.keys(NODE_DEFS) as NodeKind[];

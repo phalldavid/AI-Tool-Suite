@@ -31,6 +31,38 @@ export interface CanvasState {
   menu: (MenuAt & { node: string | null; wire: string | null }) | null;
   /** Nodes copied with Ctrl C, as JSON of the graph slice. */
   copied: Graph | null;
+  /** Finished renders this visit, by resultKey(job). History keeps them for good. */
+  results: Record<string, GraphResult>;
+  /** The run in progress or just finished; null before the first run. */
+  run: RunState | null;
+  /** The right-hand panel is open. */
+  panel: boolean;
+}
+
+export interface GraphResult {
+  promptHash: string;
+  image: ImageData64;
+  before: ImageData64;
+  historyId?: string;
+  at: number;
+}
+
+export type JobStatus = "waiting" | "rendering" | "done" | "failed" | "skipped" | "stopped";
+
+export interface RunJobState {
+  key: string;
+  name: string;
+  lookName: string;
+  status: JobStatus;
+  error?: string;
+}
+
+export interface RunState {
+  status: "running" | "paused" | "finished" | "stopped";
+  jobs: RunJobState[];
+  /** "Test" in Test mode; otherwise the backend and model. */
+  where: string;
+  startedAt: number;
 }
 
 export interface MenuAt {
@@ -47,7 +79,7 @@ const listeners = new Set<() => void>();
 let saveTimer = 0;
 
 function init(): CanvasState {
-  return { undo: startUndo(loadLastGraph() ?? starterGraph()), selected: [], selectedWire: null, pending: null, pictures: {}, addAt: null, menu: null, copied: null };
+  return { undo: startUndo(loadLastGraph() ?? starterGraph()), selected: [], selectedWire: null, pending: null, pictures: {}, addAt: null, menu: null, copied: null, results: {}, run: null, panel: readPanel() };
 }
 
 export function getCanvas(): CanvasState {
@@ -126,6 +158,39 @@ export function setPending(p: Pending | null): void {
 
 export function openAdd(at: MenuAt | null): void {
   set({ addAt: at, menu: null });
+}
+
+const PANEL = "drs2.graph.panel";
+
+function readPanel(): boolean {
+  try {
+    return localStorage.getItem(PANEL) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setPanel(open: boolean): void {
+  set({ panel: open });
+  try {
+    localStorage.setItem(PANEL, open ? "1" : "0");
+  } catch {
+    /* this visit only */
+  }
+}
+
+export function setRun(run: RunState | null): void {
+  set({ run });
+}
+
+export function patchJob(key: string, patch: Partial<RunJobState>): void {
+  const r = getCanvas().run;
+  if (!r) return;
+  set({ run: { ...r, jobs: r.jobs.map((j) => (j.key === key ? { ...j, ...patch } : j)) } });
+}
+
+export function setResult(key: string, res: GraphResult): void {
+  set({ results: { ...getCanvas().results, [key]: res } });
 }
 
 export function openMenu(m: CanvasState["menu"]): void {

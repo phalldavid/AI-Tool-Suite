@@ -147,6 +147,9 @@ function readSettings<K extends NodeKind>(r: Reader, kind: K, raw: unknown): Set
     }
     case "note":
       return { text: r.text(get(o, "text"), LIMITS.text, "A note") } as SettingsByKind[K];
+    case "render":
+    case "result":
+      return {} as SettingsByKind[K];
   }
   return d as SettingsByKind[K];
 }

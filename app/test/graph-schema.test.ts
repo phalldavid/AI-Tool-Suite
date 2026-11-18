@@ -49,7 +49,7 @@ test("unknown fields and kinds are dropped, nothing from the file runs", () => {
         { id: "light", kind: "light", settings: { lighting: "time:25:00", scene: "attic" } },
         { id: "sur", kind: "surroundings", settings: { contexts: ["pp-street", "made-up", "custom:lane, trees", 7] } },
         { id: "fit", kind: "fittings", settings: { fittings: { on: "yes", types: ["cove", "laser"], kelvin: 9999, level: 7 }, materialLock: "true" } },
-        { id: "rnd", kind: "render", settings: { model: "x" } },
+        { id: "rnd", kind: "time-machine", settings: { model: "x" } },
         { id: "bad id!", kind: "note" },
       ],
       wires: [{ id: "w1", from: { node: "rnd", port: "result" }, to: { node: "img", port: "image" } }, "junk"],

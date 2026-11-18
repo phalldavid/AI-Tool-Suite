@@ -10,7 +10,7 @@ import { backendStatus } from "../lib/status";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 import { setDev, unlockDev, useDev } from "../lib/dev";
-import { setAdvancedSwitch, useAdvancedSwitch } from "../lib/advanced";
+import { setAdvancedSwitch, setRunCap, useAdvancedSwitch, useRunCap } from "../lib/advanced";
 import { S } from "../screens/advanced/strings";
 import { startTour } from "./Tour";
 import { setPrefs, usePrefs } from "../prefs";
@@ -84,6 +84,18 @@ function AdvancedSwitch() {
   );
 }
 
+/** Developer: the most renders one press of Render on the Advanced tab may make. */
+function RunCapField() {
+  const cap = useRunCap();
+  return (
+    <label className="field" style={{ gap: 6 }}>
+      <span style={{ fontWeight: 600 }}>{S.capLabel}</span>
+      <input className="input num" type="number" min={1} max={100} value={cap} onChange={(e) => setRunCap(Number(e.target.value))} style={{ width: 110 }} />
+      <small style={{ color: "var(--muted)" }}>{S.capHint}</small>
+    </label>
+  );
+}
+
 function DeveloperSection() {
   const dev = useDev();
   const [word, setWord] = useState("");
@@ -94,6 +106,7 @@ function DeveloperSection() {
         <>
           <p className="note" style={{ margin: 0 }}>Developer mode is on: "Pictures" appears in Browse all for looks and environments, to make card pictures from contact sheets. Test mode appears in the model list and How renders are made.</p>
           <AdvancedSwitch />
+          <RunCapField />
           <LoaderGatherSlider />
           <SlangEditor />
           <div>

@@ -128,6 +128,8 @@ export const ADD_MENU: { kind: NodeKind; words: string }[] = [
   { kind: "fittings", words: "fittings lamps lights notes material lock" },
   { kind: "prompt", words: "prompt text output copy" },
   { kind: "note", words: "note comment text reminder" },
+  { kind: "render", words: "render run image ai make generate" },
+  { kind: "result", words: "result output picture before after" },
 ];
 
 export function searchAddMenu(query: string): NodeKind[] {

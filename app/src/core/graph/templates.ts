@@ -31,6 +31,27 @@ function make(name: string, nodes: [string, NodeKind, number, number, Partial<Se
 }
 
 /** Prompt nodes grow with the images wired in (up to about 600 px), so rows are 620 px apart. */
+/** Adds one Render node fed by every Prompt node, and a Result node after it. */
+function withRender(g: Graph): Graph {
+  const prompts = g.nodes.filter((n) => n.kind === "prompt");
+  if (!prompts.length) return g;
+  const x = Math.max(...prompts.map((n) => n.x)) + 440;
+  const y = Math.min(...prompts.map((n) => n.y));
+  let out = g;
+  const r = addNode(out, "render", x, y);
+  if (!("graph" in r)) return g;
+  out = r.graph;
+  const s = addNode(out, "result", x + 320, y);
+  if (!("graph" in s)) return g;
+  out = s.graph;
+  for (const p of prompts) {
+    const w = wire(out, { node: p.id, port: "prompts" }, { node: r.id!, port: "prompts" });
+    if ("graph" in w) out = w.graph;
+  }
+  const w = wire(out, { node: r.id!, port: "results" }, { node: s.id!, port: "results" });
+  return "graph" in w ? w.graph : out;
+}
+
 const L = (a: string, b: string): [string, string, string, string] => [a, "look", b, "look"];
 
 export const TEMPLATES: Template[] = [
@@ -45,7 +66,7 @@ export const TEMPLATES: Template[] = [
     name: "One look, many images",
     note: "Every screenshot gets the same look and light.",
     build: () =>
-      make(
+      withRender(make(
         "One look, many images",
         [
           ["note", "note", 40, 40, { text: "Drop screenshots on the canvas. Each image gets its own prompt with this look and light." }],
@@ -54,14 +75,14 @@ export const TEMPLATES: Template[] = [
           ["prompt", "prompt", 940, 40],
         ],
         [L("look", "light"), L("light", "prompt")],
-      ),
+      )),
   },
   {
     id: "compare-4",
     name: "Compare 4 looks",
     note: "One image, four styles side by side.",
     build: () =>
-      make(
+      withRender(make(
         "Compare 4 looks",
         [
           ["l1", "look", 340, 40, { presetId: "ext-villa-modern" }],
@@ -74,14 +95,14 @@ export const TEMPLATES: Template[] = [
           ["p4", "prompt", 660, 1900],
         ],
         [L("l1", "p1"), L("l2", "p2"), L("l3", "p3"), L("l4", "p4")],
-      ),
+      )),
   },
   {
     id: "day-night",
     name: "Day and night",
     note: "Same look in afternoon sun and at blue hour.",
     build: () =>
-      make(
+      withRender(make(
         "Day and night",
         [
           ["look", "look", 340, 40],
@@ -91,14 +112,14 @@ export const TEMPLATES: Template[] = [
           ["pn", "prompt", 940, 660],
         ],
         [L("look", "day"), L("look", "night"), L("day", "pd"), L("night", "pn")],
-      ),
+      )),
   },
   {
     id: "interior-lights",
     name: "Interior with lights on",
     note: "Room guess from the file name, daylight and warm fittings.",
     build: () =>
-      make(
+      withRender(make(
         "Interior with lights on",
         [
           ["look", "look", 340, 40],
@@ -107,14 +128,14 @@ export const TEMPLATES: Template[] = [
           ["prompt", "prompt", 1270, 40],
         ],
         [L("look", "light"), L("light", "fit"), L("fit", "prompt")],
-      ),
+      )),
   },
   {
     id: "exterior-setting",
     name: "Exterior in a setting",
     note: "Afternoon sun with a Phnom Penh street around it.",
     build: () =>
-      make(
+      withRender(make(
         "Exterior in a setting",
         [
           ["look", "look", 340, 40],
@@ -123,7 +144,7 @@ export const TEMPLATES: Template[] = [
           ["prompt", "prompt", 1240, 40],
         ],
         [L("look", "light"), L("light", "sur"), L("sur", "prompt")],
-      ),
+      )),
   },
 ];
 

@@ -910,3 +910,46 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .gthumb.glook { height: 110px; }
 .hthumb-wait { position: absolute; inset: 0; background: linear-gradient(110deg, var(--panel) 30%, var(--raised) 50%, var(--panel) 70%); background-size: 200% 100%; animation: hwait 1.4s linear infinite; }
 @keyframes hwait { to { background-position: -200% 0; } }
+/* stage 2: run panel, confirm, Render and Result nodes */
+.grow-main { flex: 1; min-height: 0; display: flex; gap: 10px; }
+.grow-main .gcanvas { flex: 1; min-width: 0; }
+.gpanel { flex: none; width: 340px; overflow-y: auto; border-radius: 16px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; }
+.gpanel-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 10px 16px; background: var(--panel); box-shadow: 0 1px 0 var(--line); border-radius: 16px 16px 0 0; }
+.gpanel-sec { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; box-shadow: 0 1px 0 var(--line); }
+.gpanel-sec h3 { font-size: 13px; color: var(--soft); }
+.gpanel-node .gnode-body { padding: 8px 0 0; }
+.gpanel-node .gthumb { height: 180px; }
+.gpanel-node .gprompts { max-height: none; }
+.gpanel-node .gtext { max-height: 320px; }
+.gpanel-node .gresults { max-height: none; grid-template-columns: minmax(0, 1fr); }
+.gpanel-kind { font-size: 12px; color: var(--muted); }
+.gfacts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+.gfacts dt { color: var(--muted); }
+.gfacts dd { margin: 0; color: var(--text); }
+.gfacts.big { font-size: 14px; gap: 8px 16px; }
+.gnote-warn, .gnote-bad { margin: 0; font-size: 12.5px; padding: 10px 12px; border-radius: 10px; display: flex; flex-direction: column; gap: 6px; }
+.gnote-warn { background: color-mix(in srgb, var(--warn) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent); }
+.gnote-bad { background: color-mix(in srgb, var(--bad) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
+.gstatus .gwarn { color: var(--warn); overflow: hidden; text-overflow: ellipsis; }
+.btn.danger.grender { color: #2a0f0c; }
+.gjobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+.gjobs.list { max-height: none; }
+.gjob { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; padding: 5px 8px; border-radius: 8px; background: var(--well); }
+.gjob b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gjob > span:last-child { color: var(--muted); white-space: nowrap; }
+.gjob-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line3); }
+.gjob.t-rendering .gjob-dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; color: var(--accent); }
+.gjob.t-done .gjob-dot { background: var(--ok); }
+.gjob.t-failed .gjob-dot, .gjob.t-stopped .gjob-dot { background: var(--bad); }
+.gjob.t-changed .gjob-dot, .gjob.t-skipped .gjob-dot { background: var(--warn); }
+.gresults { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 520px; overflow-y: auto; }
+.gresult { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.gresult-pic { position: relative; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: var(--field); display: flex; align-items: center; justify-content: center; text-align: center; }
+.gresult-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gresult figcaption { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11.5px; }
+.gresult figcaption b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gnode.k-render .gnode-head { box-shadow: inset 3px 0 0 var(--ok); }
+.gnode.k-result .gnode-head { box-shadow: inset 3px 0 0 #b58ad6; }
+.gport.t-result, .gwire.t-result { background: #b58ad6; stroke: #b58ad6; }
+.gdot.k-render { background: var(--ok); }
+.gdot.k-result { background: #b58ad6; }

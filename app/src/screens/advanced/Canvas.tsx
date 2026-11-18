@@ -28,6 +28,8 @@ export const KIND_NAME: Record<NodeKind, string> = {
   fittings: S.fittings,
   prompt: S.prompt,
   note: S.note,
+  render: S.render,
+  result: S.result,
 };
 
 function typing(t: EventTarget | null): boolean {
@@ -61,6 +63,12 @@ export function addPictureFiles(files: File[], at: { x: number; y: number }): vo
   commit(r.graph);
   if (r.skipped) toast(cannotAdd(r.graph, "image") ?? "", "warn");
   r.added.forEach((id, i) => void loadPicture(id, pics[i]));
+}
+
+/** A new picture for an Image node: the node takes the file's name. */
+export function choosePictureFor(id: string, file: File): void {
+  commit({ ...graph(), nodes: graph().nodes.map((n) => (n.id === id ? { ...n, settings: { name: file.name.slice(0, 200) } } : n)) });
+  void loadPicture(id, file);
 }
 
 /** Ctrl D (and Ctrl Shift D, which keeps the wires coming in). */
@@ -256,10 +264,7 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
         }
       },
       remove: (id) => commit(removeNodes(graph(), [id])),
-      choosePicture: (id, file) => {
-        commit({ ...graph(), nodes: graph().nodes.map((n) => (n.id === id ? { ...n, settings: { name: file.name.slice(0, 200) } } : n)) });
-        void loadPicture(id, file);
-      },
+      choosePicture: choosePictureFor,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],

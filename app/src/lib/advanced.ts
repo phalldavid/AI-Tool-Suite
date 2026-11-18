@@ -4,7 +4,7 @@
 // .graph.json file the owner saves.
 
 import { useSyncExternalStore } from "react";
-import { parseGraph, serializeGraph } from "../core/graph";
+import { DEFAULT_RUN_CAP, clampCap, parseGraph, serializeGraph } from "../core/graph";
 import type { Graph } from "../core/graph";
 import { useDev } from "./dev";
 
@@ -74,4 +74,41 @@ export function saveLastGraph(graph: Graph): boolean {
   } catch {
     return false;
   }
+}
+
+// ---------- most renders per run (Settings, Developer) ----------
+
+const CAP = "drs2.graph.cap";
+const capListeners = new Set<() => void>();
+
+function readCap(): number {
+  try {
+    const v = localStorage.getItem(CAP);
+    return v === null ? DEFAULT_RUN_CAP : clampCap(v);
+  } catch {
+    return DEFAULT_RUN_CAP;
+  }
+}
+
+let cap = readCap();
+
+export function setRunCap(v: number): void {
+  cap = clampCap(v);
+  try {
+    localStorage.setItem(CAP, String(cap));
+  } catch {
+    /* this visit only */
+  }
+  for (const l of capListeners) l();
+}
+
+export function useRunCap(): number {
+  return useSyncExternalStore(
+    (l) => {
+      capListeners.add(l);
+      return () => capListeners.delete(l);
+    },
+    () => cap,
+    () => cap,
+  );
 }

@@ -10,8 +10,8 @@ export const GRAPH_VERSION = 1;
 /** What a wire carries. Only matching types connect. */
 export type WireType = "image" | "look" | "prompt" | "result";
 
-/** Node kinds in stage 1. Render and Result come in stage 2. */
-export type NodeKind = "image" | "look" | "light" | "surroundings" | "fittings" | "prompt" | "note";
+/** Node kinds. Render and Result arrived in stage 2. */
+export type NodeKind = "image" | "look" | "light" | "surroundings" | "fittings" | "prompt" | "note" | "render" | "result";
 
 export interface ImageSettings {
   /** File name of the picture; the picture itself stays in memory, not in the file. */
@@ -52,6 +52,12 @@ export interface NoteSettings {
   text: string;
 }
 
+/** Render: no settings of its own; the backend and model come from Settings. */
+export type RenderSettings = Record<string, never>;
+
+/** Result: shows what the Render node wired into it made. */
+export type ResultSettings = Record<string, never>;
+
 export interface SettingsByKind {
   image: ImageSettings;
   look: LookSettings;
@@ -60,6 +66,8 @@ export interface SettingsByKind {
   fittings: FittingsSettings;
   prompt: PromptSettings;
   note: NoteSettings;
+  render: RenderSettings;
+  result: ResultSettings;
 }
 
 export interface GraphNode<K extends NodeKind = NodeKind> {

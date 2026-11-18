@@ -1,9 +1,15 @@
 // One node on the canvas: header (drag handle), ports, and its settings.
 
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { NODE_DEFS, lookFor, updateSettings } from "../../core/graph";
-import type { GraphNode, NodeOutput, PortDef, PromptItem, SettingsByKind } from "../../core/graph";
+import { resultKey } from "../../core/graph";
+import type { GraphNode, NodeOutput, PortDef, PromptItem, RenderJob, SettingsByKind } from "../../core/graph";
+import { useApp } from "../../store";
+import { thumbFor } from "../../lib/thumbs";
+import type { ImageData64 } from "../../core/types";
+import type { JobStatus } from "./session";
+import { useCanvas } from "./session";
 import { libraryItems, findLibraryItem, matchesWords, searchWords } from "../../core/library";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "../../core/context";
 import { LIGHTING, dialTimeId, parseDialTime } from "../../core/prompt";
@@ -49,6 +55,8 @@ const NAMES: Record<string, string> = {
   fittings: S.fittings,
   prompt: S.prompt,
   note: S.note,
+  render: S.render,
+  result: S.result,
 };
 
 function set<K extends GraphNode["kind"]>(id: string, patch: Partial<SettingsByKind[K]>, key: string | null = null): void {
@@ -123,7 +131,7 @@ export const NodeCard = memo(function NodeCard({ node, output, selected, dx, dy,
   );
 });
 
-function Body({ node, output, picture, ui }: { node: GraphNode; output: NodeOutput | undefined; picture: Picture | undefined; ui: PortHandlers }) {
+export function Body({ node, output, picture, ui }: { node: GraphNode; output: NodeOutput | undefined; picture: Picture | undefined; ui: PortHandlers }) {
   switch (node.kind) {
     case "image":
       return <ImageBody node={node as GraphNode<"image">} picture={picture} ui={ui} />;
@@ -137,6 +145,10 @@ function Body({ node, output, picture, ui }: { node: GraphNode; output: NodeOutp
       return <FittingsBody node={node as GraphNode<"fittings">} />;
     case "prompt":
       return <PromptBody node={node as GraphNode<"prompt">} items={(output?.ports.prompts as PromptItem[] | undefined) ?? []} />;
+    case "render":
+      return <RenderBody jobs={(output?.ports.results as RenderJob[] | undefined) ?? []} />;
+    case "result":
+      return <ResultBody jobs={(output?.ports.shown as RenderJob[] | undefined) ?? []} />;
     case "note":
       return (
         <textarea
@@ -499,6 +511,99 @@ function LookPicture({ id }: { id: string }) {
   return (
     <div className="gthumb glook">
       <img src={pic} alt="" loading="lazy" draggable={false} onError={() => setBroken(pic)} />
+    </div>
+  );
+}
+
+const STATUS_WORD: Record<JobStatus, string> = {
+  waiting: S.waiting,
+  rendering: S.rendering,
+  done: S.done,
+  failed: S.failed,
+  skipped: S.skipped,
+  stopped: S.stopped,
+};
+
+/** Status of one job: from the run in progress, else from what is already rendered. */
+function useJobStatus(job: RenderJob): { word: string; tone: string } {
+  const key = resultKey(job);
+  const live = useCanvas((s) => s.run?.jobs.find((j) => j.key === key));
+  const res = useCanvas((s) => s.results[key]);
+  if (live && (live.status === "rendering" || live.status === "waiting" || live.status === "failed")) return { word: STATUS_WORD[live.status], tone: live.status };
+  if (res) return res.promptHash === job.promptHash ? { word: S.done, tone: "done" } : { word: S.changed, tone: "changed" };
+  return { word: S.notRendered, tone: "none" };
+}
+
+function JobRow({ job }: { job: RenderJob }) {
+  const st = useJobStatus(job);
+  return (
+    <li className={`gjob t-${st.tone}`}>
+      <span className="gjob-dot" aria-hidden="true" />
+      <b data-no-translate title={`${job.name} · ${job.lookName}`}>{`${job.name || "—"} · ${job.lookName}`}</b>
+      <span>{st.word}</span>
+    </li>
+  );
+}
+
+function RenderBody({ jobs }: { jobs: RenderJob[] }) {
+  const browser = useApp((s) => s.settings.backend === "browser" && !s.settings.testMode);
+  if (browser) return <p className="gmuted">{S.promptReady}</p>;
+  if (!jobs.length) return <p className="gmuted">{S.wireRender}</p>;
+  return <ul className="gjobs gscroll">{jobs.map((j) => <JobRow key={resultKey(j)} job={j} />)}</ul>;
+}
+
+/** A small picture made in the background (full renders are large). */
+function SmallPic({ id, img }: { id: string; img: ImageData64 }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void thumbFor(id, img, 420).then((u) => live && setUrl(u));
+    return () => {
+      live = false;
+    };
+  }, [id, img]);
+  return url ? <img src={url} alt="" draggable={false} /> : <span className="hthumb-wait" aria-hidden="true" />;
+}
+
+export function ResultBody({ jobs }: { jobs: RenderJob[] }) {
+  const results = useCanvas((s) => s.results);
+  const [before, setBefore] = useState<string | null>(null);
+  if (!jobs.length) return <p className="gmuted">{S.wireResult}</p>;
+  return (
+    <div className="gresults gscroll">
+      {jobs.map((j) => {
+        const key = resultKey(j);
+        const r = results[key];
+        return (
+          <figure key={key} className="gresult">
+            <div className="gresult-pic">
+              {r ? (
+                <SmallPic id={`${key}@${r.at}${before === key ? ":before" : ""}`} img={before === key ? r.before : r.image} />
+              ) : (
+                <span className="gmuted">{S.notRendered}</span>
+              )}
+            </div>
+            <figcaption>
+              <b data-no-translate title={`${j.name} · ${j.lookName}`}>{`${j.name || "—"} · ${j.lookName}`}</b>
+              {r && r.promptHash !== j.promptHash ? <span className="gtag">{S.changed}</span> : null}
+              {r ? (
+                <button
+                  type="button"
+                  className="btn gsmall ghost"
+                  aria-pressed={before === key}
+                  title={`${S.before} / ${S.after}`}
+                  onPointerDown={(e) => e.button === 0 && setBefore(key)}
+                  onPointerUp={() => setBefore(null)}
+                  onPointerLeave={() => setBefore(null)}
+                  onKeyDown={(e) => (e.key === " " || e.key === "Enter") && setBefore(before === key ? null : key)}
+                >
+                  {before === key ? S.before : S.after}
+                </button>
+              ) : null}
+            </figcaption>
+          </figure>
+        );
+      })}
     </div>
   );
 }
