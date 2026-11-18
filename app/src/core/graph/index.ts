@@ -1,4 +1,4 @@
-// Node graph engine for the Advanced tab. Stage 0: no UI uses it yet.
+// Node graph engine for the Advanced tab. Pure: no React, no DOM, no backend calls.
 
 export * from "./types";
 export * from "./nodes";
@@ -7,3 +7,6 @@ export * from "./wires";
 export * from "./schema";
 export * from "./serialize";
 export * from "./evaluate";
+export * from "./edit";
+export * from "./history";
+export * from "./export";

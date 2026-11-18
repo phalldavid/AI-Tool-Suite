@@ -1,0 +1,126 @@
+// The canvas's own state, kept out of the main app store so dragging and typing
+// on the canvas never re-render the other tabs. Pictures stay in memory for this
+// visit only; the graph (names and settings) is autosaved after each edit.
+
+import { useSyncExternalStore } from "react";
+import { breakRun, record, redo as redoStep, replacePresent, startUndo, starterGraph, undo as undoStep } from "../../core/graph";
+import type { Graph, PortRef, Undo } from "../../core/graph";
+import type { ImageData64 } from "../../core/types";
+import { loadLastGraph, saveLastGraph } from "../../lib/advanced";
+
+export interface Picture {
+  /** Small JPEG data URL for the node. */
+  thumb: string;
+  /** The picture itself, kept for later stages (render). Never saved in the graph file. */
+  full: ImageData64;
+}
+
+export interface Pending extends PortRef {
+  side: "in" | "out";
+}
+
+export interface CanvasState {
+  undo: Undo;
+  selected: string[];
+  selectedWire: string | null;
+  pending: Pending | null;
+  pictures: Record<string, Picture>;
+  /** Canvas point where "Add node" puts the new node; null when the menu is closed. */
+  addAt: { x: number; y: number } | null;
+}
+
+let state: CanvasState | null = null;
+const listeners = new Set<() => void>();
+let saveTimer = 0;
+
+function init(): CanvasState {
+  return { undo: startUndo(loadLastGraph() ?? starterGraph()), selected: [], selectedWire: null, pending: null, pictures: {}, addAt: null };
+}
+
+export function getCanvas(): CanvasState {
+  if (!state) state = init();
+  return state;
+}
+
+function set(patch: Partial<CanvasState>): void {
+  state = { ...getCanvas(), ...patch };
+  for (const l of listeners) l();
+}
+
+export function useCanvas<T>(pick: (s: CanvasState) => T): T {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => pick(getCanvas()),
+    () => pick(getCanvas()),
+  );
+}
+
+function autosave(): void {
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => saveLastGraph(getCanvas().undo.present), 500);
+}
+
+export function graph(): Graph {
+  return getCanvas().undo.present;
+}
+
+/** Records an edit for undo. `key` joins a run of the same edit (typing) into one step. */
+export function commit(g: Graph, key: string | null = null): void {
+  const s = getCanvas();
+  const ids = new Set(g.nodes.map((n) => n.id));
+  set({
+    undo: record(s.undo, g, key),
+    selected: s.selected.filter((id) => ids.has(id)),
+    selectedWire: s.selectedWire && g.wires.some((w) => w.id === s.selectedWire) ? s.selectedWire : null,
+  });
+  autosave();
+}
+
+/** Pan and zoom: kept and saved, but not an undo step. */
+export function commitView(g: Graph): void {
+  set({ undo: replacePresent(getCanvas().undo, g) });
+  autosave();
+}
+
+export function undo(): void {
+  set({ undo: undoStep(getCanvas().undo), pending: null });
+  autosave();
+}
+
+export function redo(): void {
+  set({ undo: redoStep(getCanvas().undo), pending: null });
+  autosave();
+}
+
+export function endTypingRun(): void {
+  set({ undo: breakRun(getCanvas().undo) });
+}
+
+export function select(ids: string[]): void {
+  set({ selected: ids, selectedWire: null });
+}
+
+export function selectWire(id: string | null): void {
+  set({ selectedWire: id, selected: id ? [] : getCanvas().selected });
+}
+
+export function setPending(p: Pending | null): void {
+  set({ pending: p });
+}
+
+export function openAdd(at: { x: number; y: number } | null): void {
+  set({ addAt: at });
+}
+
+export function setPicture(nodeId: string, pic: Picture): void {
+  set({ pictures: { ...getCanvas().pictures, [nodeId]: pic } });
+}
+
+/** Replace the whole graph (new or opened). Undo can bring the old one back. */
+export function replaceGraph(g: Graph): void {
+  commit(g);
+  set({ selected: [], selectedWire: null, pending: null });
+}

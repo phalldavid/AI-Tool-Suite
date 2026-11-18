@@ -13,6 +13,8 @@ import { RenderScreen } from "./screens/Render";
 import { EditScreen } from "./screens/Edit";
 import { HistoryScreen } from "./screens/History";
 import { SunScreen } from "./screens/Sun";
+import { AdvancedScreen } from "./screens/Advanced";
+import { useAdvancedTab } from "./lib/advanced";
 import { LibrarySheet } from "./ui/LibrarySheet";
 import { EnvPicturesSheet } from "./ui/EnvPicturesSheet";
 import { DynamicSheet } from "./ui/DynamicSheet";
@@ -26,7 +28,10 @@ function typing(t: EventTarget | null): boolean {
 }
 
 export function App() {
-  const tab = useApp((s) => s.tab);
+  const advanced = useAdvancedTab();
+  const picked = useApp((s) => s.tab);
+  // The Advanced tab only shows while it is switched on; otherwise fall back to Render.
+  const tab = picked === "advanced" && !advanced ? "render" : picked;
   const lang = usePrefs().lang;
   useEffect(() => setLanguage(lang), [lang]);
   useFirstStart();
@@ -55,7 +60,7 @@ export function App() {
       else if (k === "3") setState({ tab: "history" });
     };
     const onPaste = (e: ClipboardEvent) => {
-      if (typing(e.target)) return;
+      if (typing(e.target) || getState().tab === "advanced") return; // the canvas handles its own paste
       const f = [...(e.clipboardData?.files ?? [])].find((x) => x.type.startsWith("image/"));
       if (!f) return;
       e.preventDefault();
@@ -71,6 +76,7 @@ export function App() {
       if ([...(e.dataTransfer?.types ?? [])].includes("Files")) e.preventDefault();
     };
     const onDrop = (e: DragEvent) => {
+      if (getState().tab === "advanced") return; // the canvas handles its own drop
       const f = [...(e.dataTransfer?.files ?? [])].find((x) => x.type.startsWith("image/"));
       if (!f) return;
       e.preventDefault();
@@ -98,7 +104,7 @@ export function App() {
       </div>
       <Header />
       <KeyBanner />
-      {tab === "render" ? <RenderScreen /> : tab === "edit" ? <EditScreen /> : tab === "history" ? <HistoryScreen /> : <SunScreen />}
+      {tab === "advanced" ? <AdvancedScreen /> : tab === "render" ? <RenderScreen /> : tab === "edit" ? <EditScreen /> : tab === "history" ? <HistoryScreen /> : <SunScreen />}
       <Customise />
       <SettingsSheet />
       <ReviewSheet />

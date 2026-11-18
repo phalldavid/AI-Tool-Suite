@@ -7,6 +7,7 @@ import { Icon } from "./Icon";
 import { LOGO_SVG } from "./logo";
 import { LangSwitch } from "./LangSwitch";
 import { useViewport } from "../layout";
+import { useAdvancedTab } from "../lib/advanced";
 
 const BEHANCE = "https://www.behance.net/phalldavid";
 
@@ -92,6 +93,9 @@ export function Header() {
 
 function DesktopHeader() {
   const tab = useApp((s) => s.tab);
+  // Advanced (node canvas) is desktop only and shows when switched on in Settings, Developer.
+  const adv = useAdvancedTab();
+  const tabs = adv ? [...TABS, { id: "advanced" as Tab, label: "Advanced" }] : TABS;
   const settings = useApp((s) => s.settings);
   const check = useApp((s) => s.keyCheck);
   const credits = useApp((s) => s.kieCredits);
@@ -101,12 +105,12 @@ function DesktopHeader() {
   const st = backendStatus(settings, check);
   const navTab = tab === "sun" ? "render" : tab;
   return (
-    <header className="topbar glass">
+    <header className={`topbar glass${adv ? " has-adv" : ""}`}>
       <div className="left">
         <a className="logo" href={BEHANCE} target="_blank" rel="noopener" title="David's portfolio on Behance" aria-label="David's portfolio on Behance" dangerouslySetInnerHTML={{ __html: LOGO_SVG }} />
         <div className="brand display">David Render Studio</div>
         <nav className="nav" aria-label="Main">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t.id} type="button" data-tour={`tab-${t.id}`} aria-current={navTab === t.id ? "page" : undefined} onClick={() => setState({ tab: t.id })}>
               {t.label}
             </button>

@@ -797,3 +797,88 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) { .shimmer.sw { animation: none; color: inherit; -webkit-text-fill-color: currentColor; } }
 .slang-list { margin: 0; padding: 10px 12px 10px 28px; border-radius: 12px; background: var(--well); columns: 2; column-gap: 20px; font-size: 13px; color: var(--soft); }
 .slang-list li { break-inside: avoid; padding: 2px 0; }
+
+/* ---------- Advanced tab: node canvas ---------- */
+/* With a fourth tab in the header, the left side takes the room it needs and the search box gives way. */
+.topbar.has-adv { grid-template-columns: auto minmax(0, 440px) minmax(0, 1fr); }
+.gwork { gap: 8px; }
+.gnarrow { max-width: 560px; gap: 14px; }
+.gbar { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; overflow-x: auto; padding: 2px; }
+.gbar > * { flex: none; }
+.gbar .btn { white-space: nowrap; }
+.gbar .gname { width: 220px; flex: none; }
+.gsep { width: 1px; height: 24px; background: var(--line2); margin: 0 4px; }
+.gzoom { min-width: 48px; text-align: center; font-size: 12.5px; color: var(--soft); }
+.gstatus { flex: none; display: flex; gap: 16px; flex-wrap: nowrap; overflow: hidden; white-space: nowrap; font-size: 12.5px; color: var(--muted); }
+.gstatus > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.gstatus .gbad { color: var(--bad); }
+.gkeys { flex: none; margin: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gcanvas { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 16px; background-color: var(--panel2); background-image: radial-gradient(circle, var(--line2) 1px, transparent 1.2px); box-shadow: inset 0 0 0 1px var(--line); touch-action: none; cursor: grab; outline: none; }
+.gcanvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.gcanvas.linking { cursor: crosshair; }
+.gworld { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.gwires { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.gwire { fill: none; stroke: var(--line3); stroke-width: 2.5; }
+.gwire.t-image { stroke: #6fa8c9; }
+.gwire.t-look { stroke: var(--accent); }
+.gwire.t-prompt { stroke: var(--ok); }
+.gwire.sel { stroke-width: 4.5; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.gwire.live { stroke: var(--text); stroke-dasharray: 6 5; }
+.gwire-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.gnode { position: absolute; left: 0; top: 0; border-radius: 14px; background: var(--panel); box-shadow: 0 0 0 1px var(--line2), 0 10px 26px rgba(0, 0, 0, 0.28); cursor: default; outline: none; }
+.gnode.sel { box-shadow: 0 0 0 2px var(--accent), 0 12px 30px rgba(0, 0, 0, 0.34); }
+.gnode:focus-visible { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px color-mix(in srgb, var(--accent) 30%, transparent); }
+.gnode-head { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; border-radius: 14px 14px 0 0; background: var(--raised); cursor: grab; user-select: none; }
+.gnode-title { flex: 1; min-width: 0; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gnode.k-image .gnode-head { box-shadow: inset 3px 0 0 #6fa8c9; }
+.gnode.k-look .gnode-head, .gnode.k-light .gnode-head, .gnode.k-surroundings .gnode-head, .gnode.k-fittings .gnode-head { box-shadow: inset 3px 0 0 var(--accent); }
+.gnode.k-prompt .gnode-head { box-shadow: inset 3px 0 0 var(--ok); }
+.gnode.k-note { background: color-mix(in srgb, var(--warn) 10%, var(--panel)); }
+.gnode-x { width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.gnode-x:hover { color: var(--text); background: var(--field); }
+.gnode-ports { position: relative; }
+.gport { position: absolute; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 3px solid var(--panel); background: var(--line3); cursor: crosshair; z-index: 1; }
+.gport::before { content: ""; position: absolute; inset: -10px; border-radius: 50%; }
+.gport.in { left: -9px; }
+.gport.out { right: -9px; }
+.gport.t-image { background: #6fa8c9; }
+.gport.t-look { background: var(--accent); }
+.gport.t-prompt { background: var(--ok); }
+.gport.in:not(.wired) { background: var(--panel); box-shadow: inset 0 0 0 2px var(--line3); }
+.gport.pending, .gport.target:hover { transform: scale(1.35); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+.gport-label { position: absolute; height: 18px; line-height: 18px; font-size: 11.5px; color: var(--muted); white-space: nowrap; max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
+.gport-label.in { left: 14px; }
+.gport-label.out { right: 14px; text-align: right; }
+.gnode-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 12px 12px; }
+.gnode-body .input { padding: 7px 9px; border-radius: 9px; font-size: 12.5px; }
+.gnode-body textarea.input { resize: vertical; }
+.gfield { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); flex: 1; min-width: 0; }
+.gcheck { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--soft); }
+.gcheck input { accent-color: var(--accent); }
+.gset { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
+.gset legend { font-size: 11.5px; color: var(--muted); padding: 0 0 2px; }
+.grow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.grow .input { flex: 1; min-width: 0; width: auto; }
+.gsmall { padding: 6px 10px; border-radius: 9px; font-size: 12px; }
+.gmuted { margin: 0; font-size: 12px; color: var(--muted); }
+.gsmalltext { font-size: 11.5px; }
+.gthumb { height: 96px; border-radius: 10px; background: var(--field); display: flex; align-items: center; justify-content: center; overflow: hidden; text-align: center; font-size: 12px; color: var(--muted); }
+.gthumb span { padding: 8px; }
+.gthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gpicked { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.glist { display: flex; flex-direction: column; gap: 2px; max-height: 210px; overflow-y: auto; }
+.glist button { text-align: left; border: 0; background: transparent; color: var(--text); padding: 7px 9px; border-radius: 8px; cursor: pointer; font-size: 12.5px; }
+.glist button:hover, .glist button:focus-visible, .glist button[aria-selected="true"] { background: var(--raised); }
+.gchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip.gchip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; font-size: 12px; }
+.chip.gchip button { border: 0; background: transparent; color: inherit; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.gprompts { display: flex; flex-direction: column; gap: 10px; max-height: 460px; overflow-y: auto; }
+.gprompt { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 10px; background: var(--well); }
+.gprompt-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.gprompt-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gtag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
+.gtext { margin: 0; max-height: 140px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-size: 11.5px; color: var(--soft); user-select: text; }
+.gpending { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: var(--glass-strong); box-shadow: 0 0 0 1px var(--line2); font-size: 12.5px; pointer-events: none; }
+.gadd { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); width: 300px; padding: 12px; border-radius: 14px; box-shadow: 0 0 0 1px var(--line2), 0 18px 40px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; gap: 8px; cursor: default; z-index: 5; }
+.gadd .grow b { flex: 1; }
+.gadd .gclose { width: 28px; height: 28px; }

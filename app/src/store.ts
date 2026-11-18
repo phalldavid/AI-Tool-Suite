@@ -9,7 +9,7 @@ import type { KeyCheck } from "./lib/status";
 import type { CameraMove } from "./lib/camera";
 import type { LintResult } from "./lib/lint";
 
-export type Tab = "render" | "edit" | "history" | "sun";
+export type Tab = "render" | "edit" | "history" | "sun" | "advanced";
 
 export type NotesSlot = "view" | "style";
 

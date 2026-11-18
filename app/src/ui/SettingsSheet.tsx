@@ -10,6 +10,8 @@ import { backendStatus } from "../lib/status";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 import { setDev, unlockDev, useDev } from "../lib/dev";
+import { setAdvancedSwitch, useAdvancedSwitch } from "../lib/advanced";
+import { S } from "../screens/advanced/strings";
 import { startTour } from "./Tour";
 import { setPrefs, usePrefs } from "../prefs";
 import { HELP_VIDEOS } from "../lib/help";
@@ -63,6 +65,25 @@ function SlangEditor() {
   );
 }
 
+/** Developer: shows the Advanced tab (node canvas). Prompts only for now. */
+function AdvancedSwitch() {
+  const on = useAdvancedSwitch();
+  return (
+    <label className="tour-never" style={{ margin: 0 }}>
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setAdvancedSwitch(e.target.checked);
+          if (!e.target.checked && getState().tab === "advanced") setState({ tab: "render" });
+        }}
+        style={{ accentColor: "var(--accent)" }}
+      />
+      {S.switchLabel}
+    </label>
+  );
+}
+
 function DeveloperSection() {
   const dev = useDev();
   const [word, setWord] = useState("");
@@ -72,6 +93,7 @@ function DeveloperSection() {
       {dev ? (
         <>
           <p className="note" style={{ margin: 0 }}>Developer mode is on: "Pictures" appears in Browse all for looks and environments, to make card pictures from contact sheets. Test mode appears in the model list and How renders are made.</p>
+          <AdvancedSwitch />
           <LoaderGatherSlider />
           <SlangEditor />
           <div>
