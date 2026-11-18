@@ -6,7 +6,7 @@ import { toast } from "./toasts";
 import { detectHost } from "./core/host";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SITES } from "./core/settings";
 import type { Settings } from "./core/settings";
-import { buildRenderPrompt, buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
+import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
 import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOverlay } from "./core/images";
 import { cropToRatio, findFrame } from "./core/frame";
@@ -18,12 +18,11 @@ import { KieProvider, fetchTransport, hostTransport } from "./core/providers/kie
 import { ProviderError } from "./core/providers/types";
 import { ZONES } from "./core/zones";
 import type { ZonePainter } from "./core/zones";
-import { splitTypology } from "./lib/typology";
 import { lintPrompt } from "./lib/lint";
 import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
 import { cameraPromptLine } from "./lib/camera";
-import { dynamicLines, countSet } from "./core/dynamic";
+import { composeRenderPrompt } from "./core/render-prompt";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
 import { lightingGuidance, styleCopyPrompt, withOverride } from "./lib/lighting";
@@ -279,34 +278,26 @@ export interface BuiltPrompt {
 }
 
 export function buildPrompt(): BuiltPrompt {
+  // Same steps as before, now in core/render-prompt.ts so the node graph shares them.
   const st = getState();
   const s = st.settings;
   const cap = st.capture;
-  const split = splitTypology(st.preset.style);
-  const preset: Preset = { ...st.preset, style: split.style, lighting: lightingId() };
-  const scene = effectiveLightScene();
-  const fit = fittingsLine(scene, st.fittings[scene]);
-  const extras: string[] = [...dynamicLines(s.dynamic), lightingGuidance(scene), ...(fit ? [fit] : [])];
-  let fromSun = countSet(s.dynamic.time) > 0;
-  if (st.sun.exact) {
-    const live = sunNow();
-    extras.push(sunPromptLine(live));
-    fromSun = true;
-  }
-  const prompt = buildRenderPrompt({
-    preset,
-    notes: "",
+  return composeRenderPrompt({
+    preset: { ...st.preset, lighting: lightingId() },
+    lightScene: st.lightScene,
+    fittings: st.fittings,
+    dynamic: s.dynamic,
+    sunLine: st.sun.exact ? sunPromptLine(sunNow()) : null,
     facts: cap?.facts,
     hasLinePass: Boolean(cap?.lines),
-    extras,
     lineStrength: s.lineStrength,
     look: s.look,
     materialLock: s.materialLock,
     boundaryLock: s.boundaryLock,
-    lightingFromDynamic: fromSun,
     avoid: s.avoid,
+    noteLines: currentNoteLines(),
+    notes: st.notes,
   });
-  return { prompt: withNotes(prompt), removed: split.removed };
 }
 
 /** The light fittings sentence for the current lighting scene, or null. */
