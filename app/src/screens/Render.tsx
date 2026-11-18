@@ -14,6 +14,7 @@ import type { ProjectType } from "../core/types";
 import { renderCost } from "../lib/cost";
 import { splitTypology } from "../lib/typology";
 import { roomStarter } from "../lib/room";
+import { Thumb } from "../ui/HistoryThumb";
 import { resetSize, setSizes, useSizes } from "../layout";
 import { Panels } from "../ui/Panels";
 import { Splitter } from "../ui/Splitter";
@@ -93,7 +94,7 @@ function RenderWork() {
               <div className="thumbs noscroll">
                 {history.slice(0, 12).map((it) => (
                   <button key={it.id} type="button" className="thumb lift" style={{ width: Math.round(thumbH * 1.5), height: thumbH }} onClick={() => openHistoryItem(it)}>
-                    <img src={toDataUrl(it.after)} alt="" loading="lazy" />
+                    <Thumb item={it} />
                     <span>{it.presetName ?? "Render"} · {new Date(it.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</span>
                   </button>
                 ))}

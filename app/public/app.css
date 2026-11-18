@@ -817,7 +817,9 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .gcanvas { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 16px; background-color: var(--panel2); background-image: radial-gradient(circle, var(--line2) 1px, transparent 1.2px); box-shadow: inset 0 0 0 1px var(--line); touch-action: none; cursor: grab; outline: none; }
 .gcanvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .gcanvas.linking { cursor: crosshair; }
-.gworld { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+/* Text is drawn sharp at every zoom. Only while panning or zooming is the board moved as one layer (smooth), then drawn sharp again. */
+.gworld { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.gcanvas.moving .gworld { will-change: transform; }
 .gwires { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 .gwire { fill: none; stroke: var(--line3); stroke-width: 2.5; }
 .gwire.t-image { stroke: #6fa8c9; }
