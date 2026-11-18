@@ -1,15 +1,33 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../store";
-import { closeReview, confirmReview, buildPrompt, editModelId, updateSettings } from "../actions";
+import { closeReview, confirmReview, buildPrompt, editModelId, fileName, updateSettings } from "../actions";
+import { toast } from "../toasts";
 import { renderCost, usd } from "../lib/cost";
 import { findKieModel } from "../core/providers/kie-models";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
+import { baseName } from "../lib/room";
+
+/** Saves text as a file in the browser's downloads. */
+function saveText(name: string, text: string, type: string): void {
+  try {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type }));
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("Prompt saved", "ok");
+  } catch {
+    toast("Couldn't save the file.", "error");
+  }
+}
 
 export function ReviewSheet() {
   const review = useApp((s) => s.review);
   const s = useApp((x) => x.settings);
   const balance = useApp((x) => x.kieCredits);
+  const preset = useApp((x) => x.preset);
+  const imageName = useApp((x) => x.captureName);
   const [text, setText] = useState("");
   useEffect(() => setText(review?.prompt ?? ""), [review]);
   if (!review) return <Sheet open={false} onClose={closeReview}>{null}</Sheet>;
@@ -94,6 +112,38 @@ export function ReviewSheet() {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void confirmReview(text);
             }}
           />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(text);
+                  toast("Prompt copied", "ok");
+                } catch {
+                  toast("Couldn't copy. Select the text and press Ctrl C.", "error");
+                }
+              }}
+            >
+              <Icon name="clipboard" /> Copy
+            </button>
+            <button type="button" className="btn ghost" onClick={() => saveText(`${fileName(baseName(imageName) || "prompt")}.txt`, `${text}\n`, "text/plain")}>
+              <Icon name="download" /> Save as .txt
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() =>
+                saveText(
+                  `${fileName(baseName(imageName) || "prompt")}.json`,
+                  `${JSON.stringify({ app: "David Render Studio", saved: new Date().toISOString(), preset: { id: preset.id, name: preset.name }, prompt: text }, null, 2)}\n`,
+                  "application/json",
+                )
+              }
+            >
+              <Icon name="download" /> Save as .json
+            </button>
+          </div>
         </section>
         <div className="grid2">
           <div className="tile">

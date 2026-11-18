@@ -301,7 +301,7 @@ dialog.sheet.small { width: min(420px, calc(100vw - 32px)); }
 .palette .opt .thumbimg { width: 48px; height: 36px; border-radius: 8px; object-fit: cover; flex: none; background: var(--raised); }
 .palette .opt small { display: block; color: var(--muted); font-size: 12.5px; }
 .palette .foot { display: flex; gap: 16px; padding: 10px 18px; font-size: 12px; color: var(--muted); box-shadow: 0 -1px 0 var(--line); }
-.toasts { position: fixed; left: 50%; transform: translateX(-50%); top: 70px; z-index: 100; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 40px)); pointer-events: none; }
+.toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: 150px; z-index: 100; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 40px)); pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--raised); color: var(--text); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 0 0 1px var(--line); animation: rise 260ms var(--ease) both; font-size: 13px; }
 .toast .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
 .toast.ok .dot { background: var(--ok); } .toast.error .dot { background: var(--bad); } .toast.warn .dot { background: var(--warn); }
