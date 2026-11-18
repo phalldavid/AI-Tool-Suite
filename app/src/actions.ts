@@ -610,7 +610,8 @@ export async function clipboardImage(): Promise<ImageData64 | null> {
 
 export { fileToImage };
 
-async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, opt: { name?: string; model?: string } = {}): Promise<string | undefined> {
+/** Saves a finished render to History (also used by the Advanced tab). */
+export async function record(tool: ToolId, prompt: string, before: ImageData64, after: ImageData64, opt: { name?: string; model?: string } = {}): Promise<string | undefined> {
   const st = getState();
   const s = opt.model ? { ...st.settings, kieModel: opt.model, imageCount: 1 } : { ...st.settings, imageCount: 1 };
   const cost = renderCost(s);

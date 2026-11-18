@@ -70,7 +70,26 @@ export interface PromptItem {
   removed: string[];
 }
 
-export type PortValue = ImageRef | LookPatch | PromptItem[];
+/** One render to make: a prompt for one image, through one Render node. */
+export interface RenderJob {
+  renderNodeId: string;
+  /** The Prompt node the text came from (one Render node can take several). */
+  promptNodeId: string;
+  imageNodeId: string;
+  /** Image file name. */
+  name: string;
+  lookName: string;
+  prompt: string;
+  /** Hash of the prompt: a finished result with the same hash is not rendered (or paid for) again. */
+  promptHash: string;
+}
+
+export type PortValue = ImageRef | LookPatch | PromptItem[] | RenderJob[];
+
+/** Where a Render node keeps its result for one image through one Prompt node. */
+export function resultKey(job: Pick<RenderJob, "renderNodeId" | "promptNodeId" | "imageNodeId">): string {
+  return `${job.renderNodeId}|${job.promptNodeId}|${job.imageNodeId}`;
+}
 
 export interface NodeOutput {
   key: string;
@@ -236,6 +255,25 @@ export function evaluateGraph(graph: Graph, defaults: EvalDefaults, cache?: Eval
         ports.prompts = images.map((img) => promptForImage(img, patch, defaults, edits[img.nodeId]));
         break;
       }
+      case "render": {
+        ports.results = into
+          .filter((w) => w.to.port === "prompts")
+          .flatMap((w) => ((outputs.get(w.from.node)?.ports[w.from.port] as PromptItem[] | undefined) ?? []).map((p) => ({ p, from: w.from.node })))
+          .map(({ p, from }) => ({
+          renderNodeId: id,
+          promptNodeId: from,
+          imageNodeId: p.imageNodeId,
+          name: p.name,
+          lookName: p.lookName,
+          prompt: p.text,
+          promptHash: hashText(p.text),
+        }));
+        break;
+      }
+      case "result":
+        // Not an output port: the jobs this node shows, for the canvas to read.
+        ports.shown = (input("results")[0] as RenderJob[] | undefined) ?? [];
+        break;
       case "note":
         break;
     }
@@ -247,4 +285,9 @@ export function evaluateGraph(graph: Graph, defaults: EvalDefaults, cache?: Eval
 /** Every prompt in the graph, Prompt nodes in list order. */
 export function allPrompts(graph: Graph, outputs: EvalCache): PromptItem[] {
   return graph.nodes.filter((n) => n.kind === "prompt").flatMap((n) => (outputs.get(n.id)?.ports.prompts as PromptItem[] | undefined) ?? []);
+}
+
+/** Every render job in the graph, Render nodes in list order. */
+export function allJobs(graph: Graph, outputs: EvalCache): RenderJob[] {
+  return graph.nodes.filter((n) => n.kind === "render").flatMap((n) => (outputs.get(n.id)?.ports.results as RenderJob[] | undefined) ?? []);
 }

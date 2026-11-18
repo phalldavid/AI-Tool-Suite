@@ -15,8 +15,8 @@ function must(r: { graph: Graph } | { reason: string }): Graph {
 
 test("the starter graph is valid, wired, and survives save and load", () => {
   const g = starterGraph();
-  assert.deepEqual(g.nodes.map((n) => n.kind).sort(), ["light", "look", "note", "prompt"]);
-  assert.equal(g.wires.length, 2);
+  assert.deepEqual(g.nodes.map((n) => n.kind).sort(), ["light", "look", "note", "prompt", "render", "result"]);
+  assert.equal(g.wires.length, 4);
   const back = parseGraph(serializeGraph(g));
   assert.ok(back.ok);
   assert.deepEqual(back.graph, g);
@@ -96,7 +96,7 @@ test("undo keeps the current pan and zoom", () => {
 test("add-node search finds kinds by plain words", () => {
   assert.deepEqual(searchAddMenu("sun"), ["light"]);
   assert.deepEqual(searchAddMenu("screenshot"), ["image"]);
-  assert.equal(searchAddMenu("").length, 7);
+  assert.equal(searchAddMenu("").length, 9);
   assert.deepEqual(searchAddMenu("zzz"), []);
 });
 

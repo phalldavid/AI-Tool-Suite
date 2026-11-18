@@ -6,10 +6,15 @@ import { setState, useApp } from "../store";
 import { toast } from "../toasts";
 import { Icon } from "../ui/Icon";
 import { useViewport } from "../layout";
-import { TEMPLATES, allPrompts, applyTemplate, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, zipFiles } from "../core/graph";
+import { TEMPLATES, allJobs, planRun, runBlocker, runCost, allPrompts, applyTemplate, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, zipFiles } from "../core/graph";
 import type { EvalCache } from "../core/graph";
 import { Canvas, addPictureFiles } from "./advanced/Canvas";
-import { commit, commitView, endTypingRun, graph, openAdd, redo, replaceGraph, undo, useCanvas } from "./advanced/session";
+import { commit, commitView, endTypingRun, graph, openAdd, redo, replaceGraph, setPanel, undo, useCanvas } from "./advanced/session";
+import { Panel } from "./advanced/Panel";
+import { ConfirmRun } from "./advanced/ConfirmRun";
+import { runJobs, stopAll, whereLabel } from "./advanced/runner";
+import { renderCost } from "../lib/cost";
+import { useRunCap } from "../lib/advanced";
 import { screenToWorld, zoomAt } from "./advanced/geometry";
 import { S } from "./advanced/strings";
 
@@ -76,6 +81,29 @@ function AdvancedDesktop() {
   if (result.ok) cache.current = result.outputs;
   const outputs = result.ok ? result.outputs : new Map();
   const prompts = result.ok ? allPrompts(g, result.outputs) : [];
+
+  // ---------- run: what Render would do, what it costs, and whether it may ----------
+  const pictures = useCanvas((s) => s.pictures);
+  const results = useCanvas((s) => s.results);
+  const run = useCanvas((s) => s.run);
+  const panelOpen = useCanvas((s) => s.panel);
+  const balance = useApp((s) => s.kieCredits);
+  const cap = useRunCap();
+  const [again, setAgain] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const jobs = result.ok ? allJobs(g, result.outputs) : [];
+  const plan = planRun(jobs, (id) => Boolean(pictures[id]), results, again);
+  const cost = runCost(plan.jobs.length, renderCost({ ...settings, imageCount: 1 }), Boolean(settings.testMode));
+  const blocker = runBlocker({
+    backend: settings.backend,
+    testMode: Boolean(settings.testMode),
+    renderNodes: g.nodes.filter((n) => n.kind === "render").length,
+    plan,
+    cost,
+    cap,
+    balance,
+  });
+  const running = Boolean(run && (run.status === "running" || run.status === "paused"));
 
   // Paste a screenshot onto the canvas (the app's own paste goes to the Render tab otherwise).
   useEffect(() => {
@@ -218,13 +246,30 @@ function AdvancedDesktop() {
               <Icon name="download" size={16} />
               {S.saveAll}
             </button>
-            {/* Rendering from the canvas arrives with Stage 2, with the cost check and confirm step. */}
-            <button type="button" className="btn primary grender" disabled title={S.renderSoon} aria-describedby="grender-note">
-              <Icon name="aperture" size={18} />
-              {S.render}
-              <span className="gsoon">{S.soon}</span>
+            {/* The only button that spends. It opens the confirm step; Stop all takes its place while a run is going. */}
+            {running ? (
+              <button type="button" className="btn danger grender" onClick={stopAll}>
+                <Icon name="stop" size={18} />
+                {S.stopAll}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn primary grender"
+                disabled={Boolean(blocker)}
+                title={blocker ?? undefined}
+                aria-describedby={blocker ? "grender-note" : undefined}
+                onClick={() => setConfirm(true)}
+              >
+                <Icon name="aperture" size={18} />
+                {S.render}
+                {plan.jobs.length ? <span className="gsoon num">{plan.jobs.length}</span> : null}
+              </button>
+            )}
+            {blocker ? <span id="grender-note" className="sr-only">{blocker}</span> : null}
+            <button type="button" className="icon-btn" aria-pressed={panelOpen} aria-label={panelOpen ? S.closePanel : S.openPanel} title={panelOpen ? S.closePanel : S.openPanel} onClick={() => setPanel(!panelOpen)}>
+              <Icon name="layers" size={16} />
             </button>
-            <span id="grender-note" className="sr-only">{S.renderSoon}</span>
           </span>
         </div>
         {tplAt ? (
@@ -251,10 +296,31 @@ function AdvancedDesktop() {
         <div className="gstatus">
           <span className="num">{`${prompts.length} prompts ready`}</span>
           <span className="num">{`${images} of 30 images`}</span>
-          <span>{S.promptsOnly}</span>
+          {g.nodes.some((n) => n.kind === "render") ? null : <span>{S.promptsOnly}</span>}
           {result.ok ? null : <span className="gbad">{result.error}</span>}
+          {blocker && !running ? <span className="gwarn">{blocker}</span> : null}
         </div>
-        <Canvas outputs={outputs} fitSignal={fitSignal} />
+        <div className="grow-main">
+          <Canvas outputs={outputs} fitSignal={fitSignal} />
+          <Panel outputs={outputs} plan={plan} cost={cost} blocker={blocker} where={whereLabel()} again={again} setAgain={setAgain} />
+        </div>
+        {confirm ? (
+          <ConfirmRun
+            n={plan.jobs.length}
+            cost={cost}
+            where={whereLabel()}
+            backend={settings.backend}
+            testMode={Boolean(settings.testMode)}
+            balance={balance}
+            skipped={plan.done.length + plan.noPicture.length}
+            onCancel={() => setConfirm(false)}
+            onGo={() => {
+              setConfirm(false);
+              setPanel(true);
+              void runJobs(plan.jobs);
+            }}
+          />
+        ) : null}
         <p className="gkeys">{S.keysHelp}</p>
       </main>
     </div>

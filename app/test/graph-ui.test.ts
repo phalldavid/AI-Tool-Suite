@@ -14,6 +14,13 @@ test("every Advanced tab string has a Khmer entry", () => {
   for (const d of Object.values(NODE_DEFS)) for (const p of [...d.inputs, ...d.outputs]) assert.ok(km[p.label], p.label);
   for (const o of LIGHTING) assert.ok(km[o.label], o.label);
   for (const t of TEMPLATES) for (const x of [t.name, t.note]) assert.ok(km[x], x);
+  for (const x of ["Test, nothing is spent", "Your own PC, free", "Free", "Cost unknown"]) assert.ok(km[x], x);
+});
+
+test("run messages with numbers are translated", () => {
+  for (const x of ["Render 4", "about 12.5 credits", "3 renders done", "2 already rendered, skipped", "This run has 14 renders; the limit is 10. Render fewer, or raise the limit in Settings, Developer.", "Not enough credits: this run needs about 40 and your Kie balance is 12.5."]) {
+    assert.ok(translate(x), x);
+  }
 });
 
 test("Advanced tab text with numbers is translated", () => {
