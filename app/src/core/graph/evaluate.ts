@@ -6,12 +6,16 @@ import { findLibraryItem } from "../library";
 import { joinContexts } from "../context";
 import type { Preset } from "../types";
 import type { Settings } from "../settings";
-import { composeRenderPrompt } from "../render-prompt";
+import { composeRenderPrompt, sceneFor } from "../render-prompt";
+import { newViewPrompt, relightPrompt, wordsEditPrompt } from "../edit-prompts";
+import { styleCopyPrompt } from "../../lib/lighting";
 import { DEFAULT_FITTINGS } from "../../lib/fittings";
 import type { FittingState } from "../../lib/fittings";
 import type { LightScene } from "../../lib/lighting";
 import { roomStarter } from "../../lib/room";
 import { topoSort } from "./topo";
+import { RUNNER_KINDS } from "./types";
+import { INTERIOR_RELIGHT, LIGHTING, URBAN_RELIGHT, lightingText, parseDialTime } from "../prompt";
 import type { Graph, GraphNode, SettingsByKind } from "./types";
 
 /** Same id as DEFAULT_LOOK in actions.ts (the Render tab's first look). */
@@ -68,14 +72,31 @@ export interface PromptItem {
   edited: boolean;
   /** Building-type words taken out of the look's style. */
   removed: string[];
+  /** Interior or exterior lighting, as the prompt used it. */
+  scene: LightScene;
 }
 
-/** One render to make: a prompt for one image, through one Render node. */
+/** What a job does, and so which model it uses and how History files it. */
+export type JobKind = "render" | "style" | "relight" | "view" | "edit";
+
+/**
+ * One picture to make. A render works on an Image node's picture; a chain step
+ * (relight, new view, edit) works on the result of the job before it.
+ */
 export interface RenderJob {
+  kind: JobKind;
+  /** The node that makes this picture. */
   renderNodeId: string;
-  /** The Prompt node the text came from (one Render node can take several). */
+  /** Render: the Prompt node the text came from. Chain step: the source job's key. Style copy: the reference Image node. */
   promptNodeId: string;
+  /** The Image node it all started from (for its name). */
   imageNodeId: string;
+  /** Chain steps: the result this one works on. */
+  sourceKey?: string;
+  /** Style copy: the reference photo's Image node. */
+  refImageNodeId?: string;
+  /** Interior or exterior. */
+  scene: LightScene;
   /** Image file name. */
   name: string;
   lookName: string;
@@ -208,6 +229,7 @@ export function promptForImage(img: ImageRef, patch: LookPatch, d: EvalDefaults,
     text: edited ? edit! : built.prompt,
     edited,
     removed: built.removed,
+    scene: sceneFor(preset, patch.scene ?? null),
   };
 }
 
@@ -259,15 +281,66 @@ export function evaluateGraph(graph: Graph, defaults: EvalDefaults, cache?: Eval
         ports.results = into
           .filter((w) => w.to.port === "prompts")
           .flatMap((w) => ((outputs.get(w.from.node)?.ports[w.from.port] as PromptItem[] | undefined) ?? []).map((p) => ({ p, from: w.from.node })))
-          .map(({ p, from }) => ({
-          renderNodeId: id,
-          promptNodeId: from,
-          imageNodeId: p.imageNodeId,
-          name: p.name,
-          lookName: p.lookName,
-          prompt: p.text,
-          promptHash: hashText(p.text),
-        }));
+          .map(({ p, from }): RenderJob => ({
+            kind: "render",
+            renderNodeId: id,
+            promptNodeId: from,
+            imageNodeId: p.imageNodeId,
+            scene: p.scene,
+            name: p.name,
+            lookName: p.lookName,
+            prompt: p.text,
+            promptHash: hashText(p.text),
+          }));
+        break;
+      }
+      case "relight":
+      case "view":
+      case "edit": {
+        const ups = into.filter((w) => w.to.port === "results").flatMap((w) => (outputs.get(w.from.node)?.ports[w.from.port] as RenderJob[] | undefined) ?? []);
+        ports.results = ups.flatMap((u) => {
+          const step = chainStep(node, u.scene);
+          if (!step) return [];
+          const src = resultKey(u);
+          return [
+            {
+              kind: node.kind as JobKind,
+              renderNodeId: id,
+              promptNodeId: src,
+              imageNodeId: u.imageNodeId,
+              sourceKey: src,
+              scene: u.scene,
+              name: u.name,
+              lookName: `${u.lookName} → ${step.label}`,
+              prompt: step.prompt,
+              // A new source picture means a new result, so the source's hash is part of this one.
+              promptHash: hashText(`${step.prompt}|${u.promptHash}`),
+            },
+          ];
+        });
+        break;
+      }
+      case "style": {
+        const s = node.settings as SettingsByKind["style"];
+        const ref = (input("reference")[0] as ImageRef | undefined) ?? null;
+        const imgs = input("images").filter((v): v is ImageRef => Boolean(v && "nodeId" in v));
+        // The final text adds the picture's own shape when it renders (styleCopyPrompt's base).
+        const dial = s.light === "reference" ? null : (lightingText(s.light) ?? "").replace(/\.$/, "").toLowerCase() || null;
+        const prompt = styleCopyPrompt({ scene: s.scene, dialLight: dial });
+        ports.results = ref
+          ? imgs.map((img): RenderJob => ({
+              kind: "style",
+              renderNodeId: id,
+              promptNodeId: ref.nodeId,
+              imageNodeId: img.nodeId,
+              refImageNodeId: ref.nodeId,
+              scene: s.scene,
+              name: img.name,
+              lookName: `Style copy of ${ref.name || "the reference"}`,
+              prompt,
+              promptHash: hashText(`${prompt}|${ref.name}`),
+            }))
+          : [];
         break;
       }
       case "result":
@@ -287,7 +360,31 @@ export function allPrompts(graph: Graph, outputs: EvalCache): PromptItem[] {
   return graph.nodes.filter((n) => n.kind === "prompt").flatMap((n) => (outputs.get(n.id)?.ports.prompts as PromptItem[] | undefined) ?? []);
 }
 
-/** Every render job in the graph, Render nodes in list order. */
+/** Every job in the graph, in wire order: a step always comes after the job it works on. */
 export function allJobs(graph: Graph, outputs: EvalCache): RenderJob[] {
-  return graph.nodes.filter((n) => n.kind === "render").flatMap((n) => (outputs.get(n.id)?.ports.results as RenderJob[] | undefined) ?? []);
+  const order = topoSort(graph) ?? graph.nodes.map((n) => n.id);
+  const kinds = new Map(graph.nodes.map((n) => [n.id, n.kind]));
+  return order.filter((id) => RUNNER_KINDS.includes(kinds.get(id)!)).flatMap((id) => (outputs.get(id)?.ports.results as RenderJob[] | undefined) ?? []);
+}
+
+const RELIGHT_LABELS = new Map([...LIGHTING, ...INTERIOR_RELIGHT, ...URBAN_RELIGHT].map((o) => [o.id, o.label]));
+
+/** The prompt and a short label for a chain step, or null when it has nothing to do. */
+function chainStep(node: GraphNode, scene: LightScene): { prompt: string; label: string } | null {
+  if (node.kind === "relight") {
+    const s = node.settings as SettingsByKind["relight"];
+    const sc = s.scene === "auto" ? scene : s.scene;
+    const dial = parseDialTime(s.lighting);
+    return { prompt: relightPrompt(s.lighting, sc), label: `Relight, ${dial !== null ? s.lighting.slice(5) : RELIGHT_LABELS.get(s.lighting) ?? s.lighting}` };
+  }
+  if (node.kind === "view") {
+    const s = node.settings as SettingsByKind["view"];
+    return { prompt: newViewPrompt(s, scene === "interior"), label: `New view ${s.orbit > 0 ? "+" : ""}${s.orbit}°` };
+  }
+  if (node.kind === "edit") {
+    const s = node.settings as SettingsByKind["edit"];
+    const change = s.change.trim();
+    return change ? { prompt: wordsEditPrompt(change), label: "Edit" } : null;
+  }
+  return null;
 }

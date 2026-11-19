@@ -21,6 +21,8 @@ export interface NodeDef<K extends NodeKind = NodeKind> {
 }
 
 const lookIn: PortDef = { id: "look", type: "look", label: "Look settings in" };
+const resultsIn: PortDef = { id: "results", type: "result", label: "Results in" };
+const resultsOut: PortDef = { id: "results", type: "result", label: "Results out" };
 const lookOut: PortDef = { id: "look", type: "look", label: "Look settings out" };
 
 export const NODE_DEFS: { [K in NodeKind]: NodeDef<K> } = {
@@ -89,6 +91,37 @@ export const NODE_DEFS: { [K in NodeKind]: NodeDef<K> } = {
     inputs: [{ id: "results", type: "result", label: "Results in" }],
     outputs: [],
     defaults: () => ({}),
+  },
+  relight: {
+    kind: "relight",
+    label: "Relight",
+    inputs: [resultsIn],
+    outputs: [resultsOut],
+    defaults: () => ({ lighting: "blue-hour", scene: "auto" }),
+  },
+  view: {
+    kind: "view",
+    label: "New view",
+    inputs: [resultsIn],
+    outputs: [resultsOut],
+    defaults: () => ({ orbit: 35, tilt: 15, lensMm: 35, distanceM: 35 }),
+  },
+  edit: {
+    kind: "edit",
+    label: "Edit",
+    inputs: [resultsIn],
+    outputs: [resultsOut],
+    defaults: () => ({ change: "" }),
+  },
+  style: {
+    kind: "style",
+    label: "Style copy",
+    inputs: [
+      { id: "images", type: "image", label: "Images in", multi: true },
+      { id: "reference", type: "image", label: "Reference photo in" },
+    ],
+    outputs: [resultsOut],
+    defaults: () => ({ scene: "exterior", light: "reference" }),
   },
 };
 

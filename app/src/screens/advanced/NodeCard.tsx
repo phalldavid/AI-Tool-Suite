@@ -12,7 +12,7 @@ import type { JobStatus } from "./session";
 import { useCanvas } from "./session";
 import { libraryItems, findLibraryItem, matchesWords, searchWords } from "../../core/library";
 import { CONTEXT_GROUPS, contextLabel, joinContexts, parseContexts } from "../../core/context";
-import { LIGHTING, dialTimeId, parseDialTime } from "../../core/prompt";
+import { INTERIOR_RELIGHT, LIGHTING, URBAN_RELIGHT, dialTimeId, parseDialTime } from "../../core/prompt";
 import { previewFile } from "../../core/preview-files";
 import { lookTile } from "../../lib/lookPreviews";
 import { openPicker } from "../../lib/pickTarget";
@@ -57,6 +57,10 @@ const NAMES: Record<string, string> = {
   note: S.note,
   render: S.render,
   result: S.result,
+  relight: S.relight,
+  view: S.newView,
+  edit: S.editNode,
+  style: S.styleCopy,
 };
 
 function set<K extends GraphNode["kind"]>(id: string, patch: Partial<SettingsByKind[K]>, key: string | null = null): void {
@@ -149,6 +153,16 @@ export function Body({ node, output, picture, ui }: { node: GraphNode; output: N
       return <RenderBody jobs={(output?.ports.results as RenderJob[] | undefined) ?? []} />;
     case "result":
       return <ResultBody jobs={(output?.ports.shown as RenderJob[] | undefined) ?? []} />;
+    case "relight":
+    case "view":
+    case "edit":
+    case "style":
+      return (
+        <>
+          <StepSettings node={node} />
+          <RenderBody jobs={(output?.ports.results as RenderJob[] | undefined) ?? []} empty={node.kind === "style" ? S.wireStyle : S.wireStep} browserText={S.stepPromptCopy} />
+        </>
+      );
     case "note":
       return (
         <textarea
@@ -539,16 +553,19 @@ function JobRow({ job }: { job: RenderJob }) {
   return (
     <li className={`gjob t-${st.tone}`}>
       <span className="gjob-dot" aria-hidden="true" />
-      <b data-no-translate title={`${job.name} · ${job.lookName}`}>{`${job.name || "—"} · ${job.lookName}`}</b>
+      <span className="gjob-text" data-no-translate title={`${job.name} · ${job.lookName}`}>
+        <b>{job.name || "—"}</b>
+        <small>{job.lookName}</small>
+      </span>
       <span>{st.word}</span>
     </li>
   );
 }
 
-function RenderBody({ jobs }: { jobs: RenderJob[] }) {
+function RenderBody({ jobs, empty = S.wireRender, browserText = S.promptReady }: { jobs: RenderJob[]; empty?: string; browserText?: string }) {
   const browser = useApp((s) => s.settings.backend === "browser" && !s.settings.testMode);
-  if (browser) return <p className="gmuted">{S.promptReady}</p>;
-  if (!jobs.length) return <p className="gmuted">{S.wireRender}</p>;
+  if (browser) return <p className="gmuted">{browserText}</p>;
+  if (!jobs.length) return <p className="gmuted">{empty}</p>;
   return <ul className="gjobs gscroll">{jobs.map((j) => <JobRow key={resultKey(j)} job={j} />)}</ul>;
 }
 
@@ -607,4 +624,120 @@ export function ResultBody({ jobs }: { jobs: RenderJob[] }) {
       })}
     </div>
   );
+}
+
+const RELIGHT_GROUPS: [string, { id: string; label: string }[]][] = [
+  [S.timeOfDay, LIGHTING],
+  [S.interior, INTERIOR_RELIGHT.filter((o) => !LIGHTING.some((l) => l.id === o.id))],
+  [S.street, URBAN_RELIGHT],
+];
+
+const LENSES = [16, 20, 24, 28, 35, 50, 85];
+
+/** Settings for the steps that work on a picture: Relight, New view, Edit, Style copy. */
+function StepSettings({ node }: { node: GraphNode }) {
+  if (node.kind === "relight") {
+    const s = node.settings as SettingsByKind["relight"];
+    const dial = parseDialTime(s.lighting);
+    return (
+      <>
+        <label className="gfield">
+          <span>{S.newLight}</span>
+          <select className="input" value={dial !== null ? "dial" : s.lighting} onChange={(e) => set<"relight">(node.id, { lighting: e.target.value === "dial" ? dialTimeId(17.5) : e.target.value })}>
+            <option value="dial">{S.sunDial}</option>
+            {RELIGHT_GROUPS.map(([label, list]) => (
+              <optgroup key={label} label={label}>
+                {list.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        {dial !== null ? (
+          <div className="gdial">
+            <SunDial id={`dial-${node.id}`} hour={dial} onHour={(h) => set<"relight">(node.id, { lighting: dialTimeId(h) }, `dial:${node.id}`)} />
+            <span className="gmuted num" data-no-translate>{fmtHour(dial)}</span>
+          </div>
+        ) : null}
+        <label className="gfield">
+          <span>{S.lightFor}</span>
+          <select className="input" value={s.scene} onChange={(e) => set<"relight">(node.id, { scene: e.target.value as SettingsByKind["relight"]["scene"] })}>
+            <option value="auto">{S.followRender}</option>
+            <option value="interior">{S.interior}</option>
+            <option value="exterior">{S.exterior}</option>
+          </select>
+        </label>
+      </>
+    );
+  }
+  if (node.kind === "view") {
+    const s = node.settings as SettingsByKind["view"];
+    const slider = (key: "orbit" | "tilt" | "distanceM", label: string, min: number, max: number, step: number, unit: string) => (
+      <label className="gfield gslider">
+        <span>
+          {label} <b className="num" data-no-translate>{`${key === "orbit" && s.orbit > 0 ? "+" : ""}${s[key]}${unit}`}</b>
+        </span>
+        <input type="range" min={min} max={max} step={step} value={s[key]} onChange={(e) => set<"view">(node.id, { [key]: Number(e.target.value) } as Partial<SettingsByKind["view"]>, `${key}:${node.id}`)} onPointerUp={endTypingRun} />
+      </label>
+    );
+    return (
+      <>
+        {slider("orbit", S.orbit, -180, 180, 5, "°")}
+        {slider("tilt", S.tilt, 0, 85, 1, "°")}
+        {slider("distanceM", S.distance, 5, 300, 5, " m")}
+        <label className="gfield">
+          <span>{S.lens}</span>
+          <select className="input" value={s.lensMm} onChange={(e) => set<"view">(node.id, { lensMm: Number(e.target.value) })}>
+            {(LENSES.includes(s.lensMm) ? LENSES : [s.lensMm, ...LENSES]).map((mm) => (
+              <option key={mm} value={mm}>{`${mm} mm`}</option>
+            ))}
+          </select>
+        </label>
+      </>
+    );
+  }
+  if (node.kind === "edit") {
+    const s = node.settings as SettingsByKind["edit"];
+    return (
+      <>
+        <label className="gfield">
+          <span>{S.whatChanges}</span>
+          <textarea
+            className="input gscroll"
+            rows={3}
+            value={s.change}
+            placeholder={S.editHint}
+            onChange={(e) => set<"edit">(node.id, { change: e.target.value.slice(0, 4000) }, `change:${node.id}`)}
+            onBlur={endTypingRun}
+          />
+        </label>
+        <p className="gmuted">{S.paintedOnEdit}</p>
+      </>
+    );
+  }
+  if (node.kind === "style") {
+    const s = node.settings as SettingsByKind["style"];
+    return (
+      <>
+        <label className="gfield">
+          <span>{S.scene}</span>
+          <select className="input" value={s.scene} onChange={(e) => set<"style">(node.id, { scene: e.target.value as SettingsByKind["style"]["scene"] })}>
+            <option value="exterior">{S.exterior}</option>
+            <option value="interior">{S.interior}</option>
+          </select>
+        </label>
+        <label className="gfield">
+          <span>{S.light}</span>
+          <select className="input" value={s.light} onChange={(e) => set<"style">(node.id, { light: e.target.value })}>
+            <option value="reference">{S.lightFromPhoto}</option>
+            {LIGHTING.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </select>
+        </label>
+      </>
+    );
+  }
+  return null;
 }

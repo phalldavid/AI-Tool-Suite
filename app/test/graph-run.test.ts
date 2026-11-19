@@ -50,23 +50,23 @@ test("planning skips finished renders with the same prompt, and images with no p
 test("cost: totals from renderCost, test mode free, unknown price flagged", () => {
   const kie = { ...DEFAULT_SETTINGS, backend: "kie" as const, imageCount: 1 };
   const one = renderCost(kie);
-  const c = runCost(4, one, false);
+  const c = runCost([one, one, one, one], false);
   if (one.credits !== null) assert.equal(c.credits, Math.round(one.credits * 4 * 100) / 100);
-  assert.equal(runCost(4, one, true).paid, false);
-  assert.equal(runCost(4, renderCost({ ...DEFAULT_SETTINGS, testMode: true }), true).label, "Test, nothing is spent");
-  const gem = runCost(2, renderCost({ ...DEFAULT_SETTINGS, backend: "gemini" }), false);
+  assert.equal(runCost([one, one, one, one], true).paid, false);
+  assert.equal(runCost([renderCost({ ...DEFAULT_SETTINGS, testMode: true })], true).label, "Test, nothing is spent");
+  const gem = runCost([renderCost({ ...DEFAULT_SETTINGS, backend: "gemini" })], false);
   assert.equal(gem.unknown, true);
   assert.equal(gem.label, "Cost unknown");
-  assert.equal(runCost(2, renderCost({ ...DEFAULT_SETTINGS, backend: "comfyui" }), false).paid, false);
+  assert.equal(runCost([renderCost({ ...DEFAULT_SETTINGS, backend: "comfyui" })], false).paid, false);
 });
 
 function check(over: Partial<RunCheck>): RunCheck {
-  const job = { renderNodeId: "r", promptNodeId: "p", imageNodeId: "i", name: "a", lookName: "L", prompt: "p", promptHash: "h" };
+  const job = { kind: "render" as const, scene: "exterior" as const, renderNodeId: "r", promptNodeId: "p", imageNodeId: "i", name: "a", lookName: "L", prompt: "p", promptHash: "h" };
   return {
     backend: "kie",
     testMode: false,
     renderNodes: 1,
-    plan: { jobs: [job, { ...job, imageNodeId: "j" }], done: [], noPicture: [] },
+    plan: { jobs: [job, { ...job, imageNodeId: "j" }], done: [], noPicture: [], noSource: [] },
     cost: { credits: 12, unknown: false, paid: true, label: "about 12 credits" },
     cap: 10,
     balance: 100,
@@ -83,7 +83,7 @@ test("run is blocked with a plain reason: Prompt Copy, no Render node, cap, bala
   assert.match(runBlocker(check({ balance: 5 }))!, /Not enough credits/);
   assert.equal(runBlocker(check({ balance: 5, testMode: true })), null);
   assert.equal(runBlocker(check({ balance: null })), null, "unknown balance: the confirm step says so");
-  const empty = { jobs: [], done: [], noPicture: [] };
+  const empty = { jobs: [], done: [], noPicture: [], noSource: [] };
   assert.match(runBlocker(check({ plan: { ...empty, done: [check({}).plan.jobs[0]] } }))!, /already rendered/);
   assert.match(runBlocker(check({ plan: { ...empty, noPicture: [check({}).plan.jobs[0]] } }))!, /no picture/);
   assert.match(runBlocker(check({ plan: empty }))!, /Nothing to render yet/);

@@ -68,6 +68,7 @@ export function Panel({ outputs, plan, cost, blocker, where, again, setAgain }: 
         </dl>
         {plan.done.length ? <p className="gmuted num">{`${plan.done.length} already rendered, skipped`}</p> : null}
         {plan.noPicture.length ? <p className="gmuted num">{`${plan.noPicture.length} with no picture, skipped`}</p> : null}
+        {plan.noSource.length ? <p className="gmuted num">{`${plan.noSource.length} waiting for the step before, skipped`}</p> : null}
         {plan.done.length || again ? (
           <label className="gcheck">
             <input type="checkbox" checked={again} disabled={Boolean(busy)} onChange={(e) => setAgain(e.target.checked)} />
@@ -97,7 +98,10 @@ export function Panel({ outputs, plan, cost, blocker, where, again, setAgain }: 
             {run.jobs.map((j) => (
               <li key={j.key} className={`gjob t-${j.status}`}>
                 <span className="gjob-dot" aria-hidden="true" />
-                <b data-no-translate title={`${j.name} · ${j.lookName}`}>{`${j.name || "—"} · ${j.lookName}`}</b>
+                <span className="gjob-text" data-no-translate title={`${j.name} · ${j.lookName}`}>
+                  <b>{j.name || "—"}</b>
+                  <small>{j.lookName}</small>
+                </span>
                 <span>{STATUS[j.status]}</span>
               </li>
             ))}

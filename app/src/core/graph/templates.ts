@@ -148,6 +148,66 @@ export const TEMPLATES: Template[] = [
   },
 ];
 
+/** Adds steps after the template's Render node, each with its own Result node. */
+function thenSteps(g: Graph, steps: [NodeKind, Partial<SettingsByKind[NodeKind]>][]): Graph {
+  const render = g.nodes.find((n) => n.kind === "render");
+  if (!render) return g;
+  let out = g;
+  steps.forEach(([kind, s], i) => {
+    const y = render.y + 420 + i * 420;
+    const a = addNode(out, kind, render.x, y, s as never);
+    if (!("graph" in a)) return;
+    out = a.graph;
+    const b = addNode(out, "result", render.x + 340, y);
+    if (!("graph" in b)) return;
+    out = b.graph;
+    for (const [f, fp, t, tp] of [
+      [render.id, "results", a.id!, "results"],
+      [a.id!, "results", b.id!, "results"],
+    ]) {
+      const w = wire(out, { node: f, port: fp }, { node: t, port: tp });
+      if ("graph" in w) out = w.graph;
+    }
+  });
+  return out;
+}
+
+TEMPLATES.push(
+  {
+    id: "render-relight",
+    name: "Render, then relight",
+    note: "Each render again at blue hour and at night.",
+    build: () => ({ ...thenSteps(findTemplate("one-look")!.build(), [["relight", { lighting: "blue-hour", scene: "auto" }], ["relight", { lighting: "night", scene: "auto" }]]), name: "Render, then relight" }),
+  },
+  {
+    id: "render-views",
+    name: "Render, then new views",
+    note: "The same building from 40° left and 40° right.",
+    build: () => ({
+      ...thenSteps(findTemplate("one-look")!.build(), [
+        ["view", { orbit: -40, tilt: 12, lensMm: 35, distanceM: 35 }],
+        ["view", { orbit: 40, tilt: 12, lensMm: 35, distanceM: 35 }],
+      ]),
+      name: "Render, then new views",
+    }),
+  },
+  {
+    id: "style-copy",
+    name: "Style copy from a photo",
+    note: "Your screenshots in the look and light of one photo.",
+    build: () =>
+      make(
+        "Style copy from a photo",
+        [
+          ["note", "note", 40, 40, { text: "Drop your SketchUp screenshots, wire them into Images in. Drop the photo to copy, wire it into Reference photo in." }],
+          ["style", "style", 340, 40],
+          ["result", "result", 680, 40],
+        ],
+        [["style", "results", "result", "results"]],
+      ),
+  },
+);
+
 export function findTemplate(id: string): Template | undefined {
   return TEMPLATES.find((t) => t.id === id);
 }

@@ -11,7 +11,10 @@ export const GRAPH_VERSION = 1;
 export type WireType = "image" | "look" | "prompt" | "result";
 
 /** Node kinds. Render and Result arrived in stage 2. */
-export type NodeKind = "image" | "look" | "light" | "surroundings" | "fittings" | "prompt" | "note" | "render" | "result";
+export type NodeKind = "image" | "look" | "light" | "surroundings" | "fittings" | "prompt" | "note" | "render" | "result" | "relight" | "view" | "edit" | "style";
+
+/** Nodes that make pictures (and cost money): Render, and the steps that work on a render. */
+export const RUNNER_KINDS: NodeKind[] = ["render", "style", "relight", "view", "edit"];
 
 export interface ImageSettings {
   /** File name of the picture; the picture itself stays in memory, not in the file. */
@@ -58,6 +61,36 @@ export type RenderSettings = Record<string, never>;
 /** Result: shows what the Render node wired into it made. */
 export type ResultSettings = Record<string, never>;
 
+/** Relight a finished render (Edit tab, Relight). */
+export interface RelightSettings {
+  /** A relight id (time of day, interior or street presets) or a dial time "time:HH:MM". */
+  lighting: string;
+  /** "auto" follows the render's look. */
+  scene: "auto" | LightScene;
+}
+
+/** A new camera on a finished render (Edit tab, New view, Move camera). */
+export interface ViewSettings {
+  /** Degrees around the building; + is to the right. */
+  orbit: number;
+  /** Looking down, 0 = eye level. */
+  tilt: number;
+  lensMm: number;
+  distanceM: number;
+}
+
+/** A change in words for the whole picture. Painted spot edits stay on the Edit tab. */
+export interface EditSettings {
+  change: string;
+}
+
+/** Style copy: a screenshot made to look like a reference photo (Edit tab, Style copy). */
+export interface StyleSettings {
+  scene: LightScene;
+  /** "reference" copies the light of the photo; otherwise a light id or dial time. */
+  light: string;
+}
+
 export interface SettingsByKind {
   image: ImageSettings;
   look: LookSettings;
@@ -68,6 +101,10 @@ export interface SettingsByKind {
   note: NoteSettings;
   render: RenderSettings;
   result: ResultSettings;
+  relight: RelightSettings;
+  view: ViewSettings;
+  edit: EditSettings;
+  style: StyleSettings;
 }
 
 export interface GraphNode<K extends NodeKind = NodeKind> {

@@ -30,6 +30,10 @@ export const KIND_NAME: Record<NodeKind, string> = {
   note: S.note,
   render: S.render,
   result: S.result,
+  relight: S.relight,
+  view: S.newView,
+  edit: S.editNode,
+  style: S.styleCopy,
 };
 
 function typing(t: EventTarget | null): boolean {
