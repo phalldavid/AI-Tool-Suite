@@ -88,8 +88,8 @@ export interface Settings {
   briefDefaults?: boolean;
   /** Add each model's tested guard lines to the prompt (model-notes.ts). Undefined = on. */
   modelTuning?: boolean;
-  /** Render tab uses the one-press Deadline Mode prompt (core/deadline-mode.ts). */
-  deadlineMode?: boolean;
+  /** Render tab uses the one-press Slor Cheam Mode prompt (core/slor-cheam.ts). */
+  slorCheamMode?: boolean;
 }
 
 export interface SceneSetup {

@@ -4,7 +4,7 @@
 // the same text.
 
 import { buildRenderPrompt } from "./prompt";
-import { buildDeadlineMode } from "./deadline-mode";
+import { buildSlorCheam } from "./slor-cheam";
 import type { RenderLook } from "./prompt";
 import type { Preset, SceneFacts } from "./types";
 import type { DynValues } from "./dynamic";
@@ -75,13 +75,13 @@ export function composeRenderPrompt(i: RenderTabInput): ComposedPrompt {
   return { prompt: withOverride(prompt, i.noteLines, i.notes), removed: split.removed };
 }
 
-/** Deadline Mode: same time, sun and light lines, fixed universal blocks around them. */
-export function composeDeadlineMode(i: RenderTabInput, materials?: string[]): ComposedPrompt {
+/** Slor Cheam Mode: same time, sun and light lines, fixed universal blocks around them. */
+export function composeSlorCheam(i: RenderTabInput, materials?: string[]): ComposedPrompt {
   const scene = sceneFor(i.preset, i.lightScene);
   const fit = fittingsLine(scene, i.fittings[scene]);
   const extras: string[] = [...dynamicLines(i.dynamic), lightingGuidance(scene), ...(fit ? [fit] : [])];
   if (i.sunLine) extras.push(i.sunLine);
   const notes = [...i.noteLines, i.notes.trim()].filter(Boolean).join(" ");
-  const prompt = buildDeadlineMode({ type: i.preset.projectType, hasLinePass: i.hasLinePass, lineStrength: i.lineStrength, extras, notes, avoid: i.avoid, materials });
+  const prompt = buildSlorCheam({ type: i.preset.projectType, hasLinePass: i.hasLinePass, lineStrength: i.lineStrength, extras, notes, avoid: i.avoid, materials });
   return { prompt, removed: [] };
 }

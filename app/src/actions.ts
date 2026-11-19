@@ -22,7 +22,7 @@ import { lintPrompt } from "./lib/lint";
 import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
 import { cameraPromptLine } from "./lib/camera";
-import { composeRenderPrompt, composeDeadlineMode } from "./core/render-prompt";
+import { composeRenderPrompt, composeSlorCheam } from "./core/render-prompt";
 import { modelDnaTags, type ModelMaterial } from "./core/model-dna";
 import { VIEW_SUN, relightPrompt } from "./core/edit-prompts";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
@@ -284,7 +284,7 @@ export function buildPrompt(materials?: string[]): BuiltPrompt {
   const st = getState();
   const s = st.settings;
   const cap = st.capture;
-  const fn = s.deadlineMode ? (x: Parameters<typeof composeRenderPrompt>[0]) => composeDeadlineMode(x, materials) : composeRenderPrompt;
+  const fn = s.slorCheamMode ? (x: Parameters<typeof composeRenderPrompt>[0]) => composeSlorCheam(x, materials) : composeRenderPrompt;
   return fn({
     preset: { ...st.preset, lighting: lightingId() },
     lightScene: st.lightScene,
@@ -440,8 +440,8 @@ export async function openReview(kind: "render" | "view" | "shots" | "style" = "
     }
   } else {
     prompt = buildPrompt().prompt;
-    // Deadline Mode: add the free material list read from the model, same press.
-    if (st.settings.deadlineMode && st.capture?.source === "sketchup" && st.host.kind === "sketchup") {
+    // Slor Cheam Mode: add the free material list read from the model, same press.
+    if (st.settings.slorCheamMode && st.capture?.source === "sketchup" && st.host.kind === "sketchup") {
       try {
         const list = await st.host.call<ModelMaterial[]>("modelMaterials", { ratio: frameRatio() });
         const tags = modelDnaTags(list ?? [], st.preset.projectType);
