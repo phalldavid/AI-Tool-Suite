@@ -3,7 +3,7 @@
 // buildPrompt) and the node graph both call this, so the same settings always give
 // the same text.
 
-import { buildRenderPrompt } from "./prompt";
+import { buildRenderPrompt, fixtureLines, INTERIOR_SKY, lensHint, lightingText } from "./prompt";
 import { buildSlorCheam } from "./slor-cheam";
 import type { RenderLook } from "./prompt";
 import type { Preset, SceneFacts } from "./types";
@@ -75,13 +75,31 @@ export function composeRenderPrompt(i: RenderTabInput): ComposedPrompt {
   return { prompt: withOverride(prompt, i.noteLines, i.notes), removed: split.removed };
 }
 
-/** Slor Cheam Mode: same time, sun and light lines, fixed universal blocks around them. */
+/**
+ * Slor Cheam Mode: the fixed one-press blocks around the user's own time, sun, light
+ * and fittings lines. Additional Notes go on top, as in every other prompt.
+ */
 export function composeSlorCheam(i: RenderTabInput, materials?: string[]): ComposedPrompt {
   const scene = sceneFor(i.preset, i.lightScene);
   const fit = fittingsLine(scene, i.fittings[scene]);
   const extras: string[] = [...dynamicLines(i.dynamic), lightingGuidance(scene), ...(fit ? [fit] : [])];
-  if (i.sunLine) extras.push(i.sunLine);
-  const notes = [...i.noteLines, i.notes.trim()].filter(Boolean).join(" ");
-  const prompt = buildSlorCheam({ type: i.preset.projectType, hasLinePass: i.hasLinePass, lineStrength: i.lineStrength, extras, notes, avoid: i.avoid, materials });
-  return { prompt, removed: [] };
+  let fromSun = countSet(i.dynamic.time) > 0;
+  if (i.sunLine) {
+    extras.push(i.sunLine);
+    fromSun = true;
+  }
+  const type = i.preset.projectType;
+  const lighting = fromSun ? null : ((type === "interior" ? INTERIOR_SKY[i.preset.lighting] : undefined) ?? lightingText(i.preset.lighting, i.facts));
+  const prompt = buildSlorCheam({
+    outdoor: scene === "exterior" && type !== "interior",
+    hasLinePass: i.hasLinePass,
+    lineStrength: i.lineStrength,
+    lighting,
+    extras,
+    fixtures: fixtureLines(i.facts),
+    lens: lensHint(type, i.facts),
+    materials,
+    avoid: i.avoid,
+  });
+  return { prompt: withOverride(prompt, i.noteLines, i.notes), removed: [] };
 }
