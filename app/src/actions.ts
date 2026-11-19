@@ -23,6 +23,7 @@ import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
 import { cameraPromptLine } from "./lib/camera";
 import { composeRenderPrompt, composeSketchupToReal } from "./core/render-prompt";
+import { modelDnaTags, type ModelMaterial } from "./core/model-dna";
 import { VIEW_SUN, relightPrompt } from "./core/edit-prompts";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
@@ -278,12 +279,13 @@ export interface BuiltPrompt {
   removed: string[];
 }
 
-export function buildPrompt(): BuiltPrompt {
+export function buildPrompt(materials?: string[]): BuiltPrompt {
   // Same steps as before, now in core/render-prompt.ts so the node graph shares them.
   const st = getState();
   const s = st.settings;
   const cap = st.capture;
-  return (s.sketchupToReal ? composeSketchupToReal : composeRenderPrompt)({
+  const fn = s.sketchupToReal ? (x: Parameters<typeof composeRenderPrompt>[0]) => composeSketchupToReal(x, materials) : composeRenderPrompt;
+  return fn({
     preset: { ...st.preset, lighting: lightingId() },
     lightScene: st.lightScene,
     fittings: st.fittings,
@@ -438,6 +440,16 @@ export async function openReview(kind: "render" | "view" | "shots" | "style" = "
     }
   } else {
     prompt = buildPrompt().prompt;
+    // SketchUp to Real: add the free material list read from the model, same press.
+    if (st.settings.sketchupToReal && st.capture?.source === "sketchup" && st.host.kind === "sketchup") {
+      try {
+        const list = await st.host.call<ModelMaterial[]>("modelMaterials", { ratio: frameRatio() });
+        const tags = modelDnaTags(list ?? [], st.preset.projectType);
+        if (tags.length) prompt = buildPrompt(tags).prompt;
+      } catch {
+        /* no list: the material lock still holds */
+      }
+    }
     if (st.capture) {
       const view = await viewForRender(st.capture);
       images = [view, ...(st.capture.lines ? [st.capture.lines] : [])];
