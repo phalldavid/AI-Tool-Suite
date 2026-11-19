@@ -303,6 +303,7 @@ function RenderSide() {
             ))}
           </div>
         </section>
+        <SlorCheamCard />
         <Looks />
         <Light />
         <Environment />
@@ -325,18 +326,41 @@ function RenderSide() {
   );
 }
 
+/** One press: fixed photo-real blocks instead of the Look's style text. */
+function SlorCheamCard() {
+  const on = useApp((x) => Boolean(x.settings.slorCheamMode));
+  return (
+    <button
+      type="button"
+      className="slor-card lift"
+      aria-pressed={on}
+      title="One press, one render: locks camera, geometry and materials and makes the model look like a real photo. Your light, environment and notes are kept; the Look's style text is not used."
+      onClick={() => void updateSettings({ slorCheamMode: !on })}
+    >
+      <span className="slor-icon" aria-hidden="true"><Icon name="aperture" size={20} /></span>
+      <span className="slor-text">
+        <b>Slor Cheam Mode</b>
+        <small>{on ? "On: one press, real photo, design locked" : "One press to a real photo. For the night before the deadline."}</small>
+      </span>
+      <span className="slor-switch" aria-hidden="true"><span /></span>
+    </button>
+  );
+}
+
 function Looks() {
   const preset = useApp((s) => s.preset);
+  const slor = useApp((s) => Boolean(s.settings.slorCheamMode));
   const favorites = useApp((s) => s.settings.favorites);
   const type = preset.projectType;
   const ids = [...favorites.filter((id) => findLibraryItem(id)?.projectType === type), ...STARTERS[type]].filter((id, i, a) => a.indexOf(id) === i).slice(0, 6);
   if (!ids.includes(preset.id) && findLibraryItem(preset.id)) ids.unshift(preset.id);
   const suggestion = suggest(preset.id);
   return (
-    <section className="step" data-tour="look">
+    <section className={`step${slor ? " slor-off" : ""}`} data-tour="look" title={slor ? "Not used in Slor Cheam Mode" : undefined}>
       <div className="step-head">
         <span className="n">2</span>
         <h2>Look</h2>
+        {slor ? <small className="slor-note">Not used in Slor Cheam Mode</small> : null}
         <button type="button" className="linkish end" onClick={() => setState({ libOpen: "look" })}>Browse all</button>
       </div>
       <div className="looks">

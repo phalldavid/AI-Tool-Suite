@@ -78,3 +78,9 @@ test("the style preset text is not used", () => {
   const preset = { ...presetOf("exterior"), style: "UNIQUE-STYLE-WORDS" };
   assert.doesNotMatch(composeSlorCheam(input({ preset })).prompt, /UNIQUE-STYLE-WORDS/);
 });
+
+test("the Environment picks are kept", () => {
+  const p = composeSlorCheam(input({ preset: { ...presetOf("exterior"), environment: "tropical-garden" } })).prompt;
+  assert.match(p, /^Surroundings: .*tropical garden/m);
+  assert.doesNotMatch(composeSlorCheam(input({ preset: { ...presetOf("interior"), environment: "keep" } })).prompt, /^Surroundings:/m);
+});

@@ -5,6 +5,7 @@
 
 import { buildRenderPrompt, fixtureLines, INTERIOR_SKY, lensHint, lightingText } from "./prompt";
 import { buildSlorCheam } from "./slor-cheam";
+import { contextText } from "./context";
 import type { RenderLook } from "./prompt";
 import type { Preset, SceneFacts } from "./types";
 import type { DynValues } from "./dynamic";
@@ -97,6 +98,7 @@ export function composeSlorCheam(i: RenderTabInput, materials?: string[]): Compo
     lighting,
     extras,
     fixtures: fixtureLines(i.facts),
+    surroundings: contextText(i.preset.environment),
     lens: lensHint(type, i.facts),
     materials,
     avoid: i.avoid,

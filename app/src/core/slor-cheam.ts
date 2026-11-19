@@ -21,6 +21,8 @@ export interface SlorCheamInput {
   fixtures?: string[];
   /** Camera line from the SketchUp lens, e.g. "shot with a 28 mm lens ...". */
   lens: string;
+  /** "Surroundings: ..." text from the Environment picks; null = as modelled. */
+  surroundings?: string | null;
   /** Material list read from SketchUp (free). Empty = the material lock alone. */
   materials?: string[];
   avoid?: string;
@@ -45,6 +47,7 @@ export function buildSlorCheam(i: SlorCheamInput): string {
   if (i.hasLinePass) L.push(...geometryLines(i.lineStrength));
   L.push(MATERIAL_LOCK, BOUNDARY_LOCK);
   if (i.materials?.length) L.push(`Material list (one line per surface or object, keep these materials):\n${i.materials.map((m) => `- ${m}`).join("\n")}`);
+  if (i.surroundings) L.push(`Surroundings: ${i.surroundings}.`);
   if (i.outdoor) L.push(SLOR_CHEAM_HARDSCAPE, SLOR_CHEAM_PLANTING, PLACEHOLDER_RULE);
   if (i.lighting) L.push(`Lighting: ${i.lighting}.`);
   L.push(...i.extras, ...(i.fixtures ?? []));
