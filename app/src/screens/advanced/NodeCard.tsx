@@ -557,7 +557,8 @@ function SmallPic({ id, img }: { id: string; img: ImageData64 }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    void thumbFor(id, img, 420).then((u) => live && setUrl(u));
+    // Canvas results are kept for the visit only; History keeps its own thumbnails.
+    void thumbFor(id, img, 420, false).then((u) => live && setUrl(u));
     return () => {
       live = false;
     };

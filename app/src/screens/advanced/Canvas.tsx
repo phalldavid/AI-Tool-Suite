@@ -118,6 +118,13 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
   const [link, setLink] = useState<{ x: number; y: number } | null>(null);
   const focusNext = useRef<string | null>(null);
   const wheelTimer = useRef(0);
+  const settle = useRef(0);
+  /** Smooth layer while panning or zooming; text is drawn sharp again a moment after. */
+  const moving = () => {
+    root.current?.classList.add("moving");
+    window.clearTimeout(settle.current);
+    settle.current = window.setTimeout(() => root.current?.classList.remove("moving"), 180);
+  };
   /** Last pointer position inside the canvas, for Shift A and Ctrl V. */
   const mouse = useRef<{ sx: number; sy: number } | null>(null);
 
@@ -189,6 +196,7 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
       e.preventDefault();
       const { sx, sy } = local(e.clientX, e.clientY);
       const v = zoomAt(viewRef.current, sx, sy, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
+      moving();
       setLiveView(v);
       window.clearTimeout(wheelTimer.current);
       wheelTimer.current = window.setTimeout(() => commitView(setView(graph(), viewRef.current)), 250);
@@ -296,7 +304,10 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     const dys = e.clientY - gs.sy;
     if (!gs.moved && Math.hypot(dxs, dys) < 4) return;
     gs.moved = true;
-    if (gs.type === "pan") setLiveView({ ...gs.view, x: gs.view.x + dxs, y: gs.view.y + dys });
+    if (gs.type === "pan") {
+      moving();
+      setLiveView({ ...gs.view, x: gs.view.x + dxs, y: gs.view.y + dys });
+    }
     else if (gs.type === "move") setDrag({ ids: gs.ids, dx: dxs / viewRef.current.zoom, dy: dys / viewRef.current.zoom });
     else setLink(world(e.clientX, e.clientY));
   };

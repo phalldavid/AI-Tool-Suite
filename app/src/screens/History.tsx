@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { HistoryItem } from "../core/types";
-import { forgetThumbs, readyThumb, thumbFor } from "../lib/thumbs";
+import { useEffect, useMemo, useState } from "react";
+import { forgetThumbs } from "../lib/thumbs";
+import { Thumb } from "../ui/HistoryThumb";
 import { useApp } from "../store";
 import { copyImageToClipboard as copyImage, deleteHistoryItem, download, openHistoryItem, toggleStar } from "../actions";
 import type { ToolId } from "../core/types";
@@ -21,54 +21,8 @@ function matches(f: string, tool: ToolId, starred?: boolean): boolean {
   if (f === "style-copy") return tool === "style-copy" || tool === "style-match";
   return tool === f;
 }
-import { toDataUrl } from "../core/images";
 import { Icon } from "../ui/Icon";
 import { toast } from "../toasts";
-
-/**
- * A small thumbnail made in the background when the card comes near the screen.
- * The full image is only used if a thumbnail can't be made.
- */
-function Thumb({ item }: { item: HistoryItem }) {
-  const [url, setUrl] = useState<string | null>(() => readyThumb(item.id) ?? null);
-  const [failed, setFailed] = useState(false);
-  const box = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (url) return;
-    const el = box.current;
-    let live = true;
-    const start = () => {
-      void thumbFor(item.id, item.after).then((u) => {
-        if (!live) return;
-        if (u) setUrl(u);
-        else setFailed(true);
-      });
-    };
-    if (!el || typeof IntersectionObserver === "undefined") {
-      start();
-      return () => {
-        live = false;
-      };
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          io.disconnect();
-          start();
-        }
-      },
-      { rootMargin: "600px" },
-    );
-    io.observe(el);
-    return () => {
-      live = false;
-      io.disconnect();
-    };
-  }, [item.id, item.after, url]);
-  if (url) return <img src={url} alt="" decoding="async" />;
-  if (failed) return <img src={toDataUrl(item.after)} alt="" loading="lazy" decoding="async" />;
-  return <span ref={box} className="hthumb-wait" aria-hidden="true" />;
-}
 
 export function HistoryScreen() {
   const history = useApp((s) => s.history);

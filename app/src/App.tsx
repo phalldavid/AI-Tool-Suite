@@ -21,6 +21,7 @@ import { DynamicSheet } from "./ui/DynamicSheet";
 import { Tour, useFirstStart } from "./ui/Tour";
 import { usePrefs } from "./prefs";
 import { setLanguage } from "./lib/i18n";
+import { warmThumbs } from "./lib/thumbs";
 
 function typing(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
@@ -35,6 +36,11 @@ export function App() {
   const lang = usePrefs().lang;
   useEffect(() => setLanguage(lang), [lang]);
   useFirstStart();
+  // History thumbnails are made once, in the background, so the History tab opens without a wait.
+  const ready = useApp((s) => s.ready);
+  useEffect(() => {
+    if (ready) warmThumbs(getState().history);
+  }, [ready]);
   const dragging = useApp((s) => s.dragging);
 
   useEffect(() => {
