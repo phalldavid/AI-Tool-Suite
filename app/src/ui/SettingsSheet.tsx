@@ -301,6 +301,10 @@ export function SettingsSheet() {
             <input type="checkbox" checked={s.boundaryLock} onChange={(e) => void updateSettings({ boundaryLock: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
             <span style={{ flex: 1, textAlign: "left" }}>Boundary lock: improve realism only inside each material's own area</span>
           </label>
+          <label className="fontopt" style={{ cursor: "pointer" }}>
+            <input type="checkbox" checked={s.modelTuning !== false} onChange={(e) => void updateSettings({ modelTuning: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
+            <span style={{ flex: 1, textAlign: "left" }}>Model tuning: add each tested model's fixes to the prompt (Kie only)</span>
+          </label>
           <div className="field">
             <label htmlFor="avoid">Avoid (added to every render)</label>
             <textarea id="avoid" className="input" rows={2} value={s.avoid} onChange={(e) => void updateSettings({ avoid: e.target.value })} />

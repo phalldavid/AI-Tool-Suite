@@ -86,6 +86,8 @@ export interface Settings {
   briefMode?: boolean;
   /** Set once the brief flow's defaults (mode on, Nano Banana Pro) were applied. */
   briefDefaults?: boolean;
+  /** Add each model's tested guard lines to the prompt (model-notes.ts). Undefined = on. */
+  modelTuning?: boolean;
 }
 
 export interface SceneSetup {
@@ -187,7 +189,9 @@ export function makeProvider(s: Settings, host?: Host): Provider & { modelName?:
   }
   if (s.backend === "kie") {
     const transport = host && host.kind === "sketchup" ? hostTransport(host) : fetchTransport;
-    return new KieProvider(s.kieKey.trim(), s.kieModel, s.kieResolution, transport);
+    const p = new KieProvider(s.kieKey.trim(), s.kieModel, s.kieResolution, transport);
+    p.tune = s.modelTuning !== false;
+    return p;
   }
   if (s.backend === "comfyui") return new ComfyProvider(s.comfyUrl, s.comfyWorkflow);
   return new GeminiProvider(s.geminiKey.trim(), s.geminiModel.trim() || DEFAULT_GEMINI_MODEL);
