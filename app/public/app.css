@@ -982,3 +982,12 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .fontopt.wip:disabled > b, .fontopt.wip:disabled > small { opacity: 0.4; }
 .wip-tape { position: absolute; top: 50%; right: -34px; transform: translateY(-50%) rotate(-12deg); padding: 3px 40px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #1a1a1a; background: repeating-linear-gradient(-45deg, #f5c518 0 10px, #1a1a1a 10px 20px); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); pointer-events: none; }
 .wip-tape { -webkit-text-stroke: 0; text-shadow: 0 0 3px #f5c518, 0 0 3px #f5c518, 0 0 3px #f5c518; }
+
+/* Presentation board: pins over the picture */
+.board-frame { position: relative; }
+.board-frame img { width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; }
+.board-frame.pinning { cursor: crosshair; }
+.bpin { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: #1d1d1f; color: #fff; font-size: 13px; font-weight: 700; line-height: 1; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); cursor: grab; touch-action: none; padding: 0; }
+.bpin:active { cursor: grabbing; }
+.bpin.static { position: static; transform: none; flex: none; cursor: default; }
+.board-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 12px; border-radius: 999px; background: var(--image-chip); color: var(--on-image); font-size: 12px; white-space: nowrap; }

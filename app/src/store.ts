@@ -13,7 +13,7 @@ export type Tab = "render" | "edit" | "history" | "sun" | "advanced";
 
 export type NotesSlot = "view" | "style";
 
-export type EditMode = "compare" | "spot" | "relight" | "view" | "style";
+export type EditMode = "compare" | "spot" | "relight" | "view" | "style" | "board";
 
 export interface SunState {
   mode: "time" | "free" | "sketchup";
@@ -47,6 +47,18 @@ export interface Version {
   meta?: VersionMeta;
   /** What "Before" shows for this version, when it differs from the main before image. */
   before?: ImageData64;
+  /** Presentation board: numbered pins placed by the user, drawn by the app on export. */
+  pins?: import("./core/boards").BoardPin[];
+}
+
+/** Presentation board settings on the Edit tab. */
+export interface BoardSetup {
+  preset: string;
+  size: import("./core/boards").SheetSize;
+  orient: import("./core/boards").Orientation;
+  subject: string;
+  notes: string;
+  title: string;
 }
 
 export interface Shot {
@@ -113,6 +125,7 @@ export interface AppState {
   /** Style Copy: the reference photo, and where its light comes from. */
   styleRef: Shot | null;
   styleLight: "reference" | "dial";
+  board: BoardSetup;
   /** First start: language choice, then the tour step (null = no tour). */
   langPick: boolean;
   tourStep: number | null;
@@ -131,7 +144,7 @@ export interface AppState {
     images: ImageData64[];
     before: ImageData64 | null;
     /** "edit": a spot edit or relight; the pasted result becomes a new version of the image being edited. */
-    kind?: "render" | "edit";
+    kind?: "render" | "edit" | "board";
     /** names for the images, e.g. "Painted image" */
     names?: string[];
   } | null;

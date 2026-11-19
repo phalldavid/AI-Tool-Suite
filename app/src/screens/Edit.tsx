@@ -28,6 +28,7 @@ import { useViewport } from "../layout";
 import { hoverSlot, hoveredSlot, onHoverSlot } from "../lib/pasteTarget";
 import { copyImageToClipboard as copyImage, deleteVersion, renameVersion } from "../actions";
 import { INTERIOR_RELIGHT } from "../core/prompt";
+import { BoardPanel, BoardStage } from "./Board";
 
 let painter: ZonePainter | null = null;
 let painterFor: unknown = null;
@@ -153,6 +154,7 @@ const TOOLS_ROW: [EditMode | "download" | "again" | "copy", string, string][] = 
   ["relight", "Relight", "sun"],
   ["view", "Multi-View", "camera"],
   ["style", "Style copy", "layers"],
+  ["board", "Board", "grid"],
   ["again", "Try again", "refresh"],
   ["copy", "Copy", "clipboard"],
   ["download", "Download", "download"],
@@ -190,7 +192,7 @@ function EditWork() {
         <ReplaceClear />
       </div>
       <div className="stage cq" style={{ background: "var(--field)" }}>
-        {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : <CompareStage v={v} />}
+        {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : mode === "board" ? <BoardStage /> : <CompareStage v={v} />}
         <LoaderLayer />
         <LoaderStatus />
         {phone && v && (mode === "compare" || mode === "relight") ? (
@@ -590,7 +592,7 @@ function EditSide() {
   if (mode === "style") return <StyleCopyPanel />;
   return (
     <div className="side-scroll thin">
-      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : <><SummaryPanel /><CompareFoot /></>}
+      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
     </div>
   );
 }
