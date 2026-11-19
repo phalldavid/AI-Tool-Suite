@@ -302,6 +302,10 @@ export function SettingsSheet() {
             <span style={{ flex: 1, textAlign: "left" }}>Boundary lock: improve realism only inside each material's own area</span>
           </label>
           <label className="fontopt" style={{ cursor: "pointer" }}>
+            <input type="checkbox" checked={Boolean(s.sketchupToReal)} onChange={(e) => void updateSettings({ sketchupToReal: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
+            <span style={{ flex: 1, textAlign: "left" }}>SketchUp to Real: one-press universal prompt (replaces the style preset text)</span>
+          </label>
+          <label className="fontopt" style={{ cursor: "pointer" }}>
             <input type="checkbox" checked={s.modelTuning !== false} onChange={(e) => void updateSettings({ modelTuning: e.target.checked })} style={{ accentColor: "var(--accent)" }} />
             <span style={{ flex: 1, textAlign: "left" }}>Model tuning: add each tested model's fixes to the prompt (Kie only)</span>
           </label>

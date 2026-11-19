@@ -22,7 +22,7 @@ import { lintPrompt } from "./lib/lint";
 import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
 import { cameraPromptLine } from "./lib/camera";
-import { composeRenderPrompt } from "./core/render-prompt";
+import { composeRenderPrompt, composeSketchupToReal } from "./core/render-prompt";
 import { VIEW_SUN, relightPrompt } from "./core/edit-prompts";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
@@ -283,7 +283,7 @@ export function buildPrompt(): BuiltPrompt {
   const st = getState();
   const s = st.settings;
   const cap = st.capture;
-  return composeRenderPrompt({
+  return (s.sketchupToReal ? composeSketchupToReal : composeRenderPrompt)({
     preset: { ...st.preset, lighting: lightingId() },
     lightScene: st.lightScene,
     fittings: st.fittings,
