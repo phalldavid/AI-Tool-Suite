@@ -8,6 +8,7 @@ import { useDev } from "../lib/dev";
 import { KIE_MODELS, creditsFor, priceText, findKieModel } from "../core/providers/kie-models";
 import type { KieFamilyId, KieModel } from "../core/providers/kie-models";
 import { modelLogo } from "../core/model-logos";
+import { modelNote } from "../core/model-notes";
 import { toast } from "../toasts";
 import { Icon } from "./Icon";
 
@@ -26,6 +27,8 @@ function capsFor(m: KieModel): string[] {
   const caps: string[] = [];
   if (m.id === "nano-banana-2-1") caps.push("Default");
   if (m.id === "seedream/5-flash-image-to-image") caps.push("Lowest cost");
+  const tested = modelNote(m.id);
+  if (tested) caps.push(tested.tag);
   if (m.resolutions.includes("4K")) caps.push("4K");
   else caps.push(`Up to ${m.resolutions.includes("2K") ? "2K" : "1K"}`);
   if (m.textId) caps.push("No image needed");
@@ -122,8 +125,10 @@ export function ModelPicker({ edit }: { edit?: boolean }) {
                   : list.map((x) => {
                       const on = kie && x.id === modelId;
                       const cr = creditsFor(x, s.kieResolution);
+                      const tn = modelNote(x.id);
+                      const tip = tn ? `Tested ${tn.tested}\nGood: ${tn.strong}\nWatch: ${tn.watch}\nPick: ${tn.pick}` : undefined;
                       return (
-                        <button key={x.id} type="button" role="option" aria-selected={on} className="mp-item" onClick={pickKie(x.id)}>
+                        <button key={x.id} type="button" role="option" aria-selected={on} className="mp-item" title={tip} onClick={pickKie(x.id)}>
                           <Logo family={x.family} />
                           <span className="mp-text">
                             <span className="mp-name">
@@ -131,6 +136,7 @@ export function ModelPicker({ edit }: { edit?: boolean }) {
                               {capsFor(x).map((t) => <em key={t}>{t}</em>)}
                             </span>
                             <small>{x.note}</small>
+                            {tn ? <small className="mp-tested">{tn.pick}</small> : null}
                           </span>
                           <span className="mp-cost num">
                             {cr !== null ? `${cr} cr` : ""}

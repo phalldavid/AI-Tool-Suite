@@ -11,6 +11,7 @@ import type { Host } from "../host";
 import type { ImageData64, RenderRequest, RenderResult } from "../types";
 import { findKieModel, ratioFor, resolutionFor, USD_PER_CREDIT, type KieResolution } from "./kie-models";
 import { ProviderError, type Provider } from "./types";
+import { withModelGuard } from "../model-notes";
 
 const API = "https://api.kie.ai/api/v1";
 const UPLOAD = "https://kieai.redpandaai.co/api/file-base64-upload";
@@ -123,6 +124,8 @@ export class KieProvider implements Provider {
   pollMs = 3000;
   /** Give up after this long, in ms. */
   timeoutMs = 10 * 60 * 1000;
+  /** Add the model's guard lines from model-notes.ts to the prompt. */
+  tune = true;
 
   constructor(
     private apiKey: string,
@@ -172,7 +175,7 @@ export class KieProvider implements Provider {
     const model = !urls.length && m.textId ? m.textId : m.id;
     const started = (await this.call("POST", `${API}/jobs/createTask`, {
       model,
-      input: m.input(req.prompt, urls, ratioFor(m, req.aspectRatio), res),
+      input: m.input(this.tune ? withModelGuard(req.prompt, m.id, urls.length > 0) : req.prompt, urls, ratioFor(m, req.aspectRatio), res),
     })) as { taskId?: string } | undefined;
     const taskId = started?.taskId;
     if (!taskId) throw new ProviderError("Kie.ai did not start the job. Try again.");
