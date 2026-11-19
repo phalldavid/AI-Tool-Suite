@@ -1,4 +1,4 @@
-// "SketchUp to Real": one press, one call, no analysis step. Learned from Sombok
+// Deadline Mode: one press, one call, no analysis step. Learned from Sombok
 // (docs/sombok-study): their preset is a fixed text block the model reads with the
 // image. Ours gates exterior-only blocks by scene, keeps the user's time and light
 // settings, and can take the free material list read from SketchUp.
@@ -18,7 +18,7 @@ export interface S2RInput {
   avoid?: string;
 }
 
-export function buildSketchupToReal(i: S2RInput): string {
+export function buildDeadlineMode(i: S2RInput): string {
   const outside = i.type === "exterior" || i.type === "aerial";
   const L: string[] = [
     "Turn this SketchUp view into a real photograph taken with a professional DSLR. Keep the geometry and the textures.",
