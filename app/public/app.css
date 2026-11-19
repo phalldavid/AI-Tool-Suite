@@ -984,8 +984,9 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .wip-tape { -webkit-text-stroke: 0; text-shadow: 0 0 3px #f5c518, 0 0 3px #f5c518, 0 0 3px #f5c518; }
 
 /* Presentation board: pins over the picture */
+.fit.board-top { z-index: 4; }
 .board-frame { position: relative; }
-.board-frame img { width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; }
+.board-frame > img { object-fit: contain; user-select: none; }
 .board-frame.pinning { cursor: crosshair; }
 .bpin { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: #1d1d1f; color: #fff; font-size: 13px; font-weight: 700; line-height: 1; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); cursor: grab; touch-action: none; padding: 0; }
 .bpin:active { cursor: grabbing; }

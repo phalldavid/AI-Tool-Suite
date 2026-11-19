@@ -30,6 +30,7 @@ export function BoardStage() {
   const src = useMemo(() => (img ? toDataUrl(img) : ""), [img]);
   const frame = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null);
+  const busy = useApp((s) => s.busy);
   if (!v) return null;
   const pins = v.pins ?? [];
   const at = (e: React.PointerEvent) => {
@@ -37,7 +38,8 @@ export function BoardStage() {
     return { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
   };
   return (
-    <div className="fit">
+    // Above the loader layer (which holds the last result) unless a render is running.
+    <div className={`fit${busy ? "" : " board-top"}`}>
       <div
         ref={frame}
         className={`frame board-frame${isBoard ? " pinning" : ""}`}

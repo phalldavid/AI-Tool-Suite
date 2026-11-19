@@ -94,7 +94,7 @@ function drawLegend(g: CanvasRenderingContext2D, pins: BoardPin[], box: { x: num
   const cols = Math.ceil(pins.length / rows);
   const colW = box.w / Math.max(cols, 1);
   const rowH = (box.h - pad * 1.5) / Math.min(rows, pins.length);
-  const pr = Math.min(r * 0.75, rowH * 0.36);
+  const pr = Math.min(r * 0.95, rowH * 0.36);
   pins.forEach((p, n) => {
     const col = Math.floor(n / rows);
     const row = n % rows;
@@ -102,7 +102,7 @@ function drawLegend(g: CanvasRenderingContext2D, pins: BoardPin[], box: { x: num
     const cy = box.y + pad + row * rowH + rowH / 2;
     drawPin(g, cx * k, cy * k, pr * k, n + 1);
     g.fillStyle = INK;
-    g.font = `500 ${pr * 1.25 * k}px ${FONT}`;
+    g.font = `500 ${pr * 1.5 * k}px ${FONT}`;
     g.textAlign = "left";
     g.textBaseline = "middle";
     fitText(g, p.text || "—", (cx + pr * 1.8) * k, cy * k, (colW - pr * 3) * k);
