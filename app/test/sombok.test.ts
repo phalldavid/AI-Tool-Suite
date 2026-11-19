@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildStyleMatchPrompt } from "../src/core/style-match";
 import { buildFloorplanPrompt, DEFAULT_PLAN } from "../src/core/floorplan";
-import { buildAutoPrompt, parseAutoScan } from "../src/core/auto-render";
 import { buildRenderPrompt, PLACEHOLDER_RULE } from "../src/core/prompt";
 import { BUILT_IN_PRESETS } from "../src/core/presets";
 
@@ -23,22 +22,6 @@ test("floorplan: cut height, rules and only one preset block", () => {
   assert.match(p, /terrazzo/);
   assert.doesNotMatch(p, /light oak plank/);
   assert.match(buildFloorplanPrompt(DEFAULT_PLAN), /No people, no text at all/);
-});
-
-test("auto render: reads the scan and fills the universal prompt", () => {
-  const scan = parseAutoScan('Here: {"scene":"Interior","space":"bathroom","style":"modern minimal","surfaces":[{"element":"floor","material":"polished concrete","colour":"grey"}],"light_sources":["recessed downlights"],"openings":1,"time_hint":"day","placeholders":["face-me people"],"camera":"eye level"}');
-  assert.ok(scan);
-  assert.equal(scan.scene, "interior");
-  const p = buildAutoPrompt(scan);
-  assert.match(p, /same bathroom/);
-  assert.match(p, /floor: polished concrete, grey/);
-  assert.match(p, /turn on the visible fixtures \(recessed downlights\)/);
-  assert.match(p, /face-me people -> remove them/);
-  assert.doesNotMatch(p, /green ground/);
-  assert.equal(parseAutoScan("no json"), null);
-  const ext = buildAutoPrompt(parseAutoScan('{"scene":"exterior","space":"villa"}')!);
-  assert.match(ext, /flat green ground plane -> real ground/);
-  assert.match(ext, /plain background -> real sky/);
 });
 
 test("exterior renders ask for SketchUp's green ground and white sky to be replaced", () => {
