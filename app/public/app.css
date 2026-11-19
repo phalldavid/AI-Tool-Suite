@@ -992,3 +992,11 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .bpin:active { cursor: grabbing; }
 .bpin.static { position: static; transform: none; flex: none; cursor: default; }
 .board-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 12px; border-radius: 999px; background: var(--image-chip); color: var(--on-image); font-size: 12px; white-space: nowrap; }
+
+/* Slor Cheam Mode folds: Advanced's card, neutral colours, same motion */
+.adv.fold { background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow 220ms var(--ease); }
+.adv.fold.open { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.adv.fold .adv-ic { background: var(--well); color: var(--accent); }
+.adv.fold .fold-sum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold-body { animation: swin 280ms var(--ease) both; }
+.fold-body > .step > .step-head .n, .fold-body > .step > .step-head h2 { display: none; }

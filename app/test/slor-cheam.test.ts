@@ -8,6 +8,7 @@ import { DEFAULT_FITTINGS } from "../src/lib/fittings";
 import { PLACEHOLDER_RULE } from "../src/core/prompt";
 import { SLOR_CHEAM_HARDSCAPE, SLOR_CHEAM_OPENING, SLOR_CHEAM_PLANTING } from "../src/core/slor-cheam";
 import type { ProjectType } from "../src/core/types";
+import { dynamicLines } from "../src/core/dynamic";
 
 const S = DEFAULT_SETTINGS;
 const presetOf = (type: ProjectType) => BUILT_IN_PRESETS.find((p) => p.projectType === type)!;
@@ -83,4 +84,10 @@ test("the Environment picks are kept", () => {
   const p = composeSlorCheam(input({ preset: { ...presetOf("exterior"), environment: "tropical-garden" } })).prompt;
   assert.match(p, /^Surroundings: .*tropical garden/m);
   assert.doesNotMatch(composeSlorCheam(input({ preset: { ...presetOf("interior"), environment: "keep" } })).prompt, /^Surroundings:/m);
+});
+
+test("Advanced dynamic prompts are not sent (hidden in this mode)", () => {
+  const dynamic: RenderTabInput["dynamic"] = { vehicles: { types: ["tuktuks"], amount: "few" } };
+  assert.match(dynamicLines(dynamic).join(" "), /tuk-tuks/, "the fixture really makes a line");
+  assert.doesNotMatch(composeSlorCheam(input({ dynamic })).prompt, /tuk-tuks/);
 });

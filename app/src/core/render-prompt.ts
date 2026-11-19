@@ -77,18 +77,16 @@ export function composeRenderPrompt(i: RenderTabInput): ComposedPrompt {
 }
 
 /**
- * Slor Cheam Mode: the fixed one-press blocks around the user's own time, sun, light
- * and fittings lines. Additional Notes go on top, as in every other prompt.
+ * Slor Cheam Mode: the fixed one-press blocks around the user's own time, sun, light,
+ * fittings and environment. Advanced dynamic prompts are not used (hidden in this mode). Additional Notes go on top, as in every other prompt.
  */
 export function composeSlorCheam(i: RenderTabInput, materials?: string[]): ComposedPrompt {
   const scene = sceneFor(i.preset, i.lightScene);
   const fit = fittingsLine(scene, i.fittings[scene]);
-  const extras: string[] = [...dynamicLines(i.dynamic), lightingGuidance(scene), ...(fit ? [fit] : [])];
-  let fromSun = countSet(i.dynamic.time) > 0;
-  if (i.sunLine) {
-    extras.push(i.sunLine);
-    fromSun = true;
-  }
+  // Advanced (dynamic prompts) is hidden in this mode, so none of it is sent.
+  const extras: string[] = [lightingGuidance(scene), ...(fit ? [fit] : [])];
+  const fromSun = Boolean(i.sunLine);
+  if (i.sunLine) extras.push(i.sunLine);
   const type = i.preset.projectType;
   const lighting = fromSun ? null : ((type === "interior" ? INTERIOR_SKY[i.preset.lighting] : undefined) ?? lightingText(i.preset.lighting, i.facts));
   const prompt = buildSlorCheam({

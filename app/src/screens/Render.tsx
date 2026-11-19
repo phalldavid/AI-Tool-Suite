@@ -3,7 +3,7 @@ import { getState, setState, useApp } from "../store";
 import type { AppState, NotesSlot } from "../store";
 import { useRatio } from "../ui/useRatio";
 import { Foot } from "../ui/PhoneBar";
-import { captureFromSketchUp, clearView, lightCaption, lookPreset, openHistoryItem, openReview, pasteFromClipboard, pickFrame, updateSettings, useFile } from "../actions";
+import { captureFromSketchUp, clearView, effectiveLightScene, lightCaption, lookPreset, openHistoryItem, openReview, pasteFromClipboard, pickFrame, updateSettings, useFile } from "../actions";
 import { FRAME_ROW, findFrame, swapFrameId } from "../core/frame";
 import { toDataUrl } from "../core/images";
 import { previewFile } from "../core/preview-files";
@@ -272,12 +272,22 @@ function RenderSide() {
   const cap = useApp((x) => x.capture);
   const cost = renderCost(s);
   const promptOnly = s.backend === "browser" && !s.testMode;
+  const slor = Boolean(s.slorCheamMode);
+  const hour = useApp((x) => x.hour);
+  const lighting = useApp((x) => x.lighting);
+  const exact = useApp((x) => x.sun.exact);
+  useApp((x) => x.lightScene);
+  const scene = effectiveLightScene() === "interior" ? "Interior" : "Exterior";
+  const when = exact ? "exact sun direction" : lighting === "time" ? fmtHour(hour) : lighting === "sketchup" ? "SketchUp sun" : CARDS.find((c) => c.id === lighting)?.label ?? lighting;
+  const lightSummary = `${scene} · ${when}`;
+  const picks = parseContexts(preset.environment);
+  const envSummary = picks.length ? picks.map(contextLabel).join(" + ") : "As modelled";
   return (
     <>
       <div className="side-scroll thin">
         <div>
           <h1 className="hero">Make it real.</h1>
-          <p className="sub">Pick a look. Your design stays exactly as modelled.</p>
+          <p className="sub">{slor ? "One press. Your design stays exactly as modelled." : "Pick a look. Your design stays exactly as modelled."}</p>
         </div>
         <section className="step">
           <div className="step-head">
@@ -304,11 +314,22 @@ function RenderSide() {
           </div>
         </section>
         <SlorCheamCard />
-        <Looks />
-        <Light />
-        <Environment />
-        <AdditionalNotes />
-        <Advanced />
+        {slor ? (
+          // Slor Cheam Mode: only what its prompt uses. Notes lead; Light and Environment fold to one line.
+          <>
+            <div className="rise" key="slor-notes"><AdditionalNotes n={2} /></div>
+            <Fold id="light" icon="sun" title="Light" summary={lightSummary} delay={60}><Light /></Fold>
+            <Fold id="env" icon="map" title="Environment" summary={envSummary} delay={120}><Environment /></Fold>
+          </>
+        ) : (
+          <>
+            <Looks />
+            <Light />
+            <Environment />
+            <AdditionalNotes />
+            <Advanced />
+          </>
+        )}
       </div>
       <Foot>
         <ModelPicker />
@@ -323,6 +344,24 @@ function RenderSide() {
         )}
       </Foot>
     </>
+  );
+}
+
+/** A section folded to one line; opens in place with the same feel as Advanced. */
+function Fold({ id, icon, title, summary, delay = 0, children }: { id: string; icon: string; title: string; summary: string; delay?: number; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className={`adv fold rise${open ? " open" : ""}`} style={{ animationDelay: `${delay}ms` }} data-fold={id}>
+      <button type="button" className="adv-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="adv-ic"><Icon name={icon} size={18} /></span>
+        <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+          <b>{title}</b>
+          <small className="fold-sum">{summary}</small>
+        </span>
+        <Icon name="chevron" size={16} style={{ transition: "transform 200ms var(--ease)", transform: open ? "rotate(180deg)" : "none" }} />
+      </button>
+      {open ? <div className="adv-body fold-body">{children}</div> : null}
+    </section>
   );
 }
 
@@ -533,7 +572,7 @@ function Environment() {
 }
 
 /** Additional Notes: chips + free text. With a slot, it is the Edit tab's own copy (Multi-View or Style copy). */
-export function AdditionalNotes({ slot }: { slot?: NotesSlot }) {
+export function AdditionalNotes({ slot, n = 5 }: { slot?: NotesSlot; n?: number }) {
   const notes = useApp((s) => (slot ? s.editNotes[slot].notes : s.notes));
   const picked = useApp((s) => (slot ? s.editNotes[slot].chips : s.noteChips));
   const colour = useApp((s) => s.glassColour);
@@ -569,7 +608,7 @@ export function AdditionalNotes({ slot }: { slot?: NotesSlot }) {
         <span className="lbl" style={{ fontWeight: 600, color: "var(--soft)" }}>Additional Notes <small style={{ fontWeight: 400, color: "var(--muted)" }}>· highest priority</small></span>
       ) : (
         <div className="step-head">
-          <span className="n">5</span>
+          <span className="n">{n}</span>
           <h2>Additional Notes</h2>
         </div>
       )}
