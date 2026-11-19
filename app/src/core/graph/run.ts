@@ -97,7 +97,7 @@ export interface RunCheck {
 /** Why Run is not allowed, in plain words, or null when it is. */
 export function runBlocker(c: RunCheck): string | null {
   if (c.backend === "browser" && !c.testMode) {
-    return "Prompt Copy can't render from the canvas. Copy or save the prompts, or pick Kie, Gemini API, ComfyUI or Test mode in Settings.";
+    return "Prompt Copy can't render from the canvas. Copy or save the prompts, or pick Kie, Gemini API or Test mode in Settings.";
   }
   if (!c.renderNodes) return "Add a Render node after a Prompt node to render.";
   const n = c.plan.jobs.length;

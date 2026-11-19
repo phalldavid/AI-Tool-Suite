@@ -20,3 +20,14 @@ test("models without a test get no guard", () => {
   assert.equal(modelGuard("seedream/5-flash-image-to-image"), "");
   assert.equal(withModelGuard("p", "seedream/5-flash-image-to-image", true), "p");
 });
+
+import { DEFAULT_SETTINGS, sentPrompt } from "../src/core/settings";
+
+test("History gets the same text the Kie provider sends", () => {
+  const kie = { ...DEFAULT_SETTINGS, backend: "kie" as const, testMode: false, kieModel: "nano-banana-2-1" };
+  assert.match(sentPrompt(kie, "Render.", true), /Model check:/);
+  assert.equal(sentPrompt(kie, "Render.", false), "Render.");
+  assert.equal(sentPrompt({ ...kie, modelTuning: false }, "Render.", true), "Render.");
+  assert.equal(sentPrompt({ ...kie, backend: "gemini" }, "Render.", true), "Render.");
+  assert.match(sentPrompt(kie, "Edit.", true, "gpt-image-2-6/sunburst-image-to-image"), /blow the windows out/);
+});

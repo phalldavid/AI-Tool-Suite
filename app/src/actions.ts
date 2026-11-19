@@ -4,7 +4,7 @@ import { getState, setState } from "./store";
 import type { AppState, NotesSlot, Version, VersionMeta } from "./store";
 import { toast } from "./toasts";
 import { detectHost } from "./core/host";
-import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SITES } from "./core/settings";
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SITES, sentPrompt } from "./core/settings";
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
@@ -487,9 +487,10 @@ export async function confirmReview(prompt: string): Promise<void> {
       const set = sets[i];
       const size = await imageSize(set[0]);
       const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, kieEdit(), sets.length > 1 ? `Creating view ${i + 1} of ${sets.length}` : "Creating the new view");
+      const sent = sentPrompt(s, prompt, set.length > 0, kieEdit());
       const src = st.versions[st.lookIndex];
       const vm = editMeta({ look: `Same as ${src ? `${src.kind === "view" ? "View" : "v"}${st.lookIndex + 1}` : "the look source"}`, light: "From the look source" });
-      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta: vm, before: set[0], historyId: await record("view", prompt, set[0], img, { name: r.kind === "shots" ? "New view" : "New camera", model: kieEdit() }) });
+      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt: sent, kind: "view", meta: vm, before: set[0], historyId: await record("view", sent, set[0], img, { name: r.kind === "shots" ? "New view" : "New camera", model: kieEdit() }) });
     }
     if (!made.length) return;
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, shots: r.kind === "shots" ? [] : x.shots, editMode: "compare" }));
@@ -498,17 +499,19 @@ export async function confirmReview(prompt: string): Promise<void> {
   if (r.kind === "style") {
     const out = await runProvider(prompt, r.images, r.aspectRatio, kieEdit(), "Copying the style");
     if (!out.length) return;
+    const sent = sentPrompt(s, prompt, r.images.length > 0, kieEdit());
     const made: Version[] = [];
     const sm = editMeta({ look: `Reference: ${st.styleRef?.name ?? "photo"}`, light: st.styleLight === "dial" ? styleDialWords().replace(/^./, (c) => c.toUpperCase()) : "From the reference photo" });
-    for (const img of out) made.push({ image: img, label: "Style copy", prompt, kind: "version", before: r.images[0], meta: sm, historyId: await record("style-copy", prompt, r.images[0], img, { name: "Style copy", model: kieEdit() }) });
+    for (const img of out) made.push({ image: img, label: "Style copy", prompt: sent, kind: "version", before: r.images[0], meta: sm, historyId: await record("style-copy", sent, r.images[0], img, { name: "Style copy", model: kieEdit() }) });
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, editMode: "compare" }));
     return;
   }
   const before = st.capture?.view ?? null;
   const out = await runProvider(prompt, r.images, r.aspectRatio);
   if (!out.length) return;
+  const sent = sentPrompt(s, prompt, r.images.length > 0);
   const versions: Version[] = [];
-  for (const img of out) versions.push({ image: img, label: "Render", prompt, kind: "version", meta, historyId: await record(tool, prompt, before ?? img, img) });
+  for (const img of out) versions.push({ image: img, label: "Render", prompt: sent, kind: "version", meta, historyId: await record(tool, sent, before ?? img, img) });
   setState({ before, versions, activeVersion: 0, lookIndex: 0, tab: "edit", editMode: "compare" });
   void updateSettings({ lastSetup: { ...s.lastSetup, [st.preset.projectType]: { preset: st.preset, kieModel: s.kieModel, frameId: st.frameId } } });
 }

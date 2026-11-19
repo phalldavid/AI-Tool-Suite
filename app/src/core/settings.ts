@@ -9,6 +9,7 @@ import { ComfyProvider } from "./providers/comfyui";
 import { BrowserProvider } from "./providers/browser";
 import { fetchTransport, hostTransport, KieProvider } from "./providers/kie";
 import { DEFAULT_KIE_MODEL, type KieResolution } from "./providers/kie-models";
+import { withModelGuard } from "./model-notes";
 import type { Provider } from "./providers/types";
 import { MockProvider } from "./providers/mock";
 import type { PlanOptions } from "./floorplan";
@@ -181,6 +182,16 @@ export async function loadSettings(host: Host): Promise<Settings> {
 
 export async function saveSettings(host: Host, s: Settings): Promise<void> {
   await host.setSetting(KEY, JSON.stringify(s));
+}
+
+/**
+ * The exact text the provider sends: the prompt plus the model's tested guard lines
+ * (Kie only, Model tuning on, input image present). History saves this, so it shows
+ * what was really sent. KieProvider adds the same lines with the same function.
+ */
+export function sentPrompt(s: Settings, prompt: string, hasImage: boolean, kieModel?: string): string {
+  if (s.testMode || s.backend !== "kie" || s.modelTuning === false) return prompt;
+  return withModelGuard(prompt, kieModel ?? s.kieModel, hasImage);
 }
 
 export function makeProvider(s: Settings, host?: Host): Provider & { modelName?: string } {

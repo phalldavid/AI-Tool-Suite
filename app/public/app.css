@@ -975,3 +975,10 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .slor-card[aria-pressed="true"] .slor-switch span { transform: translateX(16px); background: var(--accent-ink); }
 .step.slor-off .looks, .step.slor-off .step-head .end { opacity: 0.35; filter: grayscale(1); pointer-events: none; }
 .slor-note { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+/* Features on hold: greyed out with a construction tape */
+.fontopt.wip { position: relative; overflow: hidden; }
+.fontopt.wip:disabled { cursor: not-allowed; }
+.fontopt.wip:disabled > b, .fontopt.wip:disabled > small { opacity: 0.4; }
+.wip-tape { position: absolute; top: 50%; right: -34px; transform: translateY(-50%) rotate(-12deg); padding: 3px 40px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #1a1a1a; background: repeating-linear-gradient(-45deg, #f5c518 0 10px, #1a1a1a 10px 20px); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); pointer-events: none; }
+.wip-tape { -webkit-text-stroke: 0; text-shadow: 0 0 3px #f5c518, 0 0 3px #f5c518, 0 0 3px #f5c518; }
