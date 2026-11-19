@@ -4,7 +4,7 @@ import { getState, setState } from "./store";
 import type { AppState, NotesSlot, Version, VersionMeta } from "./store";
 import { toast } from "./toasts";
 import { detectHost } from "./core/host";
-import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SITES } from "./core/settings";
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SITES, sentPrompt } from "./core/settings";
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
@@ -22,7 +22,8 @@ import { lintPrompt } from "./lib/lint";
 import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
 import { cameraPromptLine } from "./lib/camera";
-import { composeRenderPrompt } from "./core/render-prompt";
+import { composeRenderPrompt, composeSlorCheam } from "./core/render-prompt";
+import { modelDnaTags, type ModelMaterial } from "./core/model-dna";
 import { VIEW_SUN, relightPrompt } from "./core/edit-prompts";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
@@ -33,6 +34,8 @@ import { findKieModel } from "./core/providers/kie-models";
 import { contextLabel, parseContexts } from "./core/context";
 import { getPrefs } from "./prefs";
 import { revealResult } from "./ui/loader/bus";
+import { boardAspect, buildBoardPrompt, findBoardPreset, type BoardPin } from "./core/boards";
+import { composeSheet } from "./lib/board-sheet";
 
 export const DEFAULT_LOOK = "ext-mansion-tropical";
 
@@ -78,6 +81,7 @@ export async function init(): Promise<AppState> {
     styleHour: 16.5,
     styleRef: null,
     styleLight: "reference",
+    board: { preset: "joinery", size: "A1", orient: "landscape", subject: "", notes: "", title: "" },
     fittings: loadFittings(),
     langPick: false,
     tourStep: null,
@@ -278,12 +282,13 @@ export interface BuiltPrompt {
   removed: string[];
 }
 
-export function buildPrompt(): BuiltPrompt {
+export function buildPrompt(materials?: string[]): BuiltPrompt {
   // Same steps as before, now in core/render-prompt.ts so the node graph shares them.
   const st = getState();
   const s = st.settings;
   const cap = st.capture;
-  return composeRenderPrompt({
+  const fn = s.slorCheamMode ? (x: Parameters<typeof composeRenderPrompt>[0]) => composeSlorCheam(x, materials) : composeRenderPrompt;
+  return fn({
     preset: { ...st.preset, lighting: lightingId() },
     lightScene: st.lightScene,
     fittings: st.fittings,
@@ -438,6 +443,16 @@ export async function openReview(kind: "render" | "view" | "shots" | "style" = "
     }
   } else {
     prompt = buildPrompt().prompt;
+    // Slor Cheam Mode: add the free material list read from the model, same press.
+    if (st.settings.slorCheamMode && st.capture?.source === "sketchup" && st.host.kind === "sketchup") {
+      try {
+        const list = await st.host.call<ModelMaterial[]>("modelMaterials", { ratio: frameRatio() });
+        const tags = modelDnaTags(list ?? [], st.preset.projectType);
+        if (tags.length) prompt = buildPrompt(tags).prompt;
+      } catch {
+        /* no list: the material lock still holds */
+      }
+    }
     if (st.capture) {
       const view = await viewForRender(st.capture);
       images = [view, ...(st.capture.lines ? [st.capture.lines] : [])];
@@ -475,9 +490,10 @@ export async function confirmReview(prompt: string): Promise<void> {
       const set = sets[i];
       const size = await imageSize(set[0]);
       const out = await runProvider(prompt, set, r.kind === "shots" ? nearestAspectRatio(size.width, size.height) : r.aspectRatio, kieEdit(), sets.length > 1 ? `Creating view ${i + 1} of ${sets.length}` : "Creating the new view");
+      const sent = sentPrompt(s, prompt, set.length > 0, kieEdit());
       const src = st.versions[st.lookIndex];
       const vm = editMeta({ look: `Same as ${src ? `${src.kind === "view" ? "View" : "v"}${st.lookIndex + 1}` : "the look source"}`, light: "From the look source" });
-      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt, kind: "view", meta: vm, before: set[0], historyId: await record("view", prompt, set[0], img, { name: r.kind === "shots" ? "New view" : "New camera", model: kieEdit() }) });
+      for (const img of out) made.push({ image: img, label: r.kind === "shots" ? getState().shots[i]?.name || "New view" : "New camera", prompt: sent, kind: "view", meta: vm, before: set[0], historyId: await record("view", sent, set[0], img, { name: r.kind === "shots" ? "New view" : "New camera", model: kieEdit() }) });
     }
     if (!made.length) return;
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, shots: r.kind === "shots" ? [] : x.shots, editMode: "compare" }));
@@ -486,17 +502,19 @@ export async function confirmReview(prompt: string): Promise<void> {
   if (r.kind === "style") {
     const out = await runProvider(prompt, r.images, r.aspectRatio, kieEdit(), "Copying the style");
     if (!out.length) return;
+    const sent = sentPrompt(s, prompt, r.images.length > 0, kieEdit());
     const made: Version[] = [];
     const sm = editMeta({ look: `Reference: ${st.styleRef?.name ?? "photo"}`, light: st.styleLight === "dial" ? styleDialWords().replace(/^./, (c) => c.toUpperCase()) : "From the reference photo" });
-    for (const img of out) made.push({ image: img, label: "Style copy", prompt, kind: "version", before: r.images[0], meta: sm, historyId: await record("style-copy", prompt, r.images[0], img, { name: "Style copy", model: kieEdit() }) });
+    for (const img of out) made.push({ image: img, label: "Style copy", prompt: sent, kind: "version", before: r.images[0], meta: sm, historyId: await record("style-copy", sent, r.images[0], img, { name: "Style copy", model: kieEdit() }) });
     setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length, editMode: "compare" }));
     return;
   }
   const before = st.capture?.view ?? null;
   const out = await runProvider(prompt, r.images, r.aspectRatio);
   if (!out.length) return;
+  const sent = sentPrompt(s, prompt, r.images.length > 0);
   const versions: Version[] = [];
-  for (const img of out) versions.push({ image: img, label: "Render", prompt, kind: "version", meta, historyId: await record(tool, prompt, before ?? img, img) });
+  for (const img of out) versions.push({ image: img, label: "Render", prompt: sent, kind: "version", meta, historyId: await record(tool, sent, before ?? img, img) });
   setState({ before, versions, activeVersion: 0, lookIndex: 0, tab: "edit", editMode: "compare" });
   void updateSettings({ lastSetup: { ...s.lastSetup, [st.preset.projectType]: { preset: st.preset, kieModel: s.kieModel, frameId: st.frameId } } });
 }
@@ -697,6 +715,14 @@ export async function importResult(file: File): Promise<void> {
     toast(pe.mask ? "Edit pasted back. Outside your selection nothing changed." : "Edit saved to History", "ok");
     return;
   }
+  if (h?.kind === "board") {
+    const board = await fileToImage(file, 4096);
+    const src = h.before ?? board;
+    const id = await record("render", h.prompt, src, board, { name: "Board" });
+    setState((x) => ({ handoff: null, versions: [...x.versions, { image: board, label: "Board", prompt: h.prompt, kind: "version", before: src, pins: [], meta: { ...(x.versions[x.activeVersion]?.meta ?? {}), at: Date.now() }, historyId: id }], activeVersion: x.versions.length, tab: "edit", editMode: "board" }));
+    toast("Board saved. Click on it to add numbered pins.", "ok");
+    return;
+  }
   const after = await fileToImage(file, 4096);
   const before = h?.before ?? st.capture?.view ?? after;
   const fresh = !h?.before;
@@ -737,9 +763,10 @@ export async function runSpotEdit(painter: ZonePainter, instructions: Record<str
   const fitted = await resizeTo(out[0], size.width, size.height);
   // A plain zone edit is pasted back over the original, so nothing outside the selection changes.
   const merged = general.trim() || !zones.length ? fitted : await compositeMasked(src, fitted, painter.union());
-  const id = await record("spot-edit", prompt, src, merged, { name: "Spot edit", model: kieEdit() });
+  const sent = sentPrompt(getState().settings, prompt, true, kieEdit());
+  const id = await record("spot-edit", sent, src, merged, { name: "Spot edit", model: kieEdit() });
   painter.clearAll();
-  setState((x) => ({ versions: [...x.versions, { image: merged, label: "Spot edit", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? {}), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+  setState((x) => ({ versions: [...x.versions, { image: merged, label: "Spot edit", prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? {}), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
 
 /** lightId: a light card id, or a dial time from dialTimeId(). */
@@ -758,8 +785,9 @@ export async function runRelight(lightId: string): Promise<void> {
   }
   const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), kieEdit());
   if (!out.length) return;
-  const id = await record("lighting", prompt, src, out[0], { name: "Relight", model: kieEdit() });
-  setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), scene: editLightScene(), light: light.replace(/^./, (ch) => ch.toUpperCase()), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+  const sent = sentPrompt(s, prompt, true, kieEdit());
+  const id = await record("lighting", sent, src, out[0], { name: "Relight", model: kieEdit() });
+  setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), scene: editLightScene(), light: light.replace(/^./, (ch) => ch.toUpperCase()), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
 
 export function openHistoryItem(item: HistoryItem): void {
@@ -842,4 +870,68 @@ export async function importFromV1(withKeys: boolean): Promise<void> {
 
 export function themeNow(): "dark" | "light" {
   return getPrefs().theme === "light" || (getPrefs().theme === "auto" && matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+}
+
+
+// ---------- presentation boards ----------
+
+/** Makes the board picture from the image being edited (or the Render tab's view). */
+export async function runBoard(): Promise<void> {
+  const st = getState();
+  const src = activeBoardSource();
+  if (!src) return void toast("Open a render or capture a view first.", "warn");
+  const b = st.board;
+  const preset = findBoardPreset(b.preset);
+  const prompt = buildBoardPrompt({ preset, subject: b.subject, orient: b.orient, notes: b.notes });
+  const aspect = boardAspect(b.size, b.orient);
+  const s = st.settings;
+  if (s.backend === "browser" && !s.testMode) {
+    setState({ handoff: { prompt, images: [src], before: src, kind: "board", names: ["Image"] } });
+    return;
+  }
+  const out = await runProvider(prompt, [src], aspect, kieEdit(), "Making the board");
+  if (!out.length) return;
+  const sent = sentPrompt(s, prompt, true, kieEdit());
+  const made: Version[] = [];
+  for (const img of out) {
+    const id = await record("render", sent, src, img, { name: `Board · ${preset.label}`, model: kieEdit() });
+    made.push({ image: img, label: "Board", prompt: sent, kind: "version", before: src, pins: [], meta: { ...(st.versions[st.activeVersion]?.meta ?? {}), look: preset.label, model: modelLabel(editModelId()), at: Date.now() }, historyId: id });
+  }
+  setState((x) => ({ versions: [...x.versions, ...made], activeVersion: x.versions.length }));
+  toast("Board ready. Click on it to add numbered pins.", "ok");
+}
+
+/** The picture a board is made from: the version being edited (a board's own source if it is one), else the captured view. */
+export function activeBoardSource(): ImageData64 | null {
+  const st = getState();
+  const v = st.versions[st.activeVersion];
+  if (v && !v.pins) return v.image;
+  return v?.before ?? st.capture?.view ?? null;
+}
+
+export function setPins(pins: BoardPin[]): void {
+  setState((x) => ({ versions: x.versions.map((v, i) => (i === x.activeVersion ? { ...v, pins } : v)) }));
+}
+
+/** Lays the active board onto the A-series sheet with pins, legend and title, then saves it. */
+export async function exportBoardSheet(): Promise<void> {
+  const st = getState();
+  const v = st.versions[st.activeVersion];
+  if (!v) return;
+  const b = st.board;
+  toast(`Laying out the ${b.size} sheet...`, "info");
+  try {
+    const sheet = await composeSheet({
+      picture: v.image,
+      size: b.size,
+      orient: b.orient,
+      pins: v.pins ?? [],
+      title: b.title || b.subject || findBoardPreset(b.preset).label,
+      project: st.settings.project,
+      date: new Date().toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }),
+    });
+    await download(sheet, `${b.size}-board`);
+  } catch (e) {
+    toast(`Couldn't make the sheet: ${(e as Error).message}`, "error");
+  }
 }

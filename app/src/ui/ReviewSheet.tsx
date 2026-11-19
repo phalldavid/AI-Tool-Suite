@@ -53,7 +53,7 @@ export function ReviewSheet() {
     <Sheet
       open
       onClose={closeReview}
-      title="Review before render"
+      title={s.slorCheamMode && review.kind === "render" ? "Review · Slor Cheam Mode" : "Review before render"}
       labelledBy="review-title"
       foot={
         <>

@@ -961,3 +961,42 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .gjob-text small { color: var(--muted); font-size: 11px; }
 .gslider input[type="range"] { width: 100%; accent-color: var(--accent); }
 .gslider > span { display: flex; justify-content: space-between; gap: 8px; }
+
+/* Slor Cheam Mode card on the Render tab */
+.slor-card { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 14px; border: 0; background: var(--raised); color: var(--text); text-align: left; font: inherit; cursor: pointer; box-shadow: inset 0 0 0 1px var(--line); }
+.slor-card[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 16%, var(--raised)); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.slor-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--well); color: var(--accent); flex: none; }
+.slor-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.slor-text b { font-size: 14px; }
+.slor-text small { font-size: 12px; color: var(--muted); }
+.slor-switch { width: 36px; height: 20px; border-radius: 999px; background: var(--well); box-shadow: inset 0 0 0 1px var(--line); position: relative; flex: none; transition: background 160ms var(--ease); }
+.slor-switch span { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--soft); transition: transform 160ms var(--ease); }
+.slor-card[aria-pressed="true"] .slor-switch { background: var(--accent); }
+.slor-card[aria-pressed="true"] .slor-switch span { transform: translateX(16px); background: var(--accent-ink); }
+.step.slor-off .looks, .step.slor-off .step-head .end { opacity: 0.35; filter: grayscale(1); pointer-events: none; }
+.slor-note { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+/* Features on hold: greyed out with a construction tape */
+.fontopt.wip { position: relative; overflow: hidden; }
+.fontopt.wip:disabled { cursor: not-allowed; }
+.fontopt.wip:disabled > b, .fontopt.wip:disabled > small { opacity: 0.4; }
+.wip-tape { position: absolute; top: 50%; right: -34px; transform: translateY(-50%) rotate(-12deg); padding: 3px 40px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #1a1a1a; background: repeating-linear-gradient(-45deg, #f5c518 0 10px, #1a1a1a 10px 20px); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); pointer-events: none; }
+.wip-tape { -webkit-text-stroke: 0; text-shadow: 0 0 3px #f5c518, 0 0 3px #f5c518, 0 0 3px #f5c518; }
+
+/* Presentation board: pins over the picture */
+.fit.board-top { z-index: 4; }
+.board-frame { position: relative; }
+.board-frame > img { object-fit: contain; user-select: none; }
+.board-frame.pinning { cursor: crosshair; }
+.bpin { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: #1d1d1f; color: #fff; font-size: 13px; font-weight: 700; line-height: 1; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); cursor: grab; touch-action: none; padding: 0; }
+.bpin:active { cursor: grabbing; }
+.bpin.static { position: static; transform: none; flex: none; cursor: default; }
+.board-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 12px; border-radius: 999px; background: var(--image-chip); color: var(--on-image); font-size: 12px; white-space: nowrap; }
+
+/* Slor Cheam Mode folds: Advanced's card, neutral colours, same motion */
+.adv.fold { background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow 220ms var(--ease); }
+.adv.fold.open { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.adv.fold .adv-ic { background: var(--well); color: var(--accent); }
+.adv.fold .fold-sum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold-body { animation: swin 280ms var(--ease) both; }
+.fold-body > .step > .step-head .n, .fold-body > .step > .step-head h2 { display: none; }

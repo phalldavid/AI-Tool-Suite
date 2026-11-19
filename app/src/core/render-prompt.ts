@@ -3,7 +3,9 @@
 // buildPrompt) and the node graph both call this, so the same settings always give
 // the same text.
 
-import { buildRenderPrompt } from "./prompt";
+import { buildRenderPrompt, fixtureLines, INTERIOR_SKY, lensHint, lightingText } from "./prompt";
+import { buildSlorCheam } from "./slor-cheam";
+import { contextText } from "./context";
 import type { RenderLook } from "./prompt";
 import type { Preset, SceneFacts } from "./types";
 import type { DynValues } from "./dynamic";
@@ -72,4 +74,32 @@ export function composeRenderPrompt(i: RenderTabInput): ComposedPrompt {
     avoid: i.avoid,
   });
   return { prompt: withOverride(prompt, i.noteLines, i.notes), removed: split.removed };
+}
+
+/**
+ * Slor Cheam Mode: the fixed one-press blocks around the user's own time, sun, light,
+ * fittings and environment. Advanced dynamic prompts are not used (hidden in this mode). Additional Notes go on top, as in every other prompt.
+ */
+export function composeSlorCheam(i: RenderTabInput, materials?: string[]): ComposedPrompt {
+  const scene = sceneFor(i.preset, i.lightScene);
+  const fit = fittingsLine(scene, i.fittings[scene]);
+  // Advanced (dynamic prompts) is hidden in this mode, so none of it is sent.
+  const extras: string[] = [lightingGuidance(scene), ...(fit ? [fit] : [])];
+  const fromSun = Boolean(i.sunLine);
+  if (i.sunLine) extras.push(i.sunLine);
+  const type = i.preset.projectType;
+  const lighting = fromSun ? null : ((type === "interior" ? INTERIOR_SKY[i.preset.lighting] : undefined) ?? lightingText(i.preset.lighting, i.facts));
+  const prompt = buildSlorCheam({
+    outdoor: scene === "exterior" && type !== "interior",
+    hasLinePass: i.hasLinePass,
+    lineStrength: i.lineStrength,
+    lighting,
+    extras,
+    fixtures: fixtureLines(i.facts),
+    surroundings: contextText(i.preset.environment),
+    lens: lensHint(type, i.facts),
+    materials,
+    avoid: i.avoid,
+  });
+  return { prompt: withOverride(prompt, i.noteLines, i.notes), removed: [] };
 }

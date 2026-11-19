@@ -132,11 +132,12 @@ function DeveloperSection() {
   );
 }
 
-const BACKENDS: { id: Settings["backend"] | "test"; label: string; sub: string }[] = [
+const BACKENDS: { id: Settings["backend"] | "test"; label: string; sub: string; wip?: boolean }[] = [
   { id: "browser", label: "Prompt Copy · free", sub: "Get the prompt and render in Gemini, ChatGPT or Flow with your own login. No key." },
   { id: "kie", label: "Kie.ai key", sub: "Nano Banana, GPT Image, Seedream. Paid per image." },
   { id: "gemini", label: "Gemini API key", sub: "Google AI Studio key, billed by Google." },
-  { id: "comfyui", label: "ComfyUI (local)", sub: "Your own PC and models." },
+  // On hold: shown greyed out with an "In development" tape until the ComfyUI path is finished.
+  { id: "comfyui", label: "ComfyUI (local)", sub: "Your own PC and models.", wip: true },
   { id: "test", label: "Test mode", sub: "Sample images. Nothing is sent or spent." },
 ];
 
@@ -184,9 +185,21 @@ export function SettingsSheet() {
           </div>
           <div style={{ display: "grid", gap: 8 }}>
             {BACKENDS.filter((b) => b.id !== "test" || dev || s.testMode).map((b) => (
-              <button key={b.id} type="button" className="fontopt" role="radio" aria-checked={current === b.id} onClick={() => pick(b.id)} style={{ alignItems: "flex-start", flexDirection: "column", gap: 2 }}>
+              <button
+                key={b.id}
+                type="button"
+                className={`fontopt${b.wip ? " wip" : ""}`}
+                role="radio"
+                aria-checked={current === b.id}
+                aria-disabled={b.wip && current !== b.id ? true : undefined}
+                disabled={b.wip && current !== b.id}
+                title={b.wip ? "In development. Coming soon." : undefined}
+                onClick={() => pick(b.id)}
+                style={{ alignItems: "flex-start", flexDirection: "column", gap: 2 }}
+              >
                 <b style={{ color: "var(--text)" }}>{b.label}</b>
                 <small style={{ color: "var(--muted)" }}>{b.sub}</small>
+                {b.wip ? <span className="wip-tape" aria-hidden="true">In development</span> : null}
               </button>
             ))}
           </div>

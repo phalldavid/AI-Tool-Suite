@@ -4,7 +4,7 @@
 // Stop all cancels the render in progress; finished renders are kept.
 
 import { getState } from "../../store";
-import { makeProvider } from "../../core/settings";
+import { makeProvider, sentPrompt } from "../../core/settings";
 import { nearestAspectRatio } from "../../core/prompt";
 import { friendlyError } from "../../core/errors";
 import { findKieModel } from "../../core/providers/kie-models";
@@ -113,7 +113,8 @@ export async function runJobs(jobs: RenderJob[]): Promise<void> {
       const h = src.height ?? 3;
       const p = job.kind === "render" ? provider : editProvider;
       const res = await p.render({ prompt: work.prompt, images: work.images, aspectRatio: nearestAspectRatio(w, h) }, abort?.signal);
-      const historyId = await record(TOOL[job.kind], work.prompt, src, res.image, {
+      const editModel = job.kind === "render" || settings.backend !== "kie" ? undefined : editModelId();
+      const historyId = await record(TOOL[job.kind], sentPrompt(settings, work.prompt, work.images.length > 0, editModel), src, res.image, {
         name: job.lookName,
         model: job.kind === "render" || settings.backend !== "kie" ? undefined : editModelId(),
       });
