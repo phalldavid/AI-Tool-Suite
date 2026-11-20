@@ -8,7 +8,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SIT
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
-import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOverlay } from "./core/images";
+import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
 import { cropToRatio, findFrame } from "./core/frame";
 import { addHistory, listHistory, removeHistory, starHistory } from "./core/history";
 import { findLibraryItem } from "./core/library";
@@ -778,17 +778,17 @@ export async function runSpotEdit(painter: ZonePainter, instructions: Record<str
   const s = getState().settings;
   if (s.backend === "browser" && !s.testMode) {
     // Prompt Copy: one painted image + the prompt, pasted into Gemini or ChatGPT by hand.
-    const prompt = withNotesForEdit(buildZoneEditPrompt(zones.map((z) => ({ colour: z.colour, instruction: instructions[z.id] })), { singleImage: true, general }));
-    const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: painter.canvases[z.id], colour: z.css }))) : src;
+    const prompt = withNotesForEdit(buildZoneEditPrompt(zones.map((z) => ({ colour: z.colour, label: z.id, instruction: instructions[z.id] })), { singleImage: true, general }));
+    const overlay = zones.length ? await zoneOutlines(src, zones.map((z) => ({ mask: painter.canvases[z.id], label: z.id }))) : src;
     pendingEdit = { src, mask: zones.length && !general.trim() ? cloneCanvas(painter.union()) : null };
     setState({ handoff: { prompt, images: [overlay], before: src, kind: "edit", names: [zones.length ? "Painted image" : "Image"] } });
     return;
   }
   let prompt = withNotesForEdit(buildZoneEditPrompt(
-    zones.map((z) => ({ colour: z.colour, instruction: instructions[z.id] })),
+    zones.map((z) => ({ colour: z.colour, label: z.id, instruction: instructions[z.id] })),
     { singleImage: s.singleImage, general },
   ));
-  const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: painter.canvases[z.id], colour: z.css }))) : src;
+  const overlay = zones.length ? await zoneOutlines(src, zones.map((z) => ({ mask: painter.canvases[z.id], label: z.id }))) : src;
   const images = !zones.length ? [src] : s.singleImage ? [overlay] : [src, overlay];
   const size = await imageSize(src);
   const checked = await reviewFirst(prompt, images, nearestAspectRatio(size.width, size.height));
