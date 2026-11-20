@@ -11,7 +11,7 @@ export interface Fitting {
 }
 
 export const INTERIOR_FITTINGS: Fitting[] = [
-  { id: "ceiling", label: "Ceiling light", text: "recessed ceiling downlights", icon: "bulb" },
+  { id: "ceiling", label: "Ceiling light", text: "small round recessed ceiling downlights set flush in the ceiling", icon: "bulb" },
   { id: "cabinet", label: "Cabinet light", text: "under-cabinet and shelf LED lights", icon: "grid" },
   { id: "strip", label: "LED strip", text: "concealed linear LED strips", icon: "minus" },
   { id: "cove", label: "Cove light", text: "indirect cove lighting washing the ceiling", icon: "layers" },
@@ -58,14 +58,19 @@ export function fittingsFor(scene: LightScene): Fitting[] {
 /** The prompt sentence, or null when nothing is chosen. */
 export function fittingsLine(scene: LightScene, f: FittingState): string | null {
   if (!f.on) return "All artificial light fittings are switched off; light comes only from the sky and the sun.";
-  const list = fittingsFor(scene).filter((x) => f.types.includes(x.id)).map((x) => x.text);
+  const chosen = fittingsFor(scene).filter((x) => f.types.includes(x.id));
+  const list = chosen.map((x) => x.text);
   if (f.other.trim()) list.push(f.other.trim());
   if (!list.length) return null;
+  // One fitting alone: say so, or the model adds the others (cove, strips, sconces) by itself.
+  if (list.length === 1 && chosen.length === 1) list[0] += " only";
+  // Edge glow along the ceiling is drawn only when the user asked for cove light or LED strips.
+  const edgeGlow = f.types.includes("cove") || f.types.includes("strip");
   const k = KELVIN_OPTIONS.find((o) => o.k === f.kelvin);
   const level = ["subtle, low", "medium", "bright"][f.level] ?? "medium";
   const tail =
     scene === "interior"
-      ? "Realistic light spill, indirect bounce and soft falloff on the walls, floor and ceiling."
+      ? `Realistic light spill and soft falloff on the walls and floor below each fitting.${edgeGlow ? "" : " Ceiling edges and crown moulding are plain, unlit painted plaster."}`
       : "Realistic glow on the facade and planting, soft pools of light on the ground.";
   return `Artificial lighting, switched on at ${level} brightness, ${f.kelvin}K ${k ? k.label.toLowerCase() : ""}: ${list.join(", ")}. ${tail}`.replace(/\s+:/, ":");
 }

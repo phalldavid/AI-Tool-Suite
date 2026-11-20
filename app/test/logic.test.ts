@@ -232,6 +232,22 @@ test("zone edit prompt names each colour with its own change", () => {
   assert.match(p, /Inside the blue area only: add a frangipani tree\./);
 });
 
+test("zone edit prompt with outlined areas uses letters and no colour words", () => {
+  const p = buildZoneEditPrompt([
+    { colour: "red", label: "A", instruction: "paint the wall white." },
+    { colour: "blue", label: "B", instruction: "add a frangipani tree" },
+  ]);
+  assert.match(p, /areas outlined in white and marked A and B/);
+  assert.match(p, /Inside area A only: paint the wall white\.\n/);
+  assert.match(p, /Inside area B only: add a frangipani tree\./);
+  assert.match(p, /Remove every trace of the outlines and letters/);
+  assert.doesNotMatch(p, /\b(red|blue)\b/);
+  assert.match(p, /keeps its own colour and material from the original unless the instruction/);
+  const one = buildZoneEditPrompt([{ colour: "green", label: "C", instruction: "remove the car" }], { singleImage: true });
+  assert.match(one, /^Edit this image\. It has one area outlined in white and marked C\./);
+  assert.match(one, /carry no colour to use/);
+});
+
 test("fixture line follows the scene type", () => {
   const f = { exterior: true, led: true, strip: false, cabinet: true, kelvin: 2700 };
   assert.match(fixtureSettingsLine("exterior", f)!, /Exterior light fixtures switched on at 2700K/);

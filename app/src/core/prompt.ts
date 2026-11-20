@@ -166,6 +166,11 @@ export interface EditZone {
   /** colour name used in the prompt, e.g. "red" */
   colour: string;
   instruction: string;
+  /**
+   * Letter drawn next to a white outline round the area. When every zone has one, the picture
+   * carries outlines and letters, never colour, so no marker colour can leak into the edit.
+   */
+  label?: string;
 }
 
 export interface ZoneEditOptions {
@@ -183,19 +188,28 @@ export interface ZoneEditOptions {
  */
 export function buildZoneEditPrompt(zones: EditZone[], opts: ZoneEditOptions = {}): string {
   const used = zones.filter((z) => z.instruction.trim());
-  const names = used.map((z) => z.colour);
-  const painted = used.length === 1 ? `one area painted ${names[0]}` : `areas painted in ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const outlined = used.length > 0 && used.every((z) => z.label);
+  const names = used.map((z) => (outlined ? z.label! : z.colour));
+  const painted = outlined
+    ? used.length === 1
+      ? `one area outlined in white and marked ${names[0]}`
+      : `areas outlined in white and marked ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+    : used.length === 1
+      ? `one area painted ${names[0]}`
+      : `areas painted in ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   const lines: string[] = [];
   if (!used.length) {
     lines.push("Edit this image.");
   } else if (opts.singleImage) {
     lines.push(
-      `Edit this image. It has ${painted} as see-through markers. The paint only marks where to work; read what is under it and replace it.`,
+      outlined
+        ? `Edit this image. It has ${painted}. The outlines and letters only mark where to work; they are not part of the scene and carry no colour to use. Read what is inside them and replace it.`
+        : `Edit this image. It has ${painted} as see-through markers. The paint only marks where to work; read what is under it and replace it.`,
     );
   } else {
     lines.push("Edit the first image.", `The second image is the same picture with ${painted}.`);
   }
-  lines.push(...used.map((z) => `Inside the ${z.colour} area only: ${z.instruction.trim().replace(/\.$/, "")}.`));
+  lines.push(...used.map((z) => `${outlined ? `Inside area ${z.label}` : `Inside the ${z.colour} area`} only: ${z.instruction.trim().replace(/\.$/, "")}.`));
   const general = (opts.general ?? "").trim().replace(/\.$/, "");
   if (general) lines.push(`${used.length ? "Also, across the whole picture" : "Across the whole picture"}: ${general}.`);
   if (opts.lighting) {
@@ -209,7 +223,7 @@ export function buildZoneEditPrompt(zones: EditZone[], opts: ZoneEditOptions = {
   } else if (used.length) {
     lines.push("Keep the camera and everything these changes do not mention exactly as they are. Match the perspective, lighting and photographic quality of the rest of the image.");
   }
-  if (used.length) lines.push("Remove every trace of the marker paint: no coloured tint may be left in the result.");
+  if (used.length) lines.push(outlined ? "Remove every trace of the outlines and letters: no marker lines, letters or tint may be left in the result. Every object keeps its own colour and material from the original unless the instruction for its area names a new colour. The outlines and letters never change any colour." : "Remove every trace of the marker paint: no coloured tint may be left in the result.");
   lines.push("The result must look like a real photograph.");
   return lines.join("\n");
 }

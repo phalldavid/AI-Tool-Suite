@@ -4,7 +4,8 @@ import { lightingGuidance, overrideBlock, styleCopyPrompt, withOverride } from "
 
 test("interior and exterior get different lighting instructions", () => {
   assert.match(lightingGuidance("interior"), /windows, doors and openings/);
-  assert.match(lightingGuidance("interior"), /pendant/);
+  assert.match(lightingGuidance("interior"), /only from the light fittings listed/);
+  assert.doesNotMatch(lightingGuidance("interior"), /cove|pendant/);
   assert.match(lightingGuidance("exterior"), /sky light/);
   assert.doesNotMatch(lightingGuidance("exterior"), /pendant/);
 });

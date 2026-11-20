@@ -680,6 +680,10 @@ figure.paste-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .rl-preview { position: relative; inset: auto; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; background: var(--field); }
 .loader-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 .loader-layer .frame { box-shadow: none; background: transparent; }
+/* Frosted veil: while a render runs, the stage behind the animation is blurred, greyed and dimmed so only the orb reads. */
+.loader-layer::before { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity 0.8s ease; backdrop-filter: blur(22px) saturate(0.45) brightness(0.55); -webkit-backdrop-filter: blur(22px) saturate(0.45) brightness(0.55); background: radial-gradient(ellipse at 50% 45%, rgba(8, 9, 12, 0.1), rgba(8, 9, 12, 0.5)); }
+:root.light .loader-layer::before { backdrop-filter: blur(22px) saturate(0.55) brightness(0.92); -webkit-backdrop-filter: blur(22px) saturate(0.55) brightness(0.92); background: radial-gradient(ellipse at 50% 45%, rgba(236, 232, 224, 0.2), rgba(236, 232, 224, 0.55)); }
+.loader-layer.veil::before { opacity: 1; }
 .dots3 circle { fill: var(--accent); }
 .shimmer { background: linear-gradient(90deg, currentColor 0%, currentColor 35%, color-mix(in srgb, currentColor 45%, transparent) 50%, currentColor 65%, currentColor 100%); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; caret-color: currentColor; animation: shimmer 2.4s linear infinite; }
 .busy-chip .shimmer { color: var(--on-image); }

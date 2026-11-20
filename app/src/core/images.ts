@@ -79,19 +79,63 @@ export async function redOverlay(original: ImageData64, mask: HTMLCanvasElement)
   return canvasToImage(c, "image/jpeg", 0.92);
 }
 
-/** The original with each zone's mask painted over it in its own colour. */
-export async function zoneOverlay(original: ImageData64, layers: { mask: HTMLCanvasElement; colour: string }[]): Promise<ImageData64> {
+/**
+ * The original with each zone drawn as a white outline (dark edge for contrast) and a letter,
+ * and no fill. Painting the zones in colour made the model tint the edited objects that colour.
+ */
+export async function zoneOutlines(original: ImageData64, layers: { mask: HTMLCanvasElement; label: string }[]): Promise<ImageData64> {
   const el = await loadImage(original);
   const [c, ctx] = makeCanvas(el.naturalWidth, el.naturalHeight);
+  const w = c.width;
+  const h = c.height;
   ctx.drawImage(el, 0, 0);
+  const line = Math.max(3, Math.round(Math.max(w, h) / 500));
   for (const l of layers) {
-    const [tint, tctx] = makeCanvas(c.width, c.height);
-    tctx.drawImage(l.mask, 0, 0, c.width, c.height);
-    tctx.globalCompositeOperation = "source-in";
-    tctx.fillStyle = l.colour;
-    tctx.fillRect(0, 0, c.width, c.height);
-    ctx.globalAlpha = 0.55; // see-through, so the AI can read what is under the paint
-    ctx.drawImage(tint, 0, 0);
+    // A ring just outside the zone: the mask drawn shifted all round, minus the mask itself.
+    const ring = (grow: number, colour: string): HTMLCanvasElement => {
+      const [g, gctx] = makeCanvas(w, h);
+      for (let a = 0; a < 16; a++) gctx.drawImage(l.mask, Math.cos((a * Math.PI) / 8) * grow, Math.sin((a * Math.PI) / 8) * grow, w, h);
+      gctx.globalCompositeOperation = "destination-out";
+      gctx.drawImage(l.mask, 0, 0, w, h);
+      gctx.globalCompositeOperation = "source-in";
+      gctx.fillStyle = colour;
+      gctx.fillRect(0, 0, w, h);
+      return g;
+    };
+    ctx.drawImage(ring(line * 2, "#000000"), 0, 0);
+    ctx.drawImage(ring(line, "#ffffff"), 0, 0);
+    // The letter goes on the painted cell closest to the middle of the zone.
+    const gw = 48;
+    const gh = Math.max(1, Math.round((gw * h) / w));
+    const [small, sctx] = makeCanvas(gw, gh);
+    sctx.drawImage(l.mask, 0, 0, gw, gh);
+    const px = sctx.getImageData(0, 0, gw, gh).data;
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) if (px[(y * gw + x) * 4 + 3] > 128) (sx += x, sy += y, n++);
+    if (!n) continue;
+    let best = { x: sx / n, y: sy / n, d: Infinity };
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+      if (px[(y * gw + x) * 4 + 3] <= 128) continue;
+      const d = (x - sx / n) ** 2 + (y - sy / n) ** 2;
+      if (d < best.d) best = { x, y, d };
+    }
+    const cx = ((best.x + 0.5) / gw) * w;
+    const cy = ((best.y + 0.5) / gh) * h;
+    const r = line * 6;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = Math.max(2, line * 0.8);
+    ctx.strokeStyle = "#000000";
+    ctx.stroke();
+    ctx.fillStyle = "#000000";
+    ctx.font = `bold ${Math.round(r * 1.3)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(l.label, cx, cy + r * 0.05);
   }
   return canvasToImage(c, "image/jpeg", 0.92);
 }
