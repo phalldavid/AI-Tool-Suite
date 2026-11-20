@@ -223,7 +223,7 @@ export function buildZoneEditPrompt(zones: EditZone[], opts: ZoneEditOptions = {
   } else if (used.length) {
     lines.push("Keep the camera and everything these changes do not mention exactly as they are. Match the perspective, lighting and photographic quality of the rest of the image.");
   }
-  if (used.length) lines.push(outlined ? "Remove every trace of the outlines and letters: no marker lines, letters or tint may be left in the result. Colours in the result come only from the instructions and the scene." : "Remove every trace of the marker paint: no coloured tint may be left in the result.");
+  if (used.length) lines.push(outlined ? "Remove every trace of the outlines and letters: no marker lines, letters or tint may be left in the result. Every object keeps its own colour and material from the original unless the instruction for its area names a new colour. The outlines and letters never change any colour." : "Remove every trace of the marker paint: no coloured tint may be left in the result.");
   lines.push("The result must look like a real photograph.");
   return lines.join("\n");
 }

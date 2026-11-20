@@ -242,6 +242,7 @@ test("zone edit prompt with outlined areas uses letters and no colour words", ()
   assert.match(p, /Inside area B only: add a frangipani tree\./);
   assert.match(p, /Remove every trace of the outlines and letters/);
   assert.doesNotMatch(p, /\b(red|blue)\b/);
+  assert.match(p, /keeps its own colour and material from the original unless the instruction/);
   const one = buildZoneEditPrompt([{ colour: "green", label: "C", instruction: "remove the car" }], { singleImage: true });
   assert.match(one, /^Edit this image\. It has one area outlined in white and marked C\./);
   assert.match(one, /carry no colour to use/);
