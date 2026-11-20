@@ -31,7 +31,7 @@ export function ReviewSheet() {
   const [text, setText] = useState("");
   useEffect(() => setText(review?.prompt ?? ""), [review]);
   if (!review) return <Sheet open={false} onClose={closeReview}>{null}</Sheet>;
-  const editTool = review.kind === "view" || review.kind === "shots" || review.kind === "style";
+  const editTool = review.kind === "edit" || review.kind === "view" || review.kind === "shots" || review.kind === "style";
   const modelId = editTool && s.backend === "kie" ? editModelId() : s.kieModel;
   const one = renderCost(s, modelId);
   const n = review.batch?.length ?? 1;

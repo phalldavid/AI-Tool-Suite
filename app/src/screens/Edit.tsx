@@ -473,8 +473,9 @@ function LoaderLayer() {
   const before = useApp((s) => s.before);
   const under = v?.image ?? before;
   const r = useRatio(under);
+  const busy = useApp((s) => s.busy);
   return (
-    <div className="loader-layer">
+    <div className={`loader-layer${busy ? " veil" : ""}`}>
       <div className="fit">
         <div className="frame" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}` }}>
           <RenderLoader under={under} />

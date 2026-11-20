@@ -6,7 +6,7 @@ export type LightScene = "interior" | "exterior";
 /** Detailed lighting instructions for the chosen lighting scene. */
 export function lightingGuidance(scene: LightScene): string {
   return scene === "interior"
-    ? "Interior lighting: natural daylight entering through the windows, doors and openings, balanced with realistic artificial light from ceiling, recessed, pendant, wall and indirect cove fittings at a believable colour temperature. Soft interior shadows, ambient occlusion and natural light falloff. Keep the view through the windows correctly exposed, not blown out, so indoor and outdoor light feel balanced."
+    ? "Interior lighting: natural daylight entering through the windows, doors and openings, balanced with realistic artificial light at a believable colour temperature, only from the light fittings listed for this room. Soft interior shadows, ambient occlusion and natural light falloff. Keep the view through the windows correctly exposed, not blown out, so indoor and outdoor light feel balanced."
     : "Exterior lighting: natural sunlight and sky light, realistic exterior shadows with the right softness for the time of day, environmental reflections in the glazing, true facade material response and naturally lit landscape, with a believable atmosphere.";
 }
 

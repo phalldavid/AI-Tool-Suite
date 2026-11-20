@@ -19,7 +19,12 @@ test("fittings change with interior or exterior, and say nothing when nothing is
   assert.ok(!fittingsFor("exterior").some((f) => f.id === "cove"));
   assert.equal(fittingsLine("interior", DEFAULT_FITTINGS.interior), null);
   const line = fittingsLine("interior", { on: true, types: ["ceiling", "cove"], other: "", kelvin: 3000, level: 2 })!;
-  assert.match(line, /bright brightness, 3000K soft white: recessed ceiling downlights, indirect cove lighting/);
+  assert.match(line, /bright brightness, 3000K soft white: small round recessed ceiling downlights set flush in the ceiling, indirect cove lighting/);
+  const solo = fittingsLine("interior", { on: true, types: ["ceiling"], other: "", kelvin: 3000, level: 1 })!;
+  assert.match(solo, /downlights set flush in the ceiling only\./);
+  assert.match(solo, /plain, unlit painted plaster/);
+  assert.doesNotMatch(solo, /cove|strip|sconce/);
+  assert.doesNotMatch(line, /plain, unlit painted plaster/);
   assert.match(fittingsLine("exterior", { ...DEFAULT_FITTINGS.exterior, on: false })!, /switched off/);
 });
 

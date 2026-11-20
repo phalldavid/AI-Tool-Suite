@@ -33,7 +33,7 @@ import { fittingsLine, loadFittings } from "./lib/fittings";
 import { findKieModel } from "./core/providers/kie-models";
 import { contextLabel, parseContexts } from "./core/context";
 import { getPrefs } from "./prefs";
-import { revealResult } from "./ui/loader/bus";
+import { holdUntilPresent, isPresent, revealResult } from "./ui/loader/bus";
 import { boardAspect, buildBoardPrompt, findBoardPreset, type BoardPin } from "./core/boards";
 import { composeSheet } from "./lib/board-sheet";
 
@@ -465,8 +465,29 @@ export async function openReview(kind: "render" | "view" | "shots" | "style" = "
   setState({ review: { prompt: lint.prompt, lint, images, aspectRatio: aspect, kind, batch } });
 }
 
+/** Set while Review is open for a tool that renders from its own button (spot edit, relight, board). */
+let reviewDone: ((prompt: string | null) => void) | null = null;
+
+/**
+ * Review for the Edit tab's own Render buttons, the same check the Render tab has.
+ * Resolves with the prompt the user confirmed (they may have edited it), or null if they went back.
+ * Nothing is spent until it resolves with a prompt.
+ */
+function reviewFirst(prompt: string, images: ImageData64[], aspectRatio: string): Promise<string | null> {
+  if (getState().busy) return Promise.resolve(null);
+  reviewDone?.(null);
+  const lint = lintPrompt(prompt);
+  return new Promise((resolve) => {
+    reviewDone = resolve;
+    setState({ review: { prompt: lint.prompt, lint, images, aspectRatio, kind: "edit" } });
+  });
+}
+
 export function closeReview(): void {
+  const done = reviewDone;
+  reviewDone = null;
   setState({ review: null });
+  done?.(null);
 }
 
 /** Spends: runs the render the user just reviewed. */
@@ -476,6 +497,13 @@ export async function confirmReview(prompt: string): Promise<void> {
   if (!r) return;
   setState({ review: null });
   reviewed = true;
+  if (reviewDone) {
+    // An Edit tool is waiting for this prompt; it does the render itself.
+    const done = reviewDone;
+    reviewDone = null;
+    done(prompt);
+    return;
+  }
   const s = st.settings;
   if (s.backend === "browser" && st.host.kind === "browser" && !s.testMode) {
     setState({ handoff: { prompt, images: r.images, before: r.images[0] ?? null } });
@@ -536,6 +564,7 @@ let reviewed = false;
 async function runProvider(prompt: string, images: ImageData64[], aspectRatio: string, modelId?: string, label?: string): Promise<ImageData64[]> {
   const st = getState();
   const settings = modelId ? { ...st.settings, kieModel: modelId } : st.settings;
+  const originTab = st.tab;
   const wasReviewed = reviewed;
   reviewed = false;
   if (!wasReviewed && settings.backend === "kie" && !settings.testMode && st.kieCredits !== null) {
@@ -555,9 +584,13 @@ async function runProvider(prompt: string, images: ImageData64[], aspectRatio: s
     rememberDuration(key, Date.now() - getState().busy!.since);
     // Let the loader play its reveal into the first image before anything moves on.
     setState((x) => (x.busy ? { busy: { ...x.busy, revealing: true } } : {}));
+    // The user switched tabs (or hid the page) while it ran: keep the picture back until they return,
+    // so the orb animation and the reveal play for them.
+    if (!isPresent(originTab)) toast(`Your render is ready. Go back to the ${originTab === "edit" ? "Edit" : "Render"} tab to see it.`, "ok");
+    const waited = await holdUntilPresent(originTab);
     await revealResult(ok[0]);
     if (failed) toast(`${ok.length} of ${n} done. One failed: ${(failed.reason as Error).message}`, "warn");
-    else toast("Render ready", "ok");
+    else if (!waited) toast("Render ready", "ok");
     return ok;
   } catch (e) {
     const err = e as Error;
@@ -751,13 +784,16 @@ export async function runSpotEdit(painter: ZonePainter, instructions: Record<str
     setState({ handoff: { prompt, images: [overlay], before: src, kind: "edit", names: [zones.length ? "Painted image" : "Image"] } });
     return;
   }
-  const prompt = withNotesForEdit(buildZoneEditPrompt(
+  let prompt = withNotesForEdit(buildZoneEditPrompt(
     zones.map((z) => ({ colour: z.colour, instruction: instructions[z.id] })),
     { singleImage: s.singleImage, general },
   ));
   const overlay = zones.length ? await zoneOverlay(src, zones.map((z) => ({ mask: painter.canvases[z.id], colour: z.css }))) : src;
   const images = !zones.length ? [src] : s.singleImage ? [overlay] : [src, overlay];
   const size = await imageSize(src);
+  const checked = await reviewFirst(prompt, images, nearestAspectRatio(size.width, size.height));
+  if (checked === null) return;
+  prompt = checked;
   const out = await runProvider(prompt, images, nearestAspectRatio(size.width, size.height), kieEdit());
   if (!out.length) return;
   const fitted = await resizeTo(out[0], size.width, size.height);
@@ -775,7 +811,7 @@ export async function runRelight(lightId: string): Promise<void> {
   if (!src) return;
   const light = relightText(lightId, getState().capture?.facts) ?? lightingText(lightId) ?? lightId;
   // Same text as before, now shared with the Advanced tab's Relight node (core/edit-prompts.ts).
-  const prompt = relightPrompt(lightId, editLightScene(), getState().capture?.facts);
+  let prompt = relightPrompt(lightId, editLightScene(), getState().capture?.facts);
   const size = await imageSize(src);
   const s = getState().settings;
   if (s.backend === "browser" && !s.testMode) {
@@ -783,6 +819,9 @@ export async function runRelight(lightId: string): Promise<void> {
     setState({ handoff: { prompt, images: [src], before: src, kind: "edit", names: ["Image"] } });
     return;
   }
+  const checked = await reviewFirst(prompt, [src], nearestAspectRatio(size.width, size.height));
+  if (checked === null) return;
+  prompt = checked;
   const out = await runProvider(prompt, [src], nearestAspectRatio(size.width, size.height), kieEdit());
   if (!out.length) return;
   const sent = sentPrompt(s, prompt, true, kieEdit());
@@ -882,13 +921,16 @@ export async function runBoard(): Promise<void> {
   if (!src) return void toast("Open a render or capture a view first.", "warn");
   const b = st.board;
   const preset = findBoardPreset(b.preset);
-  const prompt = buildBoardPrompt({ preset, subject: b.subject, orient: b.orient, notes: b.notes });
+  let prompt = buildBoardPrompt({ preset, subject: b.subject, orient: b.orient, notes: b.notes });
   const aspect = boardAspect(b.size, b.orient);
   const s = st.settings;
   if (s.backend === "browser" && !s.testMode) {
     setState({ handoff: { prompt, images: [src], before: src, kind: "board", names: ["Image"] } });
     return;
   }
+  const checked = await reviewFirst(prompt, [src], aspect);
+  if (checked === null) return;
+  prompt = checked;
   const out = await runProvider(prompt, [src], aspect, kieEdit(), "Making the board");
   if (!out.length) return;
   const sent = sentPrompt(s, prompt, true, kieEdit());
