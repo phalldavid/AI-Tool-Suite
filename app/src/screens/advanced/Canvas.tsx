@@ -29,6 +29,7 @@ export const KIND_NAME: Record<NodeKind, string> = {
   prompt: S.prompt,
   note: S.note,
   render: S.render,
+  batch: S.batchRender,
   result: S.result,
   relight: S.relight,
   view: S.newView,

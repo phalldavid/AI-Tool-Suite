@@ -96,7 +96,8 @@ test("undo keeps the current pan and zoom", () => {
 test("add-node search finds kinds by plain words", () => {
   assert.deepEqual(searchAddMenu("sun"), ["light"]);
   assert.deepEqual(searchAddMenu("screenshot"), ["image"]);
-  assert.equal(searchAddMenu("").length, 13);
+  assert.equal(searchAddMenu("").length, 14);
+  assert.equal(searchAddMenu("batch")[0], "batch");
   assert.deepEqual(searchAddMenu("zzz"), []);
   // the node whose name you typed comes first, so Enter adds it
   assert.equal(searchAddMenu("style")[0], "style");
