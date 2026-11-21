@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { EditMode, Version } from "../store";
 import type { ImageData64 } from "../core/types";
-import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
+import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, runUpscale, useEditFile } from "../actions";
+import type { UpscaleStrength } from "../core/upscale";
 import { toDataUrl } from "../core/images";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
@@ -155,6 +156,7 @@ const TOOLS_ROW: [EditMode | "download" | "again" | "copy", string, string][] = 
   ["view", "Multi-View", "camera"],
   ["style", "Style copy", "layers"],
   ["board", "Board", "grid"],
+  ["upscale", "Upscale", "expand"],
   ["again", "Try again", "refresh"],
   ["copy", "Copy", "clipboard"],
   ["download", "Download", "download"],
@@ -595,7 +597,7 @@ function EditSide() {
   if (mode === "style") return <StyleCopyPanel />;
   return (
     <div className="side-scroll thin">
-      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
+      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "upscale" ? <UpscalePanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
     </div>
   );
 }
@@ -896,6 +898,43 @@ const RELIGHT_INTERIOR: typeof RELIGHT = [
   ...INTERIOR_RELIGHT.map((o) => ({ id: o.id, label: o.label, sub: o.sub ?? "", sky: (o.swatch ?? ["#3a2a1c", "#c98a4a"]) as [string, string] })),
   { id: "night", label: "Night", sub: "Lights only", sky: ["#05070f", "#1b2036"] },
 ];
+
+function UpscalePanel() {
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const busy = useApp((s) => s.busy);
+  const s = useApp((x) => x.settings);
+  const [strength, setStrength] = useState<UpscaleStrength>("faithful");
+  const cost = renderCost(s, s.backend === "kie" ? editModelId() : s.kieModel);
+  const opts: [UpscaleStrength, string, string][] = [
+    ["faithful", "Faithful", "Sharper, with fine texture. The design stays exactly as it is."],
+    ["enhance", "Enhance", "Also makes materials look more real. May change small details, so check the result."],
+  ];
+  return (
+    <>
+      <div>
+        <h2 style={{ fontSize: 22 }}>Upscale</h2>
+        <p className="sub">More resolution and sharper detail. Same picture, same shape. Works on any image you paste, drop or upload, including ones from other AI tools.</p>
+      </div>
+      <section className="step cq">
+        <div className="tabs3" role="radiogroup" aria-label="Upscale strength" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          {opts.map(([id, label]) => (
+            <button key={id} type="button" role="radio" aria-checked={strength === id} onClick={() => setStrength(id)}>{label}</button>
+          ))}
+        </div>
+        <p className="sub" style={{ marginTop: 10 }}>{opts.find((o) => o[0] === strength)?.[2]}</p>
+        {v ? <p className="sub" style={{ marginTop: 6 }}>Your picture: <span className="num">{v.image.width}×{v.image.height} px</span></p> : null}
+        <p className="sub" style={{ marginTop: 6 }}>The result size follows the resolution you pick (1K, 2K or 4K).</p>
+        <p className="sub" style={{ marginTop: 6 }}>Small text and fine ornaments can be redrawn. Check signs and carvings before printing.</p>
+      </section>
+      <Foot inline>
+        <ModelPicker edit />
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!v} data-why="Open or upload a picture first." onClick={() => void runUpscale(strength)}>
+          <Icon name="expand" size={18} /> Upscale · {cost.label}
+        </button>}
+      </Foot>
+    </>
+  );
+}
 
 function RelightPanel() {
   useApp((s) => s.editScene);

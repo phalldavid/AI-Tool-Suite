@@ -13,6 +13,7 @@ const FILTERS: [string, string][] = [
   ["lighting", "Relights"],
   ["style-copy", "Style copies"],
   ["view", "Views"],
+  ["upscale", "Upscales"],
 ];
 
 function matches(f: string, tool: ToolId, starred?: boolean): boolean {

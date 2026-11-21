@@ -8,7 +8,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SIT
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
-import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
+import { compositeMasked, cropPadded, fileToImage, imageSize, padToRatio, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
 import { cropToRatio, findFrame } from "./core/frame";
 import { addHistory, listHistory, removeHistory, starHistory } from "./core/history";
 import { findLibraryItem } from "./core/library";
@@ -25,6 +25,8 @@ import { cameraPromptLine } from "./lib/camera";
 import { composeRenderPrompt, composeSlorCheam } from "./core/render-prompt";
 import { modelDnaTags, type ModelMaterial } from "./core/model-dna";
 import { VIEW_SUN, relightPrompt } from "./core/edit-prompts";
+import { sameShape, upscalePrompt } from "./core/upscale";
+import type { UpscaleStrength } from "./core/upscale";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
 import { styleCopyPrompt, withOverride } from "./lib/lighting";
@@ -830,6 +832,40 @@ export async function runRelight(lightId: string): Promise<void> {
   const sent = sentPrompt(s, prompt, true, kieEdit());
   const id = await record("lighting", sent, src, out[0], { name: "Relight", model: kieEdit() });
   setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), scene: editLightScene(), light: light.replace(/^./, (ch) => ch.toUpperCase()), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+}
+
+/**
+ * Upscale: the open picture goes through the same image models with a prompt that locks the design.
+ * It is padded to the nearest ratio the model takes and cropped back afterwards, so the result has
+ * exactly the original's aspect ratio. Saved as a new version; the original stays.
+ */
+export async function runUpscale(strength: UpscaleStrength): Promise<void> {
+  const src = activeImage();
+  if (!src) return;
+  const size = await imageSize(src);
+  const ratio = nearestAspectRatio(size.width, size.height);
+  let prompt = upscalePrompt(strength);
+  const s = getState().settings;
+  if (s.backend === "browser" && !s.testMode) {
+    setState({ handoff: { prompt, images: [src], before: src } });
+    return;
+  }
+  const { image: padded, plan } = await padToRatio(src, ratio);
+  const checked = await reviewFirst(prompt, [padded], ratio);
+  if (checked === null) return;
+  prompt = checked;
+  const out = await runProvider(prompt, [padded], ratio, kieEdit(), "Upscaling");
+  if (!out.length) return;
+  const result = await cropPadded(out[0], plan);
+  if (!sameShape(result.width, result.height, size.width, size.height)) {
+    toast("The result's shape doesn't match your picture, so it was not saved. Nothing of yours changed.", "error");
+    return;
+  }
+  const label = strength === "enhance" ? "Upscale · Enhance" : "Upscale";
+  const sent = sentPrompt(s, prompt, true, kieEdit());
+  const id = await record("upscale", sent, src, result, { name: label, model: kieEdit() });
+  setState((x) => ({ versions: [...x.versions, { image: result, label, prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+  toast(`Done. ${size.width}×${size.height} → ${result.width}×${result.height}, same shape as your picture.`, "ok");
 }
 
 export function openHistoryItem(item: HistoryItem): void {

@@ -1,6 +1,8 @@
 // Image helpers: conversion between base64, blobs, canvases and <img>.
 
 import type { ImageData64 } from "./types";
+import { cropBox, padPlan } from "./upscale";
+import type { PadPlan } from "./upscale";
 
 export function toDataUrl(img: ImageData64): string {
   return `data:${img.mimeType};base64,${img.data}`;
@@ -175,6 +177,30 @@ export async function resizeTo(img: ImageData64, width: number, height: number):
   const [c, ctx] = makeCanvas(width, height);
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(el, 0, 0, width, height);
+  return canvasToImage(c, "image/png");
+}
+
+/** Pads a picture to an exact aspect ratio ("16:9"). The border is a blurred copy of the picture, so the model sees no hard edge. */
+export async function padToRatio(img: ImageData64, ratio: string): Promise<{ image: ImageData64; plan: PadPlan }> {
+  const plan = padPlan(img.width, img.height, ratio);
+  if (plan.none) return { image: img, plan };
+  const el = await loadImage(img);
+  const [c, ctx] = makeCanvas(plan.width, plan.height);
+  ctx.filter = "blur(24px)";
+  ctx.drawImage(el, -24, -24, plan.width + 48, plan.height + 48);
+  ctx.filter = "none";
+  ctx.drawImage(el, plan.x, plan.y, plan.srcW, plan.srcH);
+  return { image: canvasToImage(c, "image/png"), plan };
+}
+
+/** Cuts the original's area back out of a result made from a padded picture. */
+export async function cropPadded(img: ImageData64, plan: PadPlan): Promise<ImageData64> {
+  if (plan.none) return img;
+  const el = await loadImage(img);
+  const b = cropBox(el.naturalWidth, el.naturalHeight, plan.crop);
+  const [c, ctx] = makeCanvas(b.w, b.h);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(el, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
   return canvasToImage(c, "image/png");
 }
 

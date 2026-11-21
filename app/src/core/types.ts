@@ -50,7 +50,7 @@ export interface Capture {
   source: "sketchup" | "upload";
 }
 
-export type ToolId = "render" | "lighting" | "spot-edit" | "style-match" | "view" | "style-copy";
+export type ToolId = "render" | "lighting" | "spot-edit" | "style-match" | "view" | "style-copy" | "upscale";
 
 export type ProjectType = "exterior" | "interior" | "aerial" | "sketch";
 
