@@ -6,6 +6,11 @@ import { NODE_DEFS, lookFor, updateSettings } from "../../core/graph";
 import { resultKey } from "../../core/graph";
 import type { GraphNode, NodeOutput, PortDef, PromptItem, RenderJob, SettingsByKind } from "../../core/graph";
 import { useApp } from "../../store";
+import { download as saveImage } from "../../actions";
+import { baseName } from "../../lib/room";
+import { localMaster } from "../../core/master-prompt";
+import { ThinkingDots } from "../../ui/RenderLoader";
+import { LIMITS } from "../../core/graph";
 import { thumbFor } from "../../lib/thumbs";
 import type { ImageData64 } from "../../core/types";
 import type { JobStatus } from "./session";
@@ -56,6 +61,7 @@ const NAMES: Record<string, string> = {
   prompt: S.prompt,
   note: S.note,
   render: S.render,
+  batch: S.batchRender,
   result: S.result,
   relight: S.relight,
   view: S.newView,
@@ -151,6 +157,8 @@ export function Body({ node, output, picture, ui }: { node: GraphNode; output: N
       return <PromptBody node={node as GraphNode<"prompt">} items={(output?.ports.prompts as PromptItem[] | undefined) ?? []} />;
     case "render":
       return <RenderBody jobs={(output?.ports.results as RenderJob[] | undefined) ?? []} />;
+    case "batch":
+      return <BatchBody node={node as GraphNode<"batch">} jobs={(output?.ports.results as RenderJob[] | undefined) ?? []} />;
     case "result":
       return <ResultBody jobs={(output?.ports.shown as RenderJob[] | undefined) ?? []} />;
     case "relight":
@@ -552,13 +560,42 @@ function JobRow({ job }: { job: RenderJob }) {
   const st = useJobStatus(job);
   return (
     <li className={`gjob t-${st.tone}`}>
-      <span className="gjob-dot" aria-hidden="true" />
+      {st.tone === "rendering" ? <span className="gjob-busy" aria-hidden="true"><ThinkingDots size={16} /></span> : <span className="gjob-dot" aria-hidden="true" />}
       <span className="gjob-text" data-no-translate title={`${job.name} · ${job.lookName}`}>
         <b>{job.name || "—"}</b>
         <small>{job.lookName}</small>
       </span>
       <span>{st.word}</span>
     </li>
+  );
+}
+
+/** One master prompt for every picture wired in (the Batch render node). */
+function BatchBody({ node, jobs }: { node: GraphNode<"batch">; jobs: RenderJob[] }) {
+  const master = node.settings.master;
+  return (
+    <>
+      <label className="gfield">
+        <span>{S.masterPrompt}</span>
+        <textarea
+          className="input gscroll gmaster"
+          rows={9}
+          value={master}
+          placeholder={S.masterPlaceholder}
+          aria-label={S.masterPrompt}
+          onChange={(e) => set<"batch">(node.id, { master: e.target.value.slice(0, LIMITS.master) }, `master:${node.id}`)}
+          onBlur={endTypingRun}
+        />
+      </label>
+      {master.trim() ? null : (
+        <button type="button" className="btn gsmall" onClick={() => set<"batch">(node.id, { master: localMaster("") })}>
+          <Icon name="pencil" size={14} />
+          {S.useStandard}
+        </button>
+      )}
+      <p className="gmuted">{S.masterHint}</p>
+      <RenderBody jobs={jobs} empty={S.wireBatch} />
+    </>
   );
 }
 
@@ -583,45 +620,74 @@ function SmallPic({ id, img }: { id: string; img: ImageData64 }) {
   return url ? <img src={url} alt="" draggable={false} /> : <span className="hthumb-wait" aria-hidden="true" />;
 }
 
+/** File name part for a downloaded picture: the image name, plus what step made it. */
+function downloadName(j: RenderJob): string {
+  return `${baseName(j.name) || "render"}${j.kind === "render" ? "" : ` ${j.kind}`}`;
+}
+
+function ResultCard({ job, before, setBefore }: { job: RenderJob; before: string | null; setBefore: (k: string | null) => void }) {
+  const key = resultKey(job);
+  const r = useCanvas((s) => s.results[key]);
+  const live = useCanvas((s) => s.run?.jobs.find((x) => x.key === key)?.status);
+  const busy = live === "rendering";
+  const queued = live === "waiting";
+  return (
+    <figure className="gresult">
+      <div className={`gresult-pic${busy ? " busy" : ""}`} aria-busy={busy}>
+        {r ? (
+          <SmallPic id={`${key}@${r.at}${before === key ? ":before" : ""}`} img={before === key ? r.before : r.image} />
+        ) : (
+          busy ? null : <span className="gmuted">{queued ? S.waiting : S.notRendered}</span>
+        )}
+        {busy ? (
+          <div className="gbusy" role="status">
+            <ThinkingDots size={26} />
+            <span>{S.renderingNow}</span>
+          </div>
+        ) : null}
+      </div>
+      <figcaption>
+        <b data-no-translate title={`${job.name} · ${job.lookName}`}>{`${job.name || "—"} · ${job.lookName}`}</b>
+        {r && r.promptHash !== job.promptHash ? <span className="gtag">{S.changed}</span> : null}
+        {r ? (
+          <>
+            <button
+              type="button"
+              className="btn gsmall ghost"
+              aria-pressed={before === key}
+              title={`${S.before} / ${S.after}`}
+              onPointerDown={(e) => e.button === 0 && setBefore(key)}
+              onPointerUp={() => setBefore(null)}
+              onPointerLeave={() => setBefore(null)}
+              onKeyDown={(e) => (e.key === " " || e.key === "Enter") && setBefore(before === key ? null : key)}
+            >
+              {before === key ? S.before : S.after}
+            </button>
+            <button
+              type="button"
+              className="btn gsmall ghost"
+              aria-label={`${S.download}: ${job.name}`}
+              title={S.download}
+              onClick={() => void saveImage(r.image, downloadName(job)).catch(() => toast(S.saveFailed, "error"))}
+            >
+              <Icon name="download" size={14} />
+              {S.download}
+            </button>
+          </>
+        ) : null}
+      </figcaption>
+    </figure>
+  );
+}
+
 export function ResultBody({ jobs }: { jobs: RenderJob[] }) {
-  const results = useCanvas((s) => s.results);
   const [before, setBefore] = useState<string | null>(null);
   if (!jobs.length) return <p className="gmuted">{S.wireResult}</p>;
   return (
     <div className="gresults gscroll">
-      {jobs.map((j) => {
-        const key = resultKey(j);
-        const r = results[key];
-        return (
-          <figure key={key} className="gresult">
-            <div className="gresult-pic">
-              {r ? (
-                <SmallPic id={`${key}@${r.at}${before === key ? ":before" : ""}`} img={before === key ? r.before : r.image} />
-              ) : (
-                <span className="gmuted">{S.notRendered}</span>
-              )}
-            </div>
-            <figcaption>
-              <b data-no-translate title={`${j.name} · ${j.lookName}`}>{`${j.name || "—"} · ${j.lookName}`}</b>
-              {r && r.promptHash !== j.promptHash ? <span className="gtag">{S.changed}</span> : null}
-              {r ? (
-                <button
-                  type="button"
-                  className="btn gsmall ghost"
-                  aria-pressed={before === key}
-                  title={`${S.before} / ${S.after}`}
-                  onPointerDown={(e) => e.button === 0 && setBefore(key)}
-                  onPointerUp={() => setBefore(null)}
-                  onPointerLeave={() => setBefore(null)}
-                  onKeyDown={(e) => (e.key === " " || e.key === "Enter") && setBefore(before === key ? null : key)}
-                >
-                  {before === key ? S.before : S.after}
-                </button>
-              ) : null}
-            </figcaption>
-          </figure>
-        );
-      })}
+      {jobs.map((j) => (
+        <ResultCard key={resultKey(j)} job={j} before={before} setBefore={setBefore} />
+      ))}
     </div>
   );
 }
