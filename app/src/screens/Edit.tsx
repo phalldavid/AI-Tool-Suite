@@ -1006,7 +1006,7 @@ function AdjustPanel() {
           <button type="button" className="adj-x" disabled={a[cur.key] === NEUTRAL[cur.key]} data-why="This one is already at zero." onClick={() => setAdjust({ [cur.key]: NEUTRAL[cur.key] })}>Reset</button>
         </div>
         <AdjustDial label={cur.label} min={cur.min} max={cur.max} step={cur.step} value={a[cur.key]} text={show(cur.key, a[cur.key])} onChange={(n) => setAdjust({ [cur.key]: n })} />
-        <p className="adj-hint">Drag the dial. Double-click to reset.</p>
+        <p className="adj-hint">Drag, scroll or use arrow keys. Double-click to reset.</p>
       </section>
       <Foot inline>
         <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset all</button>

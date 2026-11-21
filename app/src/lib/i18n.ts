@@ -558,7 +558,7 @@ export const KM: Record<string, string> = {
   "Adjustment tools": "ឧបករណ៍កែតម្រូវ",
   "Adjustments": "ការកែតម្រូវ",
   "This one is already at zero.": "នេះនៅសូន្យរួចហើយ។",
-  "Drag the dial. Double-click to reset.": "អូសប៊ូតុងកង់។ ចុចពីរដងដើម្បីកំណត់ឡើងវិញ។",
+  "Drag, scroll or use arrow keys. Double-click to reset.": "អូសប៊ូតុងកង់។ ចុចពីរដងដើម្បីកំណត់ឡើងវិញ។",
   "Reset all": "កំណត់ទាំងអស់ឡើងវិញ",
   "Saving. One moment.": "កំពុងរក្សាទុក។ សូមរង់ចាំបន្តិច។",
   "Nothing to reset. All sliders are at zero.": "គ្មានអ្វីត្រូវកំណត់ឡើងវិញទេ។ គ្រាប់រំកិលទាំងអស់នៅសូន្យ។",

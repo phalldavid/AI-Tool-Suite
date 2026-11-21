@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { feel } from "../lib/feel";
 
 const NS = "http://www.w3.org/2000/svg";
+const HOVER = 0.4; // how much the dial swells while the mouse is just over it
 const CX = 150, CY = 40, PX = 6.4; // 100 ticks across the range, 6.4 px apart (in a 300 wide view)
 
 export function AdjustDial(props: { label: string; min: number; max: number; step: number; value: number; text: string; onChange: (v: number) => void }) {
@@ -15,6 +16,9 @@ export function AdjustDial(props: { label: string; min: number; max: number; ste
   const val = useRef(props.value);
   const g = useRef({ now: 0, to: 0, raf: 0 });
   const drag = useRef<{ x: number; v: number; k: number } | null>(null);
+  const hover = useRef(false);
+  const wheelEnd = useRef(0);
+  const pending = useRef(0);
   val.current = props.value;
   const per = (max - min) / 100; // value per tick
   const clampStep = (v: number) => Math.min(max, Math.max(min, Math.round(v / step) * step));
@@ -77,6 +81,29 @@ export function AdjustDial(props: { label: string; min: number; max: number; ste
   }, [min, max]);
   useEffect(draw, [props.value]);
 
+  // Mouse wheel (and two-finger swipe) turns the dial: one notch is 2 ticks, Shift is 5 times that.
+  // Not passive, so the side panel does not scroll underneath.
+  useEffect(() => {
+    const root = svg.current;
+    if (!root) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : -e.deltaY;
+      pending.current += d * 0.02 * (e.shiftKey ? 5 : 1) * per;
+      if (Math.abs(pending.current) >= step) {
+        const n = Math.trunc(pending.current / step) * step;
+        pending.current -= n;
+        set(val.current + n);
+      }
+      kick(1);
+      window.clearTimeout(wheelEnd.current);
+      wheelEnd.current = window.setTimeout(() => kick(hover.current ? HOVER : 0), 350);
+    };
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => { root.removeEventListener("wheel", onWheel); window.clearTimeout(wheelEnd.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [min, max, step]);
+
   const set = (v: number) => {
     const n = clampStep(v);
     if ((val.current < 0 && n >= 0) || (val.current > 0 && n <= 0)) feel("tap");
@@ -104,8 +131,10 @@ export function AdjustDial(props: { label: string; min: number; max: number; ste
         const d = drag.current;
         if (d) set(d.v - ((e.clientX - d.x) * d.k / PX) * per);
       }}
-      onPointerUp={() => { drag.current = null; kick(0); }}
-      onPointerCancel={() => { drag.current = null; kick(0); }}
+      onPointerEnter={(e) => { if (e.pointerType === "mouse") { hover.current = true; if (!drag.current) kick(HOVER); } }}
+      onPointerLeave={() => { hover.current = false; if (!drag.current) kick(0); }}
+      onPointerUp={() => { drag.current = null; kick(hover.current ? HOVER : 0); }}
+      onPointerCancel={() => { drag.current = null; hover.current = false; kick(0); }}
       onFocus={() => kick(0)}
       onDoubleClick={() => set(0)}
       onKeyDown={(e) => {
