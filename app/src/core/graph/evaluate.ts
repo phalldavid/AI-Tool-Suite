@@ -294,6 +294,25 @@ export function evaluateGraph(graph: Graph, defaults: EvalDefaults, cache?: Eval
           }));
         break;
       }
+      case "batch": {
+        // Every picture wired in gets the same master prompt, word for word.
+        const master = (node.settings as SettingsByKind["batch"]).master.trim();
+        const images = input("images").filter((v): v is ImageRef => Boolean(v && "nodeId" in v));
+        ports.results = master
+          ? images.map((img): RenderJob => ({
+              kind: "render",
+              renderNodeId: id,
+              promptNodeId: id,
+              imageNodeId: img.nodeId,
+              scene: batchScene(img.name, master),
+              name: img.name,
+              lookName: "Master prompt",
+              prompt: master,
+              promptHash: hashText(master),
+            }))
+          : [];
+        break;
+      }
       case "relight":
       case "view":
       case "edit": {
@@ -353,6 +372,15 @@ export function evaluateGraph(graph: Graph, defaults: EvalDefaults, cache?: Eval
     outputs.set(id, { key, ports });
   }
   return { ok: true, outputs, recomputed };
+}
+
+/** Words in a master prompt that say the picture is a room. */
+const ROOM_WORDS = /\b(interior|bathroom|bedroom|kitchen|living room|dining room|lobby|office|room|ceiling|sanitary|vanity|sofa|wardrobe)\b/i;
+
+/** Interior or exterior for a Batch render picture: the master prompt's words first, then the file name. */
+export function batchScene(name: string, master: string): LightScene {
+  if (ROOM_WORDS.test(master)) return "interior";
+  return roomStarter(name) ? "interior" : "exterior";
 }
 
 /** Every prompt in the graph, Prompt nodes in list order. */

@@ -30,7 +30,7 @@ const STATUS: Record<string, string> = {
   stopped: S.stopped,
 };
 
-export function Panel({ outputs, plan, cost, blocker, where, again, setAgain }: {
+export function Panel({ outputs, plan, cost, blocker, where, again, setAgain, onDownloadAll }: {
   outputs: EvalCache;
   plan: RunPlan;
   cost: RunCost;
@@ -38,12 +38,14 @@ export function Panel({ outputs, plan, cost, blocker, where, again, setAgain }: 
   where: string;
   again: boolean;
   setAgain: (v: boolean) => void;
+  onDownloadAll: () => void;
 }) {
   const open = useCanvas((s) => s.panel);
   const run = useCanvas((s) => s.run);
   const selected = useCanvas((s) => s.selected);
   const node = useCanvas((s) => (s.selected.length === 1 ? s.undo.present.nodes.find((n) => n.id === s.selected[0]) : undefined));
   const pictures = useCanvas((s) => s.pictures);
+  const anyResult = useCanvas((s) => Object.keys(s.results).length > 0);
   if (!open) return null;
   const busy = run && (run.status === "running" || run.status === "paused");
   const failed = run?.status === "paused" ? run.jobs.find((j) => j.status === "failed") : undefined;
@@ -87,10 +89,17 @@ export function Panel({ outputs, plan, cost, blocker, where, again, setAgain }: 
             </div>
           </div>
         ) : null}
+        {busy ? <div className="gprogress" role="progressbar" aria-label={S.rendering} /> : null}
         {busy ? (
           <button type="button" className="btn danger" onClick={stopAll}>
             <Icon name="stop" size={16} />
             {S.stopAll}
+          </button>
+        ) : null}
+        {anyResult ? (
+          <button type="button" className="btn" onClick={onDownloadAll}>
+            <Icon name="download" size={16} />
+            {S.downloadAll}
           </button>
         ) : null}
         {run ? (

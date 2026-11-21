@@ -11,10 +11,10 @@ export const GRAPH_VERSION = 1;
 export type WireType = "image" | "look" | "prompt" | "result";
 
 /** Node kinds. Render and Result arrived in stage 2. */
-export type NodeKind = "image" | "look" | "light" | "surroundings" | "fittings" | "prompt" | "note" | "render" | "result" | "relight" | "view" | "edit" | "style";
+export type NodeKind = "image" | "look" | "light" | "surroundings" | "fittings" | "prompt" | "note" | "render" | "result" | "relight" | "view" | "edit" | "style" | "batch";
 
 /** Nodes that make pictures (and cost money): Render, and the steps that work on a render. */
-export const RUNNER_KINDS: NodeKind[] = ["render", "style", "relight", "view", "edit"];
+export const RUNNER_KINDS: NodeKind[] = ["render", "batch", "style", "relight", "view", "edit"];
 
 export interface ImageSettings {
   /** File name of the picture; the picture itself stays in memory, not in the file. */
@@ -91,6 +91,11 @@ export interface StyleSettings {
   light: string;
 }
 
+/** Batch render: every picture wired in is rendered with this one master prompt. */
+export interface BatchSettings {
+  master: string;
+}
+
 export interface SettingsByKind {
   image: ImageSettings;
   look: LookSettings;
@@ -105,6 +110,7 @@ export interface SettingsByKind {
   view: ViewSettings;
   edit: EditSettings;
   style: StyleSettings;
+  batch: BatchSettings;
 }
 
 export interface GraphNode<K extends NodeKind = NodeKind> {
@@ -147,6 +153,8 @@ export const LIMITS = {
   images: 30,
   /** Longest free text (notes, prompt edits). */
   text: 4000,
+  /** Longest master prompt (the AI-written ones run to about 900 words). */
+  master: 12000,
   /** Longest name or id-like string. */
   name: 200,
   contexts: 12,

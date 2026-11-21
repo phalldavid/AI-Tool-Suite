@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { addImages, addNode, allJobs, defaultsFromSettings, evaluateGraph, parseGraph, planRun, resultKey, runBlocker, serializeGraph, starterGraph, updateSettings, wire } from "../src/core/graph";
 import type { Graph, SettingsByKind } from "../src/core/graph";
 import { DEFAULT_SETTINGS } from "../src/core/settings";
-import { relightPrompt, newViewPrompt, wordsEditPrompt, VIEW_SUN } from "../src/core/edit-prompts";
+import { relightPrompt, lightMood, newViewPrompt, wordsEditPrompt, VIEW_SUN } from "../src/core/edit-prompts";
 import { lightingText, relightText, buildZoneEditPrompt } from "../src/core/prompt";
 import { lightingGuidance } from "../src/lib/lighting";
 import { cameraViewPrompt } from "../src/lib/views";
@@ -15,13 +15,15 @@ const must = (r: { graph: Graph } | { reason: string }): Graph => {
   return r.graph;
 };
 
-test("Edit tab prompts moved without changing a word", () => {
+test("Edit tab prompts: relight keeps its shape, and the other two moved without changing a word", () => {
   for (const id of ["blue-hour", "int-night-moody", "urb-rain-night", "time:16:30"]) {
     for (const scene of ["interior", "exterior"] as const) {
       const light = relightText(id) ?? lightingText(id) ?? id;
-      const old = `Change only the lighting and sky of this image to: ${light}. ${lightingGuidance(scene)} Shadows and reflections must match the new light. Keep every building, material, object and the camera exactly as they are. The result must look like a real photograph.`;
-      assert.equal(relightPrompt(id, scene), old);
+      const p = relightPrompt(id, scene);
+      assert.ok(p.startsWith(`Change only the lighting and sky of this image to: ${light}. `), id);
+      assert.ok(p.endsWith("Keep every building, material, object and the camera exactly as they are. The result must look like a real photograph."), id);
     }
+    assert.ok(relightPrompt(id, "exterior").includes(lightingGuidance("exterior")), id);
   }
   const cam = { orbit: -40, tilt: 20, lensMm: 24, distanceM: 50 };
   assert.equal(newViewPrompt(cam, false), cameraViewPrompt(cameraPromptLine(cam), VIEW_SUN, [], false));
@@ -144,4 +146,46 @@ test("chain nodes save and load; bad values are made safe", () => {
     { lighting: "blue-hour", scene: "auto" },
     { scene: "exterior", light: "reference" },
   ]);
+});
+
+test("relight inside a room takes the old sun out, and night has no daylight in it", () => {
+  for (const id of ["night", "blue-hour", "int-night-moody", "interior-evening", "time:21:00", "time:18:30"]) {
+    const p = relightPrompt(id, "interior");
+    assert.match(p, /sun patch/, id);
+    assert.match(p, /the light inside the room must change too/, id);
+    assert.ok(!p.includes(lightingGuidance("interior")), `${id}: the daylight-through-windows guidance would fight the new light`);
+  }
+  const night = relightPrompt("night", "interior");
+  assert.match(night, /no sun at all/);
+  assert.match(night, /dark outside only/);
+  assert.match(relightPrompt("morning", "interior"), /new sun patches and shadows/);
+  assert.match(relightPrompt("overcast", "interior"), /no direct sun/i);
+  assert.equal(lightMood("time:12:00"), "sun");
+  assert.equal(lightMood("time:20:00"), "dark");
+  assert.equal(lightMood("time:18:20"), "dusk");
+  assert.equal(lightMood("int-showroom"), "artificial");
+});
+
+test("Batch render: every picture gets the same master prompt, word for word", () => {
+  let g = addImages(starterGraph(), ["Bathroom 1.png", "Bedroom.png", "villa.png"], 0, 0).graph;
+  g = must(addNode(g, "batch", 900, 40, { master: "  MASTER PROMPT: modern bathroom at night  " }));
+  for (const n of g.nodes.filter((x) => x.kind === "image")) g = must(wire(g, { node: n.id, port: "image" }, { node: "batch1", port: "images" }));
+  const ev = evaluateGraph(g, D);
+  assert.ok(ev.ok);
+  const jobs = (ev.outputs.get("batch1")?.ports.results ?? []) as import("../src/core/graph").RenderJob[];
+  assert.equal(jobs.length, 3);
+  assert.ok(jobs.every((j) => j.prompt === "MASTER PROMPT: modern bathroom at night" && j.kind === "render"));
+  assert.equal(new Set(jobs.map((j) => j.promptHash)).size, 1);
+  assert.equal(new Set(jobs.map((j) => resultKey(j))).size, 3, "one result each");
+  assert.deepEqual(jobs.map((j) => j.scene), ["interior", "interior", "interior"], "the master prompt says bathroom");
+  assert.ok(allJobs(g, ev.outputs).some((j) => j.renderNodeId === "batch1"));
+  // an empty master prompt renders nothing, so nothing can be spent by accident
+  const empty = updateSettings(g, "batch1", { master: "  " });
+  const ev2 = evaluateGraph(empty, D);
+  assert.ok(ev2.ok);
+  assert.deepEqual(ev2.outputs.get("batch1")?.ports.results, []);
+  // saved and opened again
+  const back = parseGraph(serializeGraph(g));
+  assert.ok(back.ok);
+  assert.equal((back.graph.nodes.find((n) => n.kind === "batch")!.settings as SettingsByKind["batch"]).master, "  MASTER PROMPT: modern bathroom at night  ".slice(0, 12000));
 });
