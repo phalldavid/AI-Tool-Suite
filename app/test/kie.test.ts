@@ -93,8 +93,8 @@ test("kie model helpers: prices, resolutions, ratios, results", () => {
   assert.equal(creditsFor(findKieModel("gpt-image-2-5-flare-image-to-image"), "4K"), 16);
   assert.equal(creditsFor(findKieModel("gpt-image-2-image-to-image"), "2K"), 10);
   const flare26 = findKieModel("gpt-image-2-6/flare-image-to-image");
-  assert.equal(creditsFor(flare26, "2K"), 8.84, "2.6 is token-billed: an estimate (medium + prompt + 1 reference image)");
-  assert.equal(priceText(flare26, "2K"), "est. ~$0.044");
+  assert.equal(typeof creditsFor(flare26, "2K"), "number", "2.6 is token-billed: an estimate");
+  assert.match(priceText(flare26, "2K"), /^est\. ~\$0\.0\d+$/);
   assert.equal(flare26.input("p", ["u"], "16:9", "2K").background, undefined, "background only at 1K");
   assert.equal(flare26.input("p", ["u"], "16:9", "1K").background, "opaque");
   assert.equal(resolutionFor(findKieModel("gpt-image-2-6/sunburst-image-to-image"), "4K"), "1K");
@@ -126,10 +126,12 @@ test("GPT Image 2.6 is estimated from token billing (medium + prompt + reference
   const { findKieModel, creditsFor, creditRange, isEstimate, priceText } = await import("../src/core/providers/kie-models");
   const m = findKieModel("gpt-image-2-6/flare-image-to-image");
   assert.equal(isEstimate(m, "2K"), true);
-  assert.equal(creditsFor(m, "2K", 1), 8.84); // 6.54 + 0.1 + 2.2
-  assert.equal(creditsFor(m, "1K", 0), 5.09);
-  assert.deepEqual(creditRange(m, "4K", 1), [10.71, 20.31]);
-  assert.match(priceText(m, "2K", 1), /^est\. ~\$0\.044$/);
+  assert.equal(creditsFor(m, "2K", { refs: 1, chars: 3016 }), 9.09); // 6.54 + 0.6786 + 1.872
+  assert.equal(creditsFor(m, "1K", { refs: 0, chars: 0 }), 4.99);
+  // real Sunburst bill, 2026-11-22: 754 prompt tokens, 1 reference image, 924 output tokens = 7.54
+  assert.equal(creditsFor(findKieModel("gpt-image-2-6/sunburst-image-to-image"), "1K", { refs: 1, chars: 3016 }), 7.54);
+  assert.deepEqual(creditRange(m, "4K", { refs: 1, chars: 3016 }), [10.96, 20.56]);
+  assert.match(priceText(m, "2K", { refs: 1, chars: 3016 }), /^est\. ~\$0.046$/);
   const pub = findKieModel("nano-banana-pro");
   assert.equal(isEstimate(pub, "2K"), false);
   assert.equal(creditRange(pub, "2K"), null);

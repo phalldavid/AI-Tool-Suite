@@ -4,7 +4,7 @@ import { closeReview, confirmReview, buildPrompt, editModelId, fileName, updateS
 import { toast } from "../toasts";
 import { renderCost, usd } from "../lib/cost";
 import { creditRange, findKieModel, isEstimate, resolutionFor } from "../core/providers/kie-models";
-import type { KieResolution } from "../core/providers/kie-models";
+import type { CostContext, KieResolution } from "../core/providers/kie-models";
 import { Sheet } from "./Sheet";
 import { ModelCards } from "./ModelCards";
 import { Icon } from "./Icon";
@@ -25,8 +25,8 @@ function saveText(name: string, text: string, type: string): void {
 }
 
 /** " · estimate, billed by tokens (A to B credits)" for token-billed models. */
-function estimateNote(modelId: string, res: KieResolution, refs: number, n: number): string {
-  const r = creditRange(findKieModel(modelId), res, refs);
+function estimateNote(modelId: string, res: KieResolution, ctx: CostContext, n: number): string {
+  const r = creditRange(findKieModel(modelId), res, ctx);
   return r ? ` · estimate, billed by tokens (${Math.round(r[0] * n * 100) / 100} to ${Math.round(r[1] * n * 100) / 100} credits by quality)` : "";
 }
 
@@ -41,7 +41,8 @@ export function ReviewSheet() {
   if (!review) return <Sheet open={false} onClose={closeReview}>{null}</Sheet>;
   const editTool = review.kind === "edit" || review.kind === "view" || review.kind === "shots" || review.kind === "style";
   const modelId = editTool && s.backend === "kie" ? editModelId() : s.kieModel;
-  const one = renderCost(s, modelId, review.images.length);
+  const costCtx = { refs: review.images.length, chars: text.length };
+  const one = renderCost(s, modelId, costCtx);
   const n = review.batch?.length ?? 1;
   const cost = n > 1 && one.credits !== null ? { ...one, credits: one.credits * n, label: `${one.credits * n} credits` } : one;
   const removed = review.kind === "render" ? buildPrompt().removed : [];
@@ -157,7 +158,7 @@ export function ReviewSheet() {
           <ModelCards
             modelId={modelId}
             resolution={s.kieResolution}
-            refs={review.images.length}
+            ctx={costCtx}
             onModel={(m) => void updateSettings({ ...(editTool ? { editModel: m.id } : { kieModel: m.id }), kieResolution: resolutionFor(m, s.kieResolution) })}
             onResolution={(r) => void updateSettings({ kieResolution: r })}
           />
@@ -167,7 +168,7 @@ export function ReviewSheet() {
             <div className="k">Cost</div>
             <div className="v num">{cost.credits !== null ? `${cost.credits} credits` : cost.label}</div>
             <small style={{ color: "var(--soft)" }}>
-              {s.backend === "kie" && !s.testMode ? `${findKieModel(modelId).label} · ${s.kieResolution} · ${s.imageCount} image${s.imageCount > 1 ? "s" : ""}${cost.credits !== null ? ` · about ${usd(cost.credits)}` : ""}${isEstimate(findKieModel(modelId), s.kieResolution) ? estimateNote(modelId, s.kieResolution, review.images.length, s.imageCount) : ""}` : !review.images.length ? "Prompt only, no image" : review.images.length > 1 ? `${review.images.length} images sent` : "1 image sent"}
+              {s.backend === "kie" && !s.testMode ? `${findKieModel(modelId).label} · ${resolutionFor(findKieModel(modelId), s.kieResolution)} · ${s.imageCount} image${s.imageCount > 1 ? "s" : ""}${cost.credits !== null ? ` · about ${usd(cost.credits)}` : ""}${isEstimate(findKieModel(modelId), s.kieResolution) ? estimateNote(modelId, s.kieResolution, costCtx, s.imageCount) : ""}` : !review.images.length ? "Prompt only, no image" : review.images.length > 1 ? `${review.images.length} images sent` : "1 image sent"}
             </small>
           </div>
           {variations ? (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { KIE_MODELS, KIE_FAMILIES, findKieModel, priceText, resolutionFor } from "../core/providers/kie-models";
-import type { KieModel, KieResolution } from "../core/providers/kie-models";
+import type { CostContext, KieModel, KieResolution } from "../core/providers/kie-models";
 import { brandMark } from "../core/model-logos";
 import { Icon } from "./Icon";
 
@@ -11,7 +11,7 @@ function Mark({ m, size }: { m: KieModel; size: number }) {
 }
 
 /** Review-sheet model choice: three cards, an "All models" list, and the resolution buttons on one level. */
-export function ModelCards(props: { modelId: string; resolution: KieResolution; onModel: (m: KieModel) => void; onResolution: (r: KieResolution) => void; refs?: number }) {
+export function ModelCards(props: { modelId: string; resolution: KieResolution; onModel: (m: KieModel) => void; onResolution: (r: KieResolution) => void; ctx?: CostContext }) {
   const { modelId, resolution } = props;
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -28,7 +28,7 @@ export function ModelCards(props: { modelId: string; resolution: KieResolution; 
     return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc, true); };
   }, [open]);
 
-  const price = (m: KieModel) => priceText(m, resolutionFor(m, resolution), props.refs ?? 1);
+  const price = (m: KieModel) => priceText(m, resolutionFor(m, resolution), props.ctx ?? {});
 
   return (
     <section className="model-pick" aria-label="Model">
@@ -71,7 +71,7 @@ export function ModelCards(props: { modelId: string; resolution: KieResolution; 
           {(["1K", "2K", "4K"] as KieResolution[]).map((r) => {
             const ok = cur.resolutions.includes(r);
             return (
-              <button key={r} type="button" role="radio" aria-checked={resolution === r} disabled={!ok} data-why={`${cur.label} does not make ${r}. Pick another model for ${r}.`} onClick={() => props.onResolution(r)}>{r}</button>
+              <button key={r} type="button" role="radio" aria-checked={resolutionFor(cur, resolution) === r} disabled={!ok} data-why={`${cur.label} does not make ${r}. Pick another model for ${r}.`} onClick={() => props.onResolution(r)}>{r}</button>
             );
           })}
         </div>
