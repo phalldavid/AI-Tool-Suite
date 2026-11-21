@@ -4,7 +4,7 @@ import { KM, translate } from "../src/lib/i18n";
 import { S } from "../src/screens/advanced/strings";
 import { NODE_DEFS, TEMPLATES, makeNode, starterGraph } from "../src/core/graph";
 import { LIGHTING } from "../src/core/prompt";
-import { fitView, nodeWidth, portPoint, screenToWorld, wirePath, zoomAt } from "../src/screens/advanced/geometry";
+import { distanceToPolyline, fitView, lineCutsPolyline, nodeWidth, segmentsCross, portPoint, screenToWorld, wirePath, zoomAt } from "../src/screens/advanced/geometry";
 import { loadLastGraph, saveLastGraph } from "../src/lib/advanced";
 
 test("every Advanced tab string has a Khmer entry", () => {
@@ -61,4 +61,14 @@ test("the tab works when browser storage is missing", () => {
   // Node has no localStorage: both calls must fail quietly.
   assert.equal(loadLastGraph(), null);
   assert.equal(saveLastGraph(starterGraph()), false);
+});
+
+
+test("cut line crossing maths", () => {
+  assert.equal(segmentsCross({ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 10, y: 0 }), true);
+  assert.equal(segmentsCross({ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 5, y: -1 }, { x: 5, y: 1 }), false);
+  const wire = [{ x: 0, y: 5 }, { x: 5, y: 5 }, { x: 10, y: 5 }];
+  assert.equal(lineCutsPolyline({ x: 5, y: 0 }, { x: 5, y: 10 }, wire), true);
+  assert.equal(lineCutsPolyline({ x: 20, y: 0 }, { x: 20, y: 10 }, wire), false);
+  assert.equal(distanceToPolyline({ x: 5, y: 8 }, wire), 3);
 });

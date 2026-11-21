@@ -83,3 +83,20 @@ test("connect never changes the graph it was given", () => {
   connect(g, { node: "a", port: "image" }, { node: "p", port: "images" }, "w1");
   assert.equal(g.wires.length, 0);
 });
+
+test("a loose node dropped on a wire is spliced into it", async () => {
+  const { insertOnWire } = await import("../src/core/graph");
+  const g = ok(base(), "look", "look", "p", "look", "w1");
+  const r = insertOnWire(g, "l1", "w1");
+  assert.ok("graph" in r);
+  const pairs = r.graph.wires.map((w) => `${w.from.node}>${w.to.node}`).sort();
+  assert.deepEqual(pairs, ["l1>p", "look>l1"]);
+});
+
+test("a node that does not fit, or already has wires, is refused and nothing changes", async () => {
+  const { insertOnWire } = await import("../src/core/graph");
+  const g = ok(base(), "look", "look", "p", "look", "w1");
+  assert.ok("reason" in insertOnWire(g, "note", "w1")); // a note has no ports
+  assert.ok("reason" in insertOnWire(g, "look", "w1")); // already wired
+  assert.equal(g.wires.length, 1);
+});

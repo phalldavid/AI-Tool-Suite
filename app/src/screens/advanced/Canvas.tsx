@@ -3,7 +3,7 @@
 // The browser's own right-click menu is replaced by the canvas menu.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NODE_DEFS, addImages, addNode, cannotAdd, duplicateNodes, moveNodes, pasteNodes, removeNodes, removeWires, searchAddMenu, setView, wire, wiresInto, wiresOf } from "../../core/graph";
+import { NODE_DEFS, addImages, addNode, cannotAdd, duplicateNodes, moveNodes, pasteNodes, insertOnWire, removeNodes, removeWires, searchAddMenu, setView, wire, wiresInto, wiresOf } from "../../core/graph";
 import type { EvalCache, GraphView, NodeKind, PortRef } from "../../core/graph";
 import { fileToImage, shrinkJpeg, toDataUrl } from "../../core/images";
 import { toast } from "../../toasts";
@@ -12,13 +12,14 @@ import { NodeCard } from "./NodeCard";
 import type { PortHandlers } from "./NodeCard";
 import { commit, commitView, copyNodes, getCanvas, graph, openAdd, openMenu, redo, select, selectWire, setPending, setPicture, sharePictures, undo, useCanvas } from "./session";
 import type { MenuAt } from "./session";
-import { fitView, portPoint, screenToWorld, wirePath, zoomAt } from "./geometry";
+import { distanceToPolyline, fitView, lineCutsPolyline, portPoint, screenToWorld, wirePath, zoomAt } from "./geometry";
 import { S } from "./strings";
 
 type Gesture =
   | { type: "pan"; id: number; sx: number; sy: number; view: GraphView; moved: boolean }
   | { type: "move"; id: number; sx: number; sy: number; ids: string[]; moved: boolean }
-  | { type: "link"; id: number; sx: number; sy: number; moved: boolean };
+  | { type: "link"; id: number; sx: number; sy: number; moved: boolean }
+  | { type: "cut"; id: number; a: { x: number; y: number }; moved: boolean };
 
 export const KIND_NAME: Record<NodeKind, string> = {
   image: S.image,
@@ -121,6 +122,27 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
   viewRef.current = view;
   const [drag, setDrag] = useState<{ ids: string[]; dx: number; dy: number } | null>(null);
   const [link, setLink] = useState<{ x: number; y: number } | null>(null);
+  const [cut, setCut] = useState<{ a: { x: number; y: number }; b: { x: number; y: number } } | null>(null);
+  const [hoverWire, setHoverWire] = useState<string | null>(null);
+  const hoverRef = useRef<string | null>(null);
+  hoverRef.current = hoverWire;
+  const [insertWire, setInsertWire] = useState<string | null>(null);
+  // Blender: with the mouse over a wire, X or Delete removes it, no click needed first. (Focus inside the canvas is handled by onKeyDown.)
+  useEffect(() => {
+    if (!hoverWire) return;
+    const id = hoverWire;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.ctrlKey || e.metaKey || e.altKey || typing(t) || t.closest('[role="slider"]') || root.current?.contains(t)) return;
+      if (e.key === "x" || e.key === "X" || e.key === "Delete") {
+        e.preventDefault();
+        commit(removeWires(graph(), [id]));
+        setHoverWire(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hoverWire]);
   const focusNext = useRef<string | null>(null);
   const wheelTimer = useRef(0);
   const settle = useRef(0);
@@ -185,6 +207,37 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     const s = getCanvas();
     if (s.selectedWire) commit(removeWires(graph(), [s.selectedWire]));
     else if (s.selected.length) commit(removeNodes(graph(), s.selected));
+    else if (hoverRef.current) {
+      // Blender: X or Delete with the mouse over a wire removes that wire.
+      commit(removeWires(graph(), [hoverRef.current]));
+      setHoverWire(null);
+    }
+  };
+
+  /** Points along every wire, in world units (read from the drawn paths). */
+  const wirePoints = (): Map<string, { x: number; y: number }[]> => {
+    const out = new Map<string, { x: number; y: number }[]>();
+    root.current?.querySelectorAll<SVGPathElement>("path[data-wire-id]").forEach((el) => {
+      const len = el.getTotalLength();
+      const n = Math.max(12, Math.min(80, Math.round(len / 12)));
+      const pts = [];
+      for (let i = 0; i <= n; i++) { const q = el.getPointAtLength((len * i) / n); pts.push({ x: q.x, y: q.y }); }
+      out.set(el.getAttribute("data-wire-id")!, pts);
+    });
+    return out;
+  };
+
+  /** The wire a loose node is being dragged over (its title bar decides), or null. */
+  const wireUnder = (id: string, clientX: number, clientY: number): string | null => {
+    const g0 = graph();
+    if (g0.wires.some((w) => w.from.node === id || w.to.node === id)) return null;
+    const el = root.current?.querySelector<HTMLElement>(`[data-node-id="${id}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const p = world(r.left + r.width / 2 + 0 * clientX, r.top + 20 + 0 * clientY);
+    let best: string | null = null, bd = 28 / viewRef.current.zoom;
+    wirePoints().forEach((pts, wid) => { const d = distanceToPolyline(p, pts); if (d < bd) { bd = d; best = wid; } });
+    return best;
   };
 
   // Wheel zooms the canvas, like Blender and 3ds Max. Hover a list or text box that can
@@ -304,9 +357,17 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     // browser's auto-scroll inside a node.
     const middle = e.button === 1;
     if (!middle && e.button !== 0) return;
-    if (!middle && target.closest(".gnode, .gwire-hit, .gadd, .gmenu")) return;
+    const cutting = !middle && (e.ctrlKey || e.metaKey) && !target.closest(".gnode, .gadd, .gmenu");
+    if (!middle && !cutting && target.closest(".gnode, .gwire-hit, .gadd, .gmenu")) return;
     e.preventDefault();
     root.current?.focus({ preventScroll: true });
+    if (cutting) {
+      // Ctrl + drag draws a cut line; every wire it crosses is removed (Blender's Ctrl+RMB, 3ds Max style).
+      root.current?.setPointerCapture(e.pointerId);
+      const a = world(e.clientX, e.clientY);
+      gesture.current = { type: "cut", id: e.pointerId, a, moved: false };
+      return;
+    }
     if (!middle) {
       if (getCanvas().pending) setPending(null);
       select([]);
@@ -323,11 +384,15 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     const dys = e.clientY - gs.sy;
     if (!gs.moved && Math.hypot(dxs, dys) < 4) return;
     gs.moved = true;
+    if (gs.type === "cut") { setCut({ a: gs.a, b: world(e.clientX, e.clientY) }); return; }
     if (gs.type === "pan") {
       moving();
       setLiveView({ ...gs.view, x: gs.view.x + dxs, y: gs.view.y + dys });
     }
-    else if (gs.type === "move") setDrag({ ids: gs.ids, dx: dxs / viewRef.current.zoom, dy: dys / viewRef.current.zoom });
+    else if (gs.type === "move") {
+      setDrag({ ids: gs.ids, dx: dxs / viewRef.current.zoom, dy: dys / viewRef.current.zoom });
+      if (gs.ids.length === 1) setInsertWire(wireUnder(gs.ids[0], e.clientX, e.clientY));
+    }
     else setLink(world(e.clientX, e.clientY));
   };
 
@@ -340,14 +405,26 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     } catch {
       /* already released */
     }
-    if (gs.type === "pan") {
+    if (gs.type === "cut") {
+      const b = world(e.clientX, e.clientY);
+      setCut(null);
+      if (gs.moved) {
+        const gone: string[] = [];
+        wirePoints().forEach((pts, wid) => { if (lineCutsPolyline(gs.a, b, pts)) gone.push(wid); });
+        if (gone.length) commit(removeWires(graph(), gone));
+      }
+    } else if (gs.type === "pan") {
       if (gs.moved) commitView(setView(graph(), viewRef.current));
     } else if (gs.type === "move") {
       if (gs.moved) {
         const z = viewRef.current.zoom;
-        commit(moveNodes(graph(), gs.ids, (e.clientX - gs.sx) / z, (e.clientY - gs.sy) / z));
+        const moved = moveNodes(graph(), gs.ids, (e.clientX - gs.sx) / z, (e.clientY - gs.sy) / z);
+        const over = gs.ids.length === 1 ? wireUnder(gs.ids[0], e.clientX, e.clientY) : null;
+        const ins = over ? insertOnWire(moved, gs.ids[0], over) : null;
+        commit(ins && "graph" in ins ? ins.graph : moved);
       }
       setDrag(null);
+      setInsertWire(null);
     } else {
       setLink(null);
       if (gs.moved) {
@@ -411,7 +488,7 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
       }
     } else if (mod) {
       return;
-    } else if (e.key === "Delete" || e.key === "Backspace") {
+    } else if (e.key === "Delete" || e.key === "Backspace" || k === "x") {
       e.preventDefault();
       removeSelection();
     } else if (e.key === "Escape") {
@@ -524,11 +601,13 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
             const label = `${KIND_NAME[a.kind]} → ${KIND_NAME[b.kind]}`;
             return (
               <g key={w.id}>
-                <path className={`gwire t-${type}${selectedWire === w.id ? " sel" : ""}`} d={d} />
+                <path className={`gwire t-${type}${selectedWire === w.id ? " sel" : ""}${hoverWire === w.id ? " hov" : ""}${insertWire === w.id ? " ins" : ""}`} d={d} />
                 <path
                   className="gwire-hit"
                   d={d}
                   data-wire-id={w.id}
+                  onPointerEnter={() => setHoverWire(w.id)}
+                  onPointerLeave={() => setHoverWire((h) => (h === w.id ? null : h))}
                   onPointerDown={(e) => {
                     if (e.button !== 0) return;
                     e.stopPropagation();
@@ -542,6 +621,7 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
             );
           })}
           {livePath ? <path className="gwire live" d={livePath} /> : null}
+          {cut ? <line className="gcut" x1={cut.a.x} y1={cut.a.y} x2={cut.b.x} y2={cut.b.y} /> : null}
         </svg>
         {g.nodes.map((n) => {
           const o = offset(n.id);

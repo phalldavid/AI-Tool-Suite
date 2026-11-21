@@ -455,7 +455,7 @@ export const KM: Record<string, string> = {
   "Your images stay and are wired into the new graph. Ctrl Z brings the old graph back.": "រូបភាពរបស់អ្នកនៅដដែល ហើយត្រូវបានភ្ជាប់ចូលក្រាហ្វថ្មី។ Ctrl Z នាំក្រាហ្វចាស់មកវិញ។",
   Soon: "ឆាប់ៗ",
   "Rendering from the canvas comes in the next update, with the cost check and confirm step. For now, copy or save the prompts.": "ការរេនឌ័រពីផ្ទាំង Node នឹងមកក្នុងកំណែបន្ទាប់ ជាមួយការពិនិត្យតម្លៃ និងការបញ្ជាក់មុនចំណាយ។ ពេលនេះ សូមចម្លង ឬរក្សាទុក Prompt។",
-  "Shift A or double-click: add node · Right-click: menu · Ctrl D: duplicate · Middle button: pan · Delete: remove · Ctrl Z: undo · 0: fit": "Shift A ឬចុចពីរដង៖ បន្ថែម Node · ចុចកណ្ដុរស្ដាំ៖ ម៉ឺនុយ · Ctrl D៖ ចម្លង · ប៊ូតុងកណ្ដាល៖ រំកិល · Delete៖ លុប · Ctrl Z៖ មិនធ្វើវិញ · 0៖ ឲ្យល្មម",
+  "Shift A or double-click: add node · Right-click: menu · Ctrl D: duplicate · Middle button: pan · Delete or X: remove · Ctrl + drag: cut wires · Ctrl Z: undo · 0: fit": "Shift A ឬចុចពីរដង៖ បន្ថែម Node · ចុចកណ្ដុរស្ដាំ៖ ម៉ឺនុយ · Ctrl D៖ ចម្លង · ប៊ូតុងកណ្ដាល៖ រំកិល · Delete ឬ X៖ លុប · Ctrl + អូស៖ កាត់ខ្សែ · Ctrl Z៖ មិនធ្វើវិញ · 0៖ ឲ្យល្មម",
   "Delete wire": "លុបខ្សែភ្ជាប់",
   Duplicate: "ចម្លង Node",
   "Duplicate with inputs": "ចម្លងជាមួយខ្សែចូល",

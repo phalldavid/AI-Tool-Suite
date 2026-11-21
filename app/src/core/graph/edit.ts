@@ -3,6 +3,7 @@
 
 import { NODE_DEFS, makeNode } from "./nodes";
 import { connect } from "./wires";
+import { inputPort, outputPort } from "./nodes";
 import { DEFAULT_VIEW, LIMITS } from "./types";
 import type { Graph, GraphNode, GraphView, NodeKind, PortRef, SettingsByKind } from "./types";
 
@@ -232,4 +233,28 @@ export function pasteNodes(graph: Graph, slice: Pick<Graph, "nodes" | "wires">, 
     if ("graph" in r) g = r.graph;
   }
   return { graph: g, from: slice.nodes.map((n) => n.id), ids: slice.nodes.map((n) => map.get(n.id)!) };
+}
+
+/** Drop a loose node onto a wire: the wire is cut and re-plugged through the node (Blender's "auto-offset" insert).
+ *  The node needs a free input that takes what the wire carries and an output the wire's target accepts. */
+export function insertOnWire(graph: Graph, nodeId: string, wireId: string): EditResult {
+  const node = graph.nodes.find((n) => n.id === nodeId);
+  const w = graph.wires.find((x) => x.id === wireId);
+  if (!node || !w) return { reason: "That wire or node no longer exists." };
+  if (graph.wires.some((x) => x.from.node === nodeId || x.to.node === nodeId)) return { reason: "Only a node with no wires can be dropped onto a wire." };
+  const src = graph.nodes.find((n) => n.id === w.from.node);
+  const dst = graph.nodes.find((n) => n.id === w.to.node);
+  if (!src || !dst) return { reason: "That wire no longer exists." };
+  const carries = outputPort(src.kind, w.from.port)?.type;
+  const base = removeWires(graph, [wireId]);
+  for (const inp of NODE_DEFS[node.kind].inputs) {
+    if (inp.type !== carries) continue;
+    for (const out of NODE_DEFS[node.kind].outputs) {
+      const a = connect(base, w.from, { node: nodeId, port: inp.id }, nextId(base, "w"), true);
+      if ("reason" in a) continue;
+      const b = connect(a.graph, { node: nodeId, port: out.id }, w.to, nextId(a.graph, "w"), true);
+      if ("graph" in b) return b;
+    }
+  }
+  return { reason: `${NODE_DEFS[node.kind].label} does not fit on this wire.` };
 }
