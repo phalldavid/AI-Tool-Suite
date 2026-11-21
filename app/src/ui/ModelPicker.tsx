@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { setState, useApp } from "../store";
 import { editModelId, updateSettings } from "../actions";
 import { useDev } from "../lib/dev";
-import { KIE_MODELS, creditsFor, priceText, findKieModel } from "../core/providers/kie-models";
-import type { KieFamilyId, KieModel } from "../core/providers/kie-models";
+import { KIE_MODELS, creditsFor, priceText, findKieModel, resolutionFor } from "../core/providers/kie-models";
+import type { KieFamilyId, KieModel, KieResolution } from "../core/providers/kie-models";
+import { useViewport } from "../layout";
 import { modelLogo } from "../core/model-logos";
 import { modelNote } from "../core/model-notes";
 import { toast } from "../toasts";
@@ -49,6 +50,7 @@ function Logo({ family, size = 32 }: { family: KieFamilyId; size?: number }) {
 export function ModelPicker({ edit }: { edit?: boolean }) {
   const s = useApp((x) => x.settings);
   const dev = useDev();
+  const phone = useViewport().phone;
   const [open, setOpen] = useState(false);
   const [shut, setShut] = useState<string[]>([]);
   const box = useRef<HTMLDivElement>(null);
@@ -77,7 +79,9 @@ export function ModelPicker({ edit }: { edit?: boolean }) {
   const modelId = edit ? editModelId() : s.kieModel;
   const m = findKieModel(modelId);
   const current = s.testMode ? "Test mode" : kie ? m.label : s.backend === "browser" ? "Prompt Copy" : s.backend === "gemini" ? "Gemini API" : "ComfyUI";
-  const sub = s.testMode ? "No AI, free" : kie ? `${s.kieResolution} · ${creditsFor(m, s.kieResolution) ?? "?"} credits` : s.backend === "browser" ? "Free, paste into Gemini or ChatGPT" : "";
+  const showRes = kie && !phone;
+  const res = resolutionFor(m, s.kieResolution);
+  const sub = s.testMode ? "No AI, free" : kie ? `${showRes ? "" : `${res} · `}${creditsFor(m, res) ?? "?"} credits` : s.backend === "browser" ? "Free, paste into Gemini or ChatGPT" : "";
 
   const pick = (fn: () => Promise<void> | void) => () => {
     void fn();
@@ -100,13 +104,20 @@ export function ModelPicker({ edit }: { edit?: boolean }) {
   };
 
   return (
-    <div className="mp" ref={box} data-tour="model">
+    <div className={`mp${showRes ? " mp-wide" : ""}`} ref={box} data-tour="model">
       <button type="button" className="mp-trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>
         {kie ? <Logo family={m.family} size={22} /> : <span className="mp-logo plain" style={{ width: 22, height: 22 }}><Icon name={s.testMode ? "cube" : "clipboard"} size={13} /></span>}
         <b>{current}</b>
         {sub ? <span className="mp-pill num">{sub}</span> : null}
         <Icon name="up" size={15} style={{ marginLeft: "auto", transition: "transform 200ms var(--ease)", transform: open ? "none" : "rotate(180deg)" }} />
       </button>
+      {showRes ? (
+        <div className="tabs3 mp-res" role="radiogroup" aria-label="Resolution">
+          {(["1K", "2K", "4K"] as KieResolution[]).map((r) => (
+            <button key={r} type="button" role="radio" aria-checked={res === r} disabled={!m.resolutions.includes(r)} data-why={`${m.label} does not make ${r}. Pick another model for ${r}.`} onClick={() => void updateSettings({ kieResolution: r })}>{r}</button>
+          ))}
+        </div>
+      ) : null}
       {open ? (
         <div className="mp-pop glass" ref={list} role="listbox" aria-label="Model" onKeyDown={onListKey}>
           {[...MODEL_GROUPS, { id: "other", label: "Other models", ids: [] as string[] }].map((g) => {

@@ -9,7 +9,7 @@ import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightS
 import type { UpscaleStrength } from "../core/upscale";
 import { pixelsOf, toDataUrl } from "../core/images";
 import { ADJUST_GROUPS, BANDS, IDENTITY_CURVE, NEUTRAL, applyAdjust, isIdentityCurve, isNeutral, mixControl } from "../core/adjust";
-import type { AdjustControl, MixKey, NumKey } from "../core/adjust";
+import type { Adjust, AdjustControl, MixKey, NumKey } from "../core/adjust";
 import { CurveEditor } from "../ui/CurveEditor";
 import { feel } from "../lib/feel";
 import { AdjustDial } from "../ui/AdjustDial";
@@ -155,18 +155,15 @@ function ReplaceClear() {
   );
 }
 
-const TOOLS_ROW: [EditMode | "download" | "again" | "copy", string, string][] = [
+const TOOLS_ROW: [EditMode, string, string][] = [
   ["compare", "Compare", "compare"],
   ["spot", "Spot edit", "brush"],
   ["relight", "Relight", "sun"],
-  ["adjust", "Adjust", "sliders"],
   ["view", "Multi-View", "camera"],
   ["style", "Style copy", "layers"],
   ["board", "Board", "grid"],
   ["upscale", "Upscale", "expand"],
-  ["again", "Try again", "refresh"],
-  ["copy", "Copy", "clipboard"],
-  ["download", "Download", "download"],
+  ["adjust", "Adjust", "sliders"],
 ];
 
 function EditWork() {
@@ -197,6 +194,11 @@ function EditWork() {
             {views.map((r, n) => pill(r, n + 1, "View "))}
           </>
         ) : null}
+        {!phone ? (
+          <button type="button" className="pill again" disabled={!cap || Boolean(busy)} title="Render this picture again as a new version" data-why={busy ? "A render is running. Wait for it to finish." : "Try again needs a view on the Render tab."} onClick={() => void openReview()}>
+            <Icon name="refresh" size={14} /> Try again
+          </button>
+        ) : null}
         {v ? <VersionName key={active} i={active} label={v.label} count={versions.length} /> : <span style={{ marginLeft: "auto" }} />}
         <ReplaceClear />
       </div>
@@ -215,7 +217,7 @@ function EditWork() {
       {phone ? (
         <PhoneDock>
           <nav className="refine m-dock" aria-label="Edit tools">
-            {TOOLS_ROW.filter(([id]) => id !== "again" && id !== "copy" && id !== "download").map(([id, label, icon]) => (
+            {TOOLS_ROW.map(([id, label, icon]) => (
               <button
                 key={id}
                 type="button"
@@ -234,30 +236,21 @@ function EditWork() {
       ) : (
       <div className="refine-wrap">
           <nav className="refine glass" aria-label="Edit tools">
-            {TOOLS_ROW.map(([id, label, icon]) => {
-              const disabled = (id === "again" && (!cap || Boolean(busy))) || (!v && id !== "view" && id !== "style");
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={id === "copy" || id === "download" || id === "again" ? undefined : mode === id}
-                  aria-label={label}
-                  title={id === "again" && !cap ? "Try again needs the view on the Render tab" : id === "copy" ? "Copy image, then paste into chat or slides" : label}
-                  disabled={disabled}
-                  data-why={id === "again" && busy ? "A render is running. Wait for it to finish." : id === "again" ? "Try again needs a view on the Render tab." : "Make a render first. This tool works on a finished picture."}
-                  onClick={() => {
-                    if (id === "download") return void (v && download(v.image, `v${active + 1}`));
-                    if (id === "copy") return void (v && copyImage(v.image));
-                    if (id === "again") return void openReview();
-                    if (id === "view") return setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion }));
-                    setState({ editMode: id });
-                  }}
-                >
-                  <Icon name={icon} />
-                  <span className="lbl-md">{label}</span>
-                </button>
-              );
-            })}
+            {TOOLS_ROW.map(([id, label, icon]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={mode === id}
+                aria-label={label}
+                title={label}
+                disabled={!v && id !== "view" && id !== "style"}
+                data-why="Make a render first. This tool works on a finished picture."
+                onClick={() => (id === "view" ? setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion })) : setState({ editMode: id }))}
+              >
+                <Icon name={icon} />
+                <span className="lbl-md">{label}</span>
+              </button>
+            ))}
           </nav>
         </div>
       )}
@@ -600,12 +593,29 @@ function ViewStage() {
 
 function EditSide() {
   const mode = useApp((s) => s.editMode);
-  if (mode === "view") return <NewViewPanel />;
-  if (mode === "style") return <StyleCopyPanel />;
+  const phone = useViewport().phone;
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const active = useApp((s) => s.activeVersion);
+  const panel =
+    mode === "view" ? <NewViewPanel /> : mode === "style" ? <StyleCopyPanel /> : (
+      <div className="side-scroll thin">
+        {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "upscale" ? <UpscalePanel /> : mode === "adjust" ? <AdjustPanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
+      </div>
+    );
   return (
-    <div className="side-scroll thin">
-      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "upscale" ? <UpscalePanel /> : mode === "adjust" ? <AdjustPanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
-    </div>
+    <>
+      {panel}
+      {!phone && v ? (
+        <div className="side-foot ver-acts">
+          <button type="button" className="cta" onClick={() => void download(v.image, `v${active + 1}`)}>
+            <Icon name="download" size={18} /> Download
+          </button>
+          <button type="button" className="btn ver-copy" aria-label="Copy image" title="Copy image, then paste into chat or slides" onClick={() => void copyImage(v.image)}>
+            <Icon name="clipboard" size={18} />
+          </button>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -966,9 +976,10 @@ const ADJUST_ICON: Record<string, string> = {
 
 const ADJUST_ITEMS = ADJUST_GROUPS.flatMap((g) => g.items);
 
-type AdjustSel = NumKey | "mix" | "curve";
+type AdjustSel = NumKey | "mix";
 const MIX_KINDS: ["h" | "s" | "l", string][] = [["h", "Hue"], ["s", "Saturation"], ["l", "Luminance"]];
 
+/** Camera Raw style: every group is open and the panel scrolls. One dial stays pinned at the bottom and follows the icon you tapped. */
 function AdjustPanel() {
   const v = useApp((s) => s.versions[s.activeVersion]);
   const activeIdx = useApp((s) => s.activeVersion);
@@ -979,86 +990,91 @@ function AdjustPanel() {
   const [sel, setSel] = useState<AdjustSel>("exposure");
   const [mixKind, setMixKind] = useState<"h" | "s" | "l">("s");
   const [band, setBand] = useState<(typeof BANDS)[number]["id"]>("red");
-  const ctl: AdjustControl | null = sel === "curve" ? null : sel === "mix" ? mixControl(mixKind, band) : ADJUST_ITEMS.find((c) => c.key === sel) ?? ADJUST_ITEMS[0];
+  const ctl: AdjustControl = sel === "mix" ? mixControl(mixKind, band) : ADJUST_ITEMS.find((c) => c.key === sel) ?? ADJUST_ITEMS[0];
   const show = (k: NumKey, n: number) => (k === "exposure" ? `${n > 0 ? "+" : ""}${n.toFixed(2)}` : k === "straighten" ? `${n > 0 ? "+" : ""}${n.toFixed(1)}°` : `${n > 0 && n !== 0 ? "+" : ""}${Math.round(n)}`);
   const mixChanged = (id: string) => (["h", "s", "l"] as const).some((k) => a[`${k}_${id}` as MixKey] !== 0);
   const anyMix = BANDS.some((b) => mixChanged(b.id));
-  const tools: { key: AdjustSel; label: string; changed: boolean }[] = [
-    ...ADJUST_ITEMS.map((c) => ({ key: c.key as AdjustSel, label: c.label, changed: a[c.key] !== NEUTRAL[c.key] })),
-    { key: "mix", label: "Colour mix", changed: anyMix },
-    { key: "curve", label: "Curve", changed: !isIdentityCurve(a.curve) },
-  ];
-  const title = sel === "curve" ? "Curve" : sel === "mix" ? `${BANDS.find((b) => b.id === band)!.label} · ${MIX_KINDS.find((k) => k[0] === mixKind)![1]}` : ctl!.label;
-  const value = ctl ? show(ctl.key, a[ctl.key]) : isIdentityCurve(a.curve) ? "0" : `${a.curve.length} points`;
-  const atZero = ctl ? a[ctl.key] === NEUTRAL[ctl.key] : isIdentityCurve(a.curve);
-  const reset = () => (ctl ? setAdjust({ [ctl.key]: NEUTRAL[ctl.key] }) : setAdjust({ curve: IDENTITY_CURVE }));
+  const title = sel === "mix" ? `${BANDS.find((b) => b.id === band)!.label} · ${MIX_KINDS.find((k) => k[0] === mixKind)![1]}` : ctl.label;
+  const value = show(ctl.key, a[ctl.key]);
+  const icon = (key: AdjustSel, label: string, changed: boolean) => (
+    <button key={key} type="button" aria-pressed={sel === key} aria-label={label} title={label} className={`adj-tool${changed ? " changed" : ""}`} onClick={() => setSel(key)}>
+      <Icon name={ADJUST_ICON[key]} size={22} />
+    </button>
+  );
+  const resetGroup = (id: string) => {
+    const g = ADJUST_GROUPS.find((x) => x.id === id);
+    const patch: Partial<Adjust> = {};
+    for (const c of g?.items ?? []) (patch as Record<string, number>)[c.key] = NEUTRAL[c.key];
+    if (id === "colour") for (const b of BANDS) for (const k of ["h", "s", "l"] as const) (patch as Record<string, number>)[`${k}_${b.id}`] = 0;
+    setAdjust(patch);
+  };
   return (
     <>
       <div>
         <h2 style={{ fontSize: 22 }}>Adjust</h2>
         <p className="sub">Fix exposure, colour and detail, like Camera Raw. Free, runs on this device, nothing is sent. Saved as a new version; the original stays.</p>
       </div>
-      <section className="adj-pick" aria-label="Adjustments">
-        <div className="adj-strip" role="tablist" aria-label="Adjustment tools">
-          {tools.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={sel === t.key}
-              aria-label={t.label}
-              title={t.label}
-              className={`adj-tool${t.changed ? " changed" : ""}`}
-              ref={(el) => { if (el && sel === t.key) el.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); }}
-              onClick={() => setSel(t.key)}
-            >
-              <Icon name={ADJUST_ICON[t.key]} size={22} />
-            </button>
-          ))}
-        </div>
-        {sel === "mix" ? (
-          <>
-            <div className="adj-bands" role="radiogroup" aria-label="Colour">
-              {BANDS.map((b) => (
-                <button key={b.id} type="button" role="radio" aria-checked={band === b.id} aria-label={b.label} title={b.label} className={mixChanged(b.id) ? "changed" : undefined} style={{ ["--c" as string]: b.css }} onClick={() => setBand(b.id)} />
-              ))}
-            </div>
-            <div className="tabs3" role="radiogroup" aria-label="Hue, saturation or luminance" style={{ margin: "2px auto 0", maxWidth: 320 }}>
-              {MIX_KINDS.map(([k, name]) => (
-                <button key={k} type="button" role="radio" aria-checked={mixKind === k} onClick={() => setMixKind(k)}>{name}</button>
-              ))}
-            </div>
-          </>
-        ) : null}
+      <div className="adj-groups">
+        {ADJUST_GROUPS.map((g) => {
+          const dirty = g.items.some((c) => a[c.key] !== NEUTRAL[c.key]) || (g.id === "colour" && anyMix);
+          return (
+            <section key={g.id} className="adj-sec" aria-label={g.title}>
+              <header>
+                <h3>{g.title}</h3>
+                <button type="button" className="adj-x" disabled={!dirty} data-why="This group is already at zero." aria-label={`Reset ${g.title}`} onClick={() => resetGroup(g.id)}>Reset</button>
+              </header>
+              <div className="adj-strip" role="group" aria-label={g.title}>
+                {g.items.map((c) => icon(c.key as AdjustSel, c.label, a[c.key] !== NEUTRAL[c.key]))}
+                {g.id === "colour" ? icon("mix", "Colour mix", anyMix) : null}
+              </div>
+              {g.id === "colour" && sel === "mix" ? (
+                <>
+                  <div className="adj-bands" role="radiogroup" aria-label="Colour">
+                    {BANDS.map((b) => (
+                      <button key={b.id} type="button" role="radio" aria-checked={band === b.id} aria-label={b.label} title={b.label} className={mixChanged(b.id) ? "changed" : undefined} style={{ ["--c" as string]: b.css }} onClick={() => setBand(b.id)} />
+                    ))}
+                  </div>
+                  <div className="tabs3" role="radiogroup" aria-label="Hue, saturation or luminance" style={{ margin: "6px auto 0", maxWidth: 320 }}>
+                    {MIX_KINDS.map(([k, name]) => (
+                      <button key={k} type="button" role="radio" aria-checked={mixKind === k} onClick={() => setMixKind(k)}>{name}</button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </section>
+          );
+        })}
+        <section className="adj-sec" aria-label="Curve">
+          <header>
+            <h3>Curve</h3>
+            <button type="button" className="adj-x" disabled={isIdentityCurve(a.curve)} data-why="The curve is already straight." aria-label="Reset Curve" onClick={() => setAdjust({ curve: IDENTITY_CURVE })}>Reset</button>
+          </header>
+          <CurveEditor curve={a.curve} onChange={(c) => setAdjust({ curve: c })} />
+          <p className="adj-hint">Drag a point. Click the line to add one. Double-click a point to remove it.</p>
+        </section>
+      </div>
+      <div className="adj-dock">
         <div className="adj-read">
           <span>{title}</span>
           <b className="num">{value}</b>
-          <button type="button" className="adj-x" disabled={atZero} data-why="This one is already at zero." onClick={reset}>Reset</button>
+          <button type="button" className="adj-x" disabled={a[ctl.key] === NEUTRAL[ctl.key]} data-why="This one is already at zero." onClick={() => setAdjust({ [ctl.key]: NEUTRAL[ctl.key] })}>Reset</button>
         </div>
-        {ctl ? (
-          <>
-            <AdjustDial label={title} min={ctl.min} max={ctl.max} step={ctl.step} value={a[ctl.key]} text={value} onChange={(n) => setAdjust({ [ctl.key]: n })} />
-            <p className="adj-hint">Drag, scroll or use arrow keys. Double-click to reset.</p>
-          </>
-        ) : (
-          <>
-            <CurveEditor curve={a.curve} onChange={(c) => setAdjust({ curve: c })} />
-            <p className="adj-hint">Drag a point. Click the line to add one. Double-click a point to remove it.</p>
-          </>
-        )}
-      </section>
-      <Foot inline>
-        <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset all</button>
-        <button
-          type="button"
-          className="cta sheen"
-          disabled={!v || none || busy}
-          data-why={!v ? "Open or upload a picture first." : busy ? "Saving. One moment." : "Move a slider first."}
-          onClick={() => { setBusy(true); void applyAdjustments(getAdjust()).then(() => resetAdjust()).catch(() => toast("Couldn't adjust this picture.", "error")).finally(() => setBusy(false)); }}
-        >
-          <Icon name="check" size={18} /> {busy ? "Saving…" : "Save as new version"}
-        </button>
-      </Foot>
+        <AdjustDial label={title} min={ctl.min} max={ctl.max} step={ctl.step} value={a[ctl.key]} text={value} onChange={(n) => setAdjust({ [ctl.key]: n })} />
+        <Foot inline>
+          <div className="adj-actions">
+          <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset all</button>
+          <button
+            type="button"
+            className="cta sheen"
+            disabled={!v || none || busy}
+            data-why={!v ? "Open or upload a picture first." : busy ? "Saving. One moment." : "Move a slider first."}
+            onClick={() => { setBusy(true); void applyAdjustments(getAdjust()).then(() => resetAdjust()).catch(() => toast("Couldn't adjust this picture.", "error")).finally(() => setBusy(false)); }}
+          >
+            <Icon name="check" size={18} /> {busy ? "Saving…" : "Save as new version"}
+          </button>
+          </div>
+        </Foot>
+      </div>
     </>
   );
 }
