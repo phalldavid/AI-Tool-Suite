@@ -187,22 +187,36 @@ export function Canvas({ outputs, fitSignal }: { outputs: EvalCache; fitSignal: 
     else if (s.selected.length) commit(removeNodes(graph(), s.selected));
   };
 
-  // Wheel zooms the canvas. Inside the selected node, a list or text that can
-  // scroll gets the wheel instead, so a node you are not working in never traps it.
+  // Wheel zooms the canvas, like Blender and 3ds Max. Hover a list or text box that can
+  // scroll and the wheel scrolls it instead (even if the node is not selected); at the
+  // end of the list nothing happens, so the canvas never jumps. Shift + wheel pans up and down.
   useEffect(() => {
     const el = root.current;
     if (!el) return;
+    const scrollerAt = (t: HTMLElement): HTMLElement | null => {
+      const node = t.closest<HTMLElement>("[data-node-id]");
+      for (let n: HTMLElement | null = t; n && node && node.contains(n); n = n.parentElement) {
+        if (n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowY)) return n;
+      }
+      return null;
+    };
     const onWheel = (e: WheelEvent) => {
       const t = e.target as HTMLElement;
-      const scroller = t.closest(".gscroll") as HTMLElement | null;
-      const node = t.closest<HTMLElement>("[data-node-id]");
-      const inSelected = node && getCanvas().selected.includes(node.dataset.nodeId!);
-      if (!e.ctrlKey && scroller && inSelected && scroller.scrollHeight > scroller.clientHeight) return;
+      const scroller = e.ctrlKey || e.shiftKey ? null : scrollerAt(t);
+      if (scroller) {
+        const atTop = scroller.scrollTop <= 0, atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+        if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atEnd)) e.preventDefault();
+        return; // the browser scrolls the list
+      }
       e.preventDefault();
-      const { sx, sy } = local(e.clientX, e.clientY);
-      const v = zoomAt(viewRef.current, sx, sy, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
       moving();
-      setLiveView(v);
+      if (e.shiftKey && !e.ctrlKey) {
+        const d = e.deltaY || e.deltaX;
+        setLiveView({ ...viewRef.current, y: viewRef.current.y - d });
+      } else {
+        const { sx, sy } = local(e.clientX, e.clientY);
+        setLiveView(zoomAt(viewRef.current, sx, sy, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))));
+      }
       window.clearTimeout(wheelTimer.current);
       wheelTimer.current = window.setTimeout(() => commitView(setView(graph(), viewRef.current)), 250);
     };

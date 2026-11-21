@@ -66,7 +66,7 @@ export function updateSettings<K extends NodeKind>(graph: Graph, id: string, pat
 }
 
 export function wire(graph: Graph, from: PortRef, to: PortRef): EditResult {
-  return connect(graph, from, to, nextId(graph, "w"));
+  return connect(graph, from, to, nextId(graph, "w"), true);
 }
 
 export function removeWires(graph: Graph, ids: string[]): Graph {

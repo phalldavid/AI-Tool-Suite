@@ -41,6 +41,13 @@ test("a single input takes one wire, the images input takes many, outputs fan ou
   const second = canConnect(g, { node: "l1", port: "look" }, { node: "p", port: "look" });
   assert.equal(second.ok, false);
   assert.match((second as { reason: string }).reason, /already has a wire/);
+  // dragging a new wire onto it swaps the old wire out (Blender and 3ds Max do the same)
+  const swapped = connect(g, { node: "l1", port: "look" }, { node: "p", port: "look" }, "w9", true);
+  assert.ok("graph" in swapped);
+  const into = (swapped as { graph: typeof g }).graph.wires.filter((w) => w.to.node === "p" && w.to.port === "look");
+  assert.equal(into.length, 1);
+  assert.equal(into[0].from.node, "l1");
+  assert.equal((swapped as { graph: typeof g }).graph.wires.length, g.wires.length, "one out, one in");
   assert.equal(canConnect(g, { node: "a", port: "image" }, { node: "p", port: "images" }).ok, false, "same wire twice");
   // one look fans out to two nodes
   g = ok(g, "look", "look", "l1", "look", "w4");
