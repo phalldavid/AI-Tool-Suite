@@ -1079,3 +1079,8 @@ dialog.sheet[data-leaving]::backdrop { animation: veil-out var(--leave-ms) ease 
 .mc-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .mc-item:hover, .mc-item[aria-selected="true"] { background: var(--field); }
 @media (max-width: 640px) { .mc-grid { grid-template-columns: 1fr; } }
+
+/* Khmer script has tall marks above and below the line; give the language button room */
+.langsw button { line-height: 1.8; padding-block: 5px; overflow: visible; }
+.langsw .lbl-md { line-height: 1.8; }
+.mc-menu { max-height: 40vh; }
