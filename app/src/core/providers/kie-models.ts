@@ -18,6 +18,8 @@ export interface KieModel {
   textId?: string;
   /** Kie credits per image by resolution; absent = not published */
   credits?: Partial<Record<KieResolution, number>>;
+  /** Token-billed models: reference output credits per image (16:9, from kie.ai) by quality. */
+  tokenCredits?: Partial<Record<KieResolution, { low: number; medium: number; high: number }>>;
   /** short name on the model card, e.g. "2.5 Flare" */
   short: string;
   /** resolutions the model takes; the first is used when the chosen one is not listed */
@@ -58,6 +60,16 @@ const nanoInput = (prompt: string, urls: string[], ratio: string, res: KieResolu
   output_format: "png",
 });
 
+/** Reference output credits for GPT Image 2.6 (kie.ai/gpt-image-2-6, 16:9, 2026-11-21). */
+const GPT26_TOKEN_CREDITS: NonNullable<KieModel["tokenCredits"]> = {
+  "1K": { low: 2.72, medium: 4.99, high: 5.82 },
+  "2K": { low: 3.56, medium: 6.54, high: 7.63 },
+  "4K": { low: 8.41, medium: 15.42, high: 18.01 },
+};
+/** Kie adds about 0.1 credits for the prompt and 2.2 per reference image. */
+const TOKEN_PROMPT_CREDITS = 0.1;
+const TOKEN_REF_CREDITS = 2.2;
+
 export const KIE_MODELS: KieModel[] = [
   {
     id: "nano-banana-2-1",
@@ -87,6 +99,7 @@ export const KIE_MODELS: KieModel[] = [
     // Kie bills 2.6 by tokens, not per image, so credits are left out ("price on kie.ai").
     // "background" is only accepted at 1K, so it is sent only then.
     id: "gpt-image-2-6/flare-image-to-image",
+    tokenCredits: GPT26_TOKEN_CREDITS,
     family: "gpt",
     label: "GPT Image 2.6 Flare",
     short: "2.6 Flare",
@@ -107,6 +120,7 @@ export const KIE_MODELS: KieModel[] = [
     // and kie.ai/gpt-image-2-6 (2026-11-16). The docs example sends resolution "1K"; no other
     // size is published, so it is offered at 1K only. Token-billed, so credits are left out.
     id: "gpt-image-2-6/sunburst-image-to-image",
+    tokenCredits: GPT26_TOKEN_CREDITS,
     family: "gpt",
     label: "GPT Image 2.6 Sunburst",
     short: "2.6 Sunburst",
@@ -225,21 +239,43 @@ export function resolutionFor(m: KieModel, wanted: KieResolution): KieResolution
 /** Kie credits are bought at 200 per US dollar (list rate). */
 export const USD_PER_CREDIT = 0.005;
 
-/** Credits per image at the resolution used, or null when Kie does not publish the price. */
-export function creditsFor(m: KieModel, wanted: KieResolution): number | null {
-  return m.credits?.[resolutionFor(m, wanted)] ?? null;
+/** True when the price is an estimate from token billing, not a published per-image price. */
+export function isEstimate(m: KieModel, wanted: KieResolution): boolean {
+  return !m.credits?.[resolutionFor(m, wanted)] && !!m.tokenCredits?.[resolutionFor(m, wanted)];
+}
+
+/**
+ * Credits per image at the resolution used, or null when Kie does not publish the price.
+ * Token-billed models give an estimate: medium quality (what we send) plus the prompt and
+ * the reference images (`refs`, default 1).
+ */
+export function creditsFor(m: KieModel, wanted: KieResolution, refs = 1): number | null {
+  const r = resolutionFor(m, wanted);
+  const fixed = m.credits?.[r];
+  if (fixed !== undefined) return fixed;
+  const t = m.tokenCredits?.[r];
+  if (!t) return null;
+  return Math.round((t.medium + TOKEN_PROMPT_CREDITS + TOKEN_REF_CREDITS * Math.max(0, refs)) * 100) / 100;
+}
+
+/** Low and high estimate (quality low to high) for token-billed models, else null. */
+export function creditRange(m: KieModel, wanted: KieResolution, refs = 1): [number, number] | null {
+  const t = m.tokenCredits?.[resolutionFor(m, wanted)];
+  if (!t || !isEstimate(m, wanted)) return null;
+  const extra = TOKEN_PROMPT_CREDITS + TOKEN_REF_CREDITS * Math.max(0, refs);
+  return [Math.round((t.low + extra) * 100) / 100, Math.round((t.high + extra) * 100) / 100];
 }
 
 /** Price per image in USD at the resolution used, or null when Kie does not publish it. */
-export function priceFor(m: KieModel, wanted: KieResolution): number | null {
-  const c = creditsFor(m, wanted);
+export function priceFor(m: KieModel, wanted: KieResolution, refs = 1): number | null {
+  const c = creditsFor(m, wanted, refs);
   return c === null ? null : c * USD_PER_CREDIT;
 }
 
-export function priceText(m: KieModel, wanted: KieResolution): string {
-  const p = priceFor(m, wanted);
+export function priceText(m: KieModel, wanted: KieResolution, refs = 1): string {
+  const p = priceFor(m, wanted, refs);
   if (p === null) return "price on kie.ai";
-  return `~$${p < 0.1 ? p.toFixed(3).replace(/0$/, "") : p.toFixed(2)}`;
+  return `${isEstimate(m, wanted) ? "est. " : ""}~$${p < 0.1 ? p.toFixed(3).replace(/0$/, "") : p.toFixed(2)}`;
 }
 
 /** 6 stays 6, 3.24 stays 3.24, 6.480001 becomes 6.48. */

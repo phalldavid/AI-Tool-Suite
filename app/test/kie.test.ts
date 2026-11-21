@@ -93,8 +93,8 @@ test("kie model helpers: prices, resolutions, ratios, results", () => {
   assert.equal(creditsFor(findKieModel("gpt-image-2-5-flare-image-to-image"), "4K"), 16);
   assert.equal(creditsFor(findKieModel("gpt-image-2-image-to-image"), "2K"), 10);
   const flare26 = findKieModel("gpt-image-2-6/flare-image-to-image");
-  assert.equal(creditsFor(flare26, "2K"), null, "2.6 is token-billed, no per-image price");
-  assert.equal(priceText(flare26, "2K"), "price on kie.ai");
+  assert.equal(creditsFor(flare26, "2K"), 8.84, "2.6 is token-billed: an estimate (medium + prompt + 1 reference image)");
+  assert.equal(priceText(flare26, "2K"), "est. ~$0.044");
   assert.equal(flare26.input("p", ["u"], "16:9", "2K").background, undefined, "background only at 1K");
   assert.equal(flare26.input("p", ["u"], "16:9", "1K").background, "opaque");
   assert.equal(resolutionFor(findKieModel("gpt-image-2-6/sunburst-image-to-image"), "4K"), "1K");
@@ -120,4 +120,17 @@ test("a price list from the website overrides built-in prices, but only sizes th
 test("Kie status 0 means the request never left the computer", async () => {
   const { explainKie } = await import("../src/core/providers/kie");
   assert.match(explainKie(0, ""), /No internet connection/);
+});
+
+test("GPT Image 2.6 is estimated from token billing (medium + prompt + reference images)", async () => {
+  const { findKieModel, creditsFor, creditRange, isEstimate, priceText } = await import("../src/core/providers/kie-models");
+  const m = findKieModel("gpt-image-2-6/flare-image-to-image");
+  assert.equal(isEstimate(m, "2K"), true);
+  assert.equal(creditsFor(m, "2K", 1), 8.84); // 6.54 + 0.1 + 2.2
+  assert.equal(creditsFor(m, "1K", 0), 5.09);
+  assert.deepEqual(creditRange(m, "4K", 1), [10.71, 20.31]);
+  assert.match(priceText(m, "2K", 1), /^est\. ~\$0\.044$/);
+  const pub = findKieModel("nano-banana-pro");
+  assert.equal(isEstimate(pub, "2K"), false);
+  assert.equal(creditRange(pub, "2K"), null);
 });

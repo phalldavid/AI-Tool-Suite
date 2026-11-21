@@ -11,7 +11,7 @@ function Mark({ m, size }: { m: KieModel; size: number }) {
 }
 
 /** Review-sheet model choice: three cards, an "All models" list, and the resolution buttons on one level. */
-export function ModelCards(props: { modelId: string; resolution: KieResolution; onModel: (m: KieModel) => void; onResolution: (r: KieResolution) => void }) {
+export function ModelCards(props: { modelId: string; resolution: KieResolution; onModel: (m: KieModel) => void; onResolution: (r: KieResolution) => void; refs?: number }) {
   const { modelId, resolution } = props;
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -28,7 +28,7 @@ export function ModelCards(props: { modelId: string; resolution: KieResolution; 
     return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc, true); };
   }, [open]);
 
-  const price = (m: KieModel) => priceText(m, resolutionFor(m, resolution));
+  const price = (m: KieModel) => priceText(m, resolutionFor(m, resolution), props.refs ?? 1);
 
   return (
     <section className="model-pick" aria-label="Model">

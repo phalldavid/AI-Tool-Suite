@@ -614,6 +614,7 @@ const PATTERNS: [RegExp, string][] = [
   [/^(\d+) prompts ready$/, "Prompt $1 រួចរាល់"],
   [/^(\d+) of (\d+) images$/, "រូបភាព $1 នៃ $2"],
   [/^Render (\d+)$/, "រេនឌ័រ $1"],
+  [/^est\. ~\$(\d+(?:\.\d+)?)$/, "ប៉ាន់ស្មាន ~$$$1"],
   [/^about (\d+(?:\.\d+)?) credits$/, "ប្រហែល $1 ក្រេឌីត"],
   [/^Done\. (\d+)×(\d+) → (\d+)×(\d+), same shape as your picture\.$/, "រួចរាល់។ $1×$2 → $3×$4 រូបរាងដូចរូបដើម។"],
   [/^(\d+) renders done$/, "រេនឌ័របាន $1"],
