@@ -16,6 +16,7 @@ import { imageSize } from "../../core/images";
 import { styleCopyPrompt } from "../../lib/lighting";
 import { lightingText } from "../../core/prompt";
 import { toast } from "../../toasts";
+import { feel } from "../../lib/feel";
 import { getCanvas, graph, patchJob, setResult, setRun } from "./session";
 import { S } from "./strings";
 
@@ -86,6 +87,7 @@ export async function runJobs(jobs: RenderJob[]): Promise<void> {
   const provider = makeProvider(settings, st.host);
   // Steps that work on a picture use the Edit tab's model, as the Edit tab does.
   const editProvider = settings.backend === "kie" ? makeProvider({ ...settings, kieModel: editModelId() }, st.host) : provider;
+  feel("start");
   setRun({
     status: "running",
     where: whereLabel(),

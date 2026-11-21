@@ -10,6 +10,9 @@
   --font: Inter, "Segoe UI", "Noto Sans Khmer", sans-serif;
   --display: "Bricolage Grotesque", "Kantumruy Pro", Inter, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* How things move: a springy settle for presses and switches, a soft glide for everything else. */
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --glide: cubic-bezier(0.22, 1, 0.36, 1);
   --on-image: #f6f1ea; --image-chip: rgba(19, 17, 15, 0.78);
   color-scheme: dark;
 }
@@ -33,10 +36,10 @@ img { -webkit-user-drag: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- motion ---------- */
-button, a, [role="option"], [role="tab"], [role="radio"] { transition: transform 160ms var(--ease), background-color 180ms, box-shadow 220ms, filter 160ms, color 160ms; }
+button, a, [role="option"], [role="tab"], [role="radio"] { transition: transform 300ms var(--spring), background-color 180ms, box-shadow 220ms, filter 160ms, color 160ms; }
 button:not(:disabled):hover, a:hover, [role="option"]:hover { filter: brightness(1.12); }
 button:not(:disabled):hover { transform: translateY(-1px); }
-button:not(:disabled):active, a:active { transform: scale(0.95); filter: brightness(0.94); transition-duration: 80ms; }
+button:not(:disabled):active, a:active { transform: scale(0.97); filter: brightness(0.94); transition-duration: 70ms; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .lift { transition: transform 220ms var(--ease), box-shadow 220ms var(--ease); }
 .lift:hover { transform: translateY(-4px) scale(1.02) !important; box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45); }
@@ -227,7 +230,7 @@ textarea.input { resize: vertical; min-height: 64px; }
 .cta .kbd { background: color-mix(in srgb, var(--accent-ink) 12%, transparent); color: inherit; }
 .foot-note { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); }
 .btn { padding: 10px 14px; border-radius: 12px; border: 0; background: var(--raised); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; }
-.btn.primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 1px 2px rgba(0, 0, 0, 0.25), 0 8px 18px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
 .btn.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line2); }
 .btn.danger { background: color-mix(in srgb, var(--bad) 85%, #000); color: #2a0f0c; font-weight: 600; }
 .note { font-size: 12.5px; color: var(--muted); padding: 10px 12px; border-radius: 12px; background: var(--well); }
@@ -302,7 +305,7 @@ dialog.sheet.small { width: min(420px, calc(100vw - 32px)); }
 .palette .opt small { display: block; color: var(--muted); font-size: 12.5px; }
 .palette .foot { display: flex; gap: 16px; padding: 10px 18px; font-size: 12px; color: var(--muted); box-shadow: 0 -1px 0 var(--line); }
 .toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: 150px; z-index: 100; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 40px)); pointer-events: none; }
-.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--raised); color: var(--text); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 0 0 1px var(--line); animation: rise 260ms var(--ease) both; font-size: 13px; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--raised); color: var(--text); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 0 0 1px var(--line); animation: toastin 420ms var(--spring) both; font-size: 13px; }
 .toast .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
 .toast.ok .dot { background: var(--ok); } .toast.error .dot { background: var(--bad); } .toast.warn .dot { background: var(--warn); }
 .toast .msg { flex: 1; min-width: 0; }
@@ -503,9 +506,12 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--soft); cursor: pointer; }
 .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .switch span { position: relative; width: 36px; height: 20px; border-radius: 999px; background: var(--line2); transition: background-color 200ms; }
-.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 200ms var(--ease); }
+.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); transition: transform 320ms var(--spring), width 160ms var(--glide); }
 .switch input:checked + span { background: var(--accent); }
 .switch input:checked + span::after { transform: translateX(16px); }
+/* The thumb stretches under the finger, like a system switch. */
+.switch:active span::after { width: 21px; }
+.switch:active input:checked + span::after { transform: translateX(11px); }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .kelvins { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .kelvins button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; border: 0; border-radius: 10px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; }
@@ -1005,6 +1011,21 @@ html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
 .fold-body { animation: swin 280ms var(--ease) both; }
 .fold-body > .step > .step-head .n, .fold-body > .step > .step-head h2 { display: none; }
 
+/* ---- Feel: how the app answers a press (see lib/feel.ts and docs/feedback-system.md) ---- */
+@keyframes toastin { from { opacity: 0; transform: translateY(14px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes feelok { 0% { transform: scale(0.97); } 35% { transform: scale(1.045); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); } 100% { transform: none; box-shadow: 0 0 0 12px transparent; } }
+@keyframes feelerr { 0%, 100% { transform: none; } 18% { transform: translateX(-5px); } 36% { transform: translateX(4px); } 54% { transform: translateX(-3px); } 72% { transform: translateX(2px); } }
+@keyframes feelpop { 0% { transform: scale(0.94); } 55% { transform: scale(1.05); } 100% { transform: none; } }
+@keyframes feelbusy { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+[data-feel="ok"] { animation: feelok 760ms var(--glide); }
+[data-feel="error"] { animation: feelerr 460ms cubic-bezier(0.36, 0.07, 0.19, 0.97); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 55%, transparent); }
+[data-feel="pop"] { animation: feelpop 340ms var(--spring); }
+[data-feel="busy"] { animation: feelbusy 1.1s ease-in-out infinite; cursor: progress; pointer-events: none; }
+/* Reduced motion: no movement, but the answer is still shown as a still ring. */
+@media (prefers-reduced-motion: reduce) {
+  [data-feel="ok"] { box-shadow: 0 0 0 2px var(--ok); }
+  [data-feel="error"] { box-shadow: 0 0 0 2px var(--bad); }
+}
 /* Batch render node, render animation, downloads */
 .gmaster { min-height: 150px; font-size: 12px; line-height: 1.45; resize: vertical; }
 .gjob-busy { width: 16px; height: 16px; display: grid; place-items: center; }
