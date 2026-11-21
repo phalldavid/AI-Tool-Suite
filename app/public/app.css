@@ -1084,3 +1084,12 @@ dialog.sheet[data-leaving]::backdrop { animation: veil-out var(--leave-ms) ease 
 .langsw button { line-height: 1.8; padding-block: 5px; overflow: visible; }
 .langsw .lbl-md { line-height: 1.8; }
 .mc-menu { max-height: 40vh; }
+
+/* Adjust tool (Camera Raw style sliders) */
+.adj-group { display: grid; gap: 10px; }
+.adj-row { display: grid; grid-template-columns: 1fr auto; row-gap: 2px; align-items: center; font-size: 13px; }
+.adj-row label { color: var(--muted); cursor: default; user-select: none; }
+.adj-val { color: var(--soft); font-size: 12px; min-width: 44px; text-align: right; }
+.adj-val[data-changed] { color: var(--accent); font-weight: 600; }
+.adj-row input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); min-height: 28px; }
+.adj-hold { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; width: auto; border-radius: 999px; touch-action: none; user-select: none; }

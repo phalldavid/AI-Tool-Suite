@@ -1,5 +1,7 @@
 // Everything that changes state or talks to a backend. Screens call these.
 
+import { NEUTRAL, isNeutral } from "./core/adjust";
+import type { Adjust } from "./core/adjust";
 import { getState, setState } from "./store";
 import type { AppState, NotesSlot, Version, VersionMeta } from "./store";
 import { toast } from "./toasts";
@@ -8,7 +10,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SIT
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
-import { compositeMasked, cropPadded, fileToImage, imageSize, padToRatio, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
+import { adjustFull, compositeMasked, cropPadded, fileToImage, imageSize, padToRatio, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
 import { cropToRatio, findFrame } from "./core/frame";
 import { addHistory, listHistory, removeHistory, starHistory } from "./core/history";
 import { findLibraryItem } from "./core/library";
@@ -670,6 +672,7 @@ export async function record(tool: ToolId, prompt: string, before: ImageData64, 
   const st = getState();
   const s = opt.model ? { ...st.settings, kieModel: opt.model, imageCount: 1 } : { ...st.settings, imageCount: 1 };
   const cost = renderCost(s);
+  const local = tool === "adjust";
   const item: HistoryItem = {
     id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     createdAt: Date.now(),
@@ -679,9 +682,9 @@ export async function record(tool: ToolId, prompt: string, before: ImageData64, 
     prompt,
     before,
     after,
-    provider: s.testMode ? "Test mode" : s.backend === "kie" ? "Kie.ai" : s.backend === "gemini" ? "Gemini API" : s.backend === "comfyui" ? "ComfyUI" : "Browser",
+    provider: local ? "On this device" : s.testMode ? "Test mode" : s.backend === "kie" ? "Kie.ai" : s.backend === "gemini" ? "Gemini API" : s.backend === "comfyui" ? "ComfyUI" : "Browser",
     model: s.backend === "kie" ? s.kieModel : s.backend === "gemini" ? s.geminiModel : s.backend,
-    credits: cost.credits ?? undefined,
+    credits: local ? undefined : cost.credits ?? undefined,
     project: s.project || undefined,
   };
   try {
@@ -866,6 +869,22 @@ export async function runUpscale(strength: UpscaleStrength): Promise<void> {
   const id = await record("upscale", sent, src, result, { name: label, model: kieEdit() });
   setState((x) => ({ versions: [...x.versions, { image: result, label, prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
   toast(`Done. ${size.width}×${size.height} → ${result.width}×${result.height}, same shape as your picture.`, "ok");
+}
+
+/** Bakes the Adjust sliders into a new version. Free, runs on this device, the original version stays. */
+export async function applyAdjustments(a: Adjust): Promise<void> {
+  const src = activeImage();
+  if (!src || isNeutral(a)) return;
+  const out = await feelPressed((async () => {
+    await new Promise((r) => setTimeout(r, 40));
+    return adjustFull(src, a);
+  })());
+  const label = "Adjusted";
+  const changed = (Object.keys(a) as (keyof Adjust)[]).filter((k) => a[k] !== NEUTRAL[k]).map((k) => `${k} ${a[k] > 0 ? "+" : ""}${a[k]}`).join(", ");
+  const note = `Adjusted on this device: ${changed}`;
+  const id = await record("adjust", note, src, out, { name: label });
+  setState((x) => ({ versions: [...x.versions, { image: out, label, prompt: note, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+  toast(`Saved as a new version. ${out.width}×${out.height}, no credits used.`, "ok");
 }
 
 export function openHistoryItem(item: HistoryItem): void {

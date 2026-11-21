@@ -1,5 +1,7 @@
 // Image helpers: conversion between base64, blobs, canvases and <img>.
 
+import { applyAdjust } from "./adjust";
+import type { Adjust } from "./adjust";
 import type { ImageData64 } from "./types";
 import { cropBox, padPlan } from "./upscale";
 import type { PadPlan } from "./upscale";
@@ -216,4 +218,30 @@ export async function shrinkJpeg(img: ImageData64, maxSide: number, quality = 0.
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(el, 0, 0, w, h);
   return canvasToImage(c, "image/jpeg", quality);
+}
+
+/** The picture's pixels, optionally scaled down so its longest side is at most `maxSide`. */
+export async function pixelsOf(img: ImageData64, maxSide = 0): Promise<ImageData> {
+  const el = await loadImage(img);
+  const k = maxSide ? Math.min(1, maxSide / Math.max(el.naturalWidth, el.naturalHeight)) : 1;
+  const w = Math.max(1, Math.round(el.naturalWidth * k));
+  const h = Math.max(1, Math.round(el.naturalHeight * k));
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("No canvas");
+  ctx.drawImage(el, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h);
+}
+
+/** Runs the Camera Raw adjustments on the full-size picture. */
+export async function adjustFull(img: ImageData64, a: Adjust): Promise<ImageData64> {
+  const px = await pixelsOf(img);
+  applyAdjust(px, a);
+  const c = document.createElement("canvas");
+  c.width = px.width;
+  c.height = px.height;
+  c.getContext("2d")?.putImageData(px, 0, 0);
+  return canvasToImage(c, "image/png");
 }

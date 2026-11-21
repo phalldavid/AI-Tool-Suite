@@ -7,7 +7,9 @@ import type { EditMode, Version } from "../store";
 import type { ImageData64 } from "../core/types";
 import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, runUpscale, useEditFile } from "../actions";
 import type { UpscaleStrength } from "../core/upscale";
-import { toDataUrl } from "../core/images";
+import { pixelsOf, toDataUrl } from "../core/images";
+import { ADJUST_GROUPS, NEUTRAL, applyAdjust, isNeutral } from "../core/adjust";
+import { getAdjust, resetAdjust, setAdjust, useAdjust } from "../lib/adjustStore";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
 import { dialTimeId } from "../core/prompt";
@@ -27,7 +29,7 @@ import { useRatio } from "../ui/useRatio";
 import { Foot, PhoneDock } from "../ui/PhoneBar";
 import { useViewport } from "../layout";
 import { hoverSlot, hoveredSlot, onHoverSlot } from "../lib/pasteTarget";
-import { copyImageToClipboard as copyImage, deleteVersion, renameVersion } from "../actions";
+import { applyAdjustments, copyImageToClipboard as copyImage, deleteVersion, renameVersion } from "../actions";
 import { INTERIOR_RELIGHT } from "../core/prompt";
 import { BoardPanel, BoardStage } from "./Board";
 
@@ -153,6 +155,7 @@ const TOOLS_ROW: [EditMode | "download" | "again" | "copy", string, string][] = 
   ["compare", "Compare", "compare"],
   ["spot", "Spot edit", "brush"],
   ["relight", "Relight", "sun"],
+  ["adjust", "Adjust", "sliders"],
   ["view", "Multi-View", "camera"],
   ["style", "Style copy", "layers"],
   ["board", "Board", "grid"],
@@ -194,7 +197,7 @@ function EditWork() {
         <ReplaceClear />
       </div>
       <div className="stage cq" style={{ background: "var(--field)" }}>
-        {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : mode === "board" ? <BoardStage /> : <CompareStage v={v} />}
+        {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : mode === "board" ? <BoardStage /> : mode === "adjust" && v ? <AdjustStage v={v} /> : <CompareStage v={v} />}
         <LoaderLayer />
         <LoaderStatus />
         {phone && v && (mode === "compare" || mode === "relight") ? (
@@ -597,7 +600,7 @@ function EditSide() {
   if (mode === "style") return <StyleCopyPanel />;
   return (
     <div className="side-scroll thin">
-      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "upscale" ? <UpscalePanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
+      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "upscale" ? <UpscalePanel /> : mode === "adjust" ? <AdjustPanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
     </div>
   );
 }
@@ -898,6 +901,102 @@ const RELIGHT_INTERIOR: typeof RELIGHT = [
   ...INTERIOR_RELIGHT.map((o) => ({ id: o.id, label: o.label, sub: o.sub ?? "", sky: (o.swatch ?? ["#3a2a1c", "#c98a4a"]) as [string, string] })),
   { id: "night", label: "Night", sub: "Lights only", sky: ["#05070f", "#1b2036"] },
 ];
+
+/** Live preview of the Adjust sliders on a small copy; hold the button to see the original. */
+function AdjustStage({ v }: { v: Version }) {
+  const a = useAdjust();
+  const r = useRatio(v.image);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const base = useRef<ImageData | null>(null);
+  const [ready, setReady] = useState(false);
+  const [showOrig, setShowOrig] = useState(false);
+  const src = useMemo(() => toDataUrl(v.image), [v.image]);
+  useEffect(() => {
+    let live = true;
+    setReady(false);
+    base.current = null;
+    pixelsOf(v.image, 960).then((px) => { if (live) { base.current = px; setReady(true); } }).catch(() => undefined);
+    return () => { live = false; };
+  }, [v.image]);
+  useEffect(() => {
+    const b = base.current, c = canvas.current;
+    if (!ready || !b || !c) return;
+    const id = window.setTimeout(() => {
+      const copy = new ImageData(new Uint8ClampedArray(b.data), b.width, b.height);
+      applyAdjust(copy, getAdjust());
+      c.width = b.width;
+      c.height = b.height;
+      c.getContext("2d")?.putImageData(copy, 0, 0);
+    }, 30);
+    return () => window.clearTimeout(id);
+  }, [a, ready]);
+  const same = isNeutral(a);
+  return (
+    <div className="fit">
+      <div className="frame rise" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}`, position: "relative" }}>
+        <img src={src} alt="Original" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }} />
+        <canvas ref={canvas} aria-label="Adjusted preview" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", visibility: showOrig || same || !ready ? "hidden" : "visible" }} />
+        <button
+          type="button"
+          className="chip-img adj-hold"
+          disabled={same}
+          data-why="Move a slider first. Then you can hold this to see the original."
+          onPointerDown={() => setShowOrig(true)}
+          onPointerUp={() => setShowOrig(false)}
+          onPointerLeave={() => setShowOrig(false)}
+          onPointerCancel={() => setShowOrig(false)}
+        >
+          <Icon name="compare" size={16} /> Hold to see original
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdjustPanel() {
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const activeIdx = useApp((s) => s.activeVersion);
+  const a = useAdjust();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { resetAdjust(); }, [activeIdx]);
+  const none = isNeutral(a);
+  return (
+    <>
+      <div>
+        <h2 style={{ fontSize: 22 }}>Adjust</h2>
+        <p className="sub">Fix exposure, colour and detail, like Camera Raw. Free, runs on this device, nothing is sent. Saved as a new version; the original stays.</p>
+      </div>
+      {ADJUST_GROUPS.map((g) => (
+        <section key={g.id} className="step cq adj-group">
+          <h3 className="label">{g.title}</h3>
+          {g.items.map((c) => {
+            const val = a[c.key];
+            const shown = c.key === "exposure" ? `${val > 0 ? "+" : ""}${val.toFixed(2)}` : `${val > 0 && c.min < 0 ? "+" : ""}${val}`;
+            return (
+              <div key={c.key} className="adj-row">
+                <label htmlFor={`adj-${c.key}`} title="Double-click to reset this slider" onDoubleClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })}>{c.label}</label>
+                <span className="num adj-val" data-changed={val !== NEUTRAL[c.key] ? "1" : undefined}>{shown}</span>
+                <input id={`adj-${c.key}`} type="range" min={c.min} max={c.max} step={c.step} value={val} onChange={(e) => setAdjust({ [c.key]: Number(e.target.value) })} onDoubleClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })} />
+              </div>
+            );
+          })}
+        </section>
+      ))}
+      <Foot inline>
+        <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset</button>
+        <button
+          type="button"
+          className="cta sheen"
+          disabled={!v || none || busy}
+          data-why={!v ? "Open or upload a picture first." : busy ? "Saving. One moment." : "Move a slider first."}
+          onClick={() => { setBusy(true); void applyAdjustments(getAdjust()).then(() => resetAdjust()).catch(() => toast("Couldn't adjust this picture.", "error")).finally(() => setBusy(false)); }}
+        >
+          <Icon name="check" size={18} /> {busy ? "Saving…" : "Save as new version"}
+        </button>
+      </Foot>
+    </>
+  );
+}
 
 function UpscalePanel() {
   const v = useApp((s) => s.versions[s.activeVersion]);
