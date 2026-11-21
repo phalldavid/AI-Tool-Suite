@@ -3,9 +3,9 @@ import { useApp } from "../store";
 import { closeReview, confirmReview, buildPrompt, editModelId, fileName, updateSettings } from "../actions";
 import { toast } from "../toasts";
 import { renderCost, usd } from "../lib/cost";
-import { KIE_MODELS, findKieModel, priceText, resolutionFor } from "../core/providers/kie-models";
-import type { KieResolution } from "../core/providers/kie-models";
+import { findKieModel, resolutionFor } from "../core/providers/kie-models";
 import { Sheet } from "./Sheet";
+import { ModelCards } from "./ModelCards";
 import { Icon } from "./Icon";
 import { baseName } from "../lib/room";
 
@@ -147,30 +147,12 @@ export function ReviewSheet() {
           </div>
         </section>
         {s.backend === "kie" && !s.testMode ? (
-          <section className="model-row" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-            <label className="label" htmlFor="review-model" style={{ flex: "none" }}>Model</label>
-            <select
-              id="review-model"
-              value={modelId}
-              style={{ flex: "1 1 220px", minWidth: 0 }}
-              onChange={(e) => {
-                const m = findKieModel(e.target.value);
-                void updateSettings({ ...(editTool ? { editModel: m.id } : { kieModel: m.id }), kieResolution: resolutionFor(m, s.kieResolution) });
-              }}
-            >
-              {KIE_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>{m.label} · {priceText(m, resolutionFor(m, s.kieResolution))}</option>
-              ))}
-            </select>
-            <div className="tabs3" role="radiogroup" aria-label="Resolution" style={{ flex: "none", gridTemplateColumns: "repeat(3, minmax(48px, 1fr))" }}>
-              {(["1K", "2K", "4K"] as KieResolution[]).map((r) => {
-                const ok = findKieModel(modelId).resolutions.includes(r);
-                return (
-                  <button key={r} type="button" role="radio" aria-checked={s.kieResolution === r} disabled={!ok} data-why={`${findKieModel(modelId).label} does not make ${r}. Pick another model for ${r}.`} onClick={() => void updateSettings({ kieResolution: r })}>{r}</button>
-                );
-              })}
-            </div>
-          </section>
+          <ModelCards
+            modelId={modelId}
+            resolution={s.kieResolution}
+            onModel={(m) => void updateSettings({ ...(editTool ? { editModel: m.id } : { kieModel: m.id }), kieResolution: resolutionFor(m, s.kieResolution) })}
+            onResolution={(r) => void updateSettings({ kieResolution: r })}
+          />
         ) : null}
         <div className="grid2">
           <div className="tile">

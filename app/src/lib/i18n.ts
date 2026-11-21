@@ -555,6 +555,7 @@ export const KM: Record<string, string> = {
   "The result's shape doesn't match your picture, so it was not saved. Nothing of yours changed.": "រូបរាងនៃលទ្ធផលមិនដូចរូបរបស់អ្នកទេ ដូច្នេះមិនបានរក្សាទុក។ គ្មានអ្វីរបស់អ្នកផ្លាស់ប្ដូរទេ។",
   "Model": "ម៉ូដែល",
   "Resolution": "ភាពច្បាស់",
+  "All models": "ម៉ូដែលទាំងអស់",
   "Run stopped": "បានបញ្ឈប់",
   Result: "លទ្ធផល",
   "Prompt text in": "អត្ថបទ Prompt ចូល",
