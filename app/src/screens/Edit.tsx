@@ -198,7 +198,7 @@ function EditWork() {
         {phone && v && (mode === "compare" || mode === "relight") ? (
           <div className="img-acts">
             <button type="button" className="chip-img" aria-label="Copy image" title="Copy image" onClick={() => void copyImage(v.image)}><Icon name="clipboard" size={16} /></button>
-            <button type="button" className="chip-img" aria-label="Try again" title="Try again" disabled={!cap || Boolean(busy)} onClick={() => void openReview()}><Icon name="refresh" size={16} /></button>
+            <button type="button" className="chip-img" aria-label="Try again" title="Try again" disabled={!cap || Boolean(busy)} data-why={busy ? "A render is running. Wait for it to finish." : "Try again needs a view on the Render tab."} onClick={() => void openReview()}><Icon name="refresh" size={16} /></button>
             {mode !== "compare" ? <button type="button" className="chip-img" aria-label="Download" title="Download" onClick={() => void download(v.image, `v${active + 1}`)}><Icon name="download" size={16} /></button> : null}
           </div>
         ) : null}
@@ -214,6 +214,7 @@ function EditWork() {
                 aria-label={label}
                 title={label}
                 disabled={!v && id !== "view" && id !== "style"}
+                data-why="Make a render first. This tool works on a finished picture."
                 onClick={() => (id === "view" ? setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion })) : setState({ editMode: id as EditMode }))}
               >
                 <Icon name={icon} size={22} />
@@ -234,6 +235,7 @@ function EditWork() {
                   aria-label={label}
                   title={id === "again" && !cap ? "Try again needs the view on the Render tab" : id === "copy" ? "Copy image, then paste into chat or slides" : label}
                   disabled={disabled}
+                  data-why={id === "again" && busy ? "A render is running. Wait for it to finish." : id === "again" ? "Try again needs a view on the Render tab." : "Make a render first. This tool works on a finished picture."}
                   onClick={() => {
                     if (id === "download") return void (v && download(v.image, `v${active + 1}`));
                     if (id === "copy") return void (v && copyImage(v.image));
@@ -863,7 +865,7 @@ function SpotEditPanel() {
         <input id="gen" className="input" aria-label="Your own global edit" value={general} onChange={(e) => setGeneral(e.target.value)} placeholder="Your own, e.g. make the sky clearer" />
       </section>
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" className="btn" style={{ flex: 1 }} aria-label="Undo, Ctrl Z" title="Undo · Ctrl Z" disabled={!p.canUndo()} onClick={() => { p.undo(); refresh(); }}>
+        <button type="button" className="btn" style={{ flex: 1 }} aria-label="Undo, Ctrl Z" title="Undo · Ctrl Z" disabled={!p.canUndo()} data-why="Nothing to undo yet." onClick={() => { p.undo(); refresh(); }}>
           <Icon name="undo" /> <span className="lbl-xs">Undo</span>
         </button>
         <button type="button" className="btn" style={{ flex: 1 }} aria-label="Clear all selections" title="Clear all" onClick={() => { p.clearAll(); refresh(); }}>
@@ -1006,7 +1008,7 @@ function NewViewPanel() {
       </div>
       <Foot>
         <ModelPicker edit />
-        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!look || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!look || (source === "shot" && !shots.length)} data-why={!look ? "Pick a camera angle first." : "Add a view first."} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
           <Icon name="camera" size={18} />
           {promptOnly ? "Get prompt · free" : source === "shot" ? (n > 1 ? `Render ${n} views · ${total}` : `Render this view · ${total}`) : `Render new camera · ${one.label}`}
         </button>}
@@ -1101,7 +1103,7 @@ function StyleCopyPanel() {
       </div>
       <Foot>
         <ModelPicker edit />
-        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!ref || !base} onClick={() => void openReview("style")}>
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!ref || !base} data-why={!base ? "Add the picture to restyle first." : "Add a style reference first."} onClick={() => void openReview("style")}>
           <Icon name="layers" size={18} />
           {promptOnly ? "Get prompt · free" : `Copy the style · ${cost.label}`}
         </button>}

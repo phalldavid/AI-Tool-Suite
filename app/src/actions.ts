@@ -36,7 +36,7 @@ import { getPrefs } from "./prefs";
 import { holdUntilPresent, isPresent, revealResult } from "./ui/loader/bus";
 import { boardAspect, buildBoardPrompt, findBoardPreset, type BoardPin } from "./core/boards";
 import { composeSheet } from "./lib/board-sheet";
-import { feel } from "./lib/feel";
+import { feel, feelPressed } from "./lib/feel";
 
 export const DEFAULT_LOOK = "ext-mansion-tropical";
 
@@ -174,7 +174,7 @@ export async function useEditFileAs(file: File, name: string | undefined, target
 /** Paste the clipboard picture into one slot. */
 export async function pasteInto(target: "base" | "ref" | "shot"): Promise<void> {
   try {
-    for (const item of await navigator.clipboard.read()) {
+    for (const item of await feelPressed(navigator.clipboard.read())) {
       const type = item.types.find((t) => t.startsWith("image/"));
       if (type) return useEditFileAs(new File([await item.getType(type)], "Pasted image", { type }), "Pasted image", target);
     }
@@ -224,7 +224,7 @@ export async function useEditFile(file: File, name?: string, replace = false): P
 
 export async function pasteFromClipboard(): Promise<void> {
   try {
-    const items = await navigator.clipboard.read();
+    const items = await feelPressed(navigator.clipboard.read());
     for (const it of items) {
       const type = it.types.find((t) => t.startsWith("image/"));
       if (type) {
@@ -843,7 +843,7 @@ export async function deleteHistoryItem(id: string): Promise<void> {
 }
 
 export async function download(img: ImageData64, name: string): Promise<void> {
-  await getState().host.save(img, fileName(name));
+  await feelPressed(getState().host.save(img, fileName(name)));
 }
 
 /** "Takhmao-v3-2026-11-13": project, what it is, today's date. */
@@ -858,7 +858,7 @@ export function fileName(what: string): string {
 /** Copies a picture to the clipboard as PNG, ready to paste into chat or slides, with a toast. */
 export async function copyImageToClipboard(img: ImageData64): Promise<void> {
   try {
-    await copyImage(img);
+    await feelPressed(copyImage(img));
     toast("Image copied. Paste it anywhere with Ctrl V.", "ok");
   } catch {
     toast("Couldn't copy the image here. Use Download instead.", "error");
