@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ADJUST_GROUPS, NEUTRAL, applyAdjust, boxBlur, isNeutral } from "../src/core/adjust";
+import { ADJUST_GROUPS, BANDS, NEUTRAL, applyAdjust, boxBlur, curveLut, isNeutral, mixControl } from "../src/core/adjust";
 import type { Adjust, Pixels } from "../src/core/adjust";
 
 function solid(w: number, h: number, r: number, g: number, b: number): Pixels {
@@ -117,6 +117,62 @@ test("boxBlur keeps a flat field flat and the mean the same", () => {
 test("every slider is listed once and has a sensible range", () => {
   const keys = ADJUST_GROUPS.flatMap((g) => g.items.map((i) => i.key));
   assert.equal(new Set(keys).size, keys.length);
-  assert.deepEqual([...keys].sort(), (Object.keys(NEUTRAL) as string[]).sort());
+  const mix = BANDS.flatMap((b) => (["h", "s", "l"] as const).map((k) => mixControl(k, b.id).key));
+  assert.deepEqual([...keys, ...mix, "curve"].sort(), (Object.keys(NEUTRAL) as string[]).sort());
   for (const g of ADJUST_GROUPS) for (const i of g.items) assert.ok(i.min < i.max && i.min <= 0 && i.max > 0);
+});
+
+test("colour mix moves only its own colour band", () => {
+  const red = at(run(solid(2, 2, 200, 40, 40), { s_red: -100 }), 0, 0);
+  assert.ok(Math.max(...red) - Math.min(...red) < 40, "red loses its colour");
+  const blue = at(run(solid(2, 2, 40, 40, 200), { s_red: -100 }), 0, 0);
+  assert.deepEqual(blue, [40, 40, 200], "blue is untouched by the red band");
+  const grey = at(run(solid(2, 2, 120, 120, 120), { h_red: 100, s_red: 100, l_red: 100 }), 0, 0);
+  assert.deepEqual(grey, [120, 120, 120], "greys are left alone");
+});
+
+test("colour mix hue turns a red toward orange and luminance brightens it", () => {
+  const o = at(run(solid(2, 2, 200, 40, 40), { h_red: 100 }), 0, 0);
+  assert.ok(o[1] > 40 + 20, "more green means it moved toward orange");
+  const l = at(run(solid(2, 2, 200, 40, 40), { l_red: 100 }), 0, 0);
+  assert.ok(l[0] + l[1] + l[2] > 280);
+});
+
+test("curve: a straight line changes nothing, a lifted middle brightens midtones only", () => {
+  const id = curveLut([[0, 0], [1, 1]]);
+  for (let i = 0; i < 256; i++) assert.equal(id[i], i);
+  const lift = curveLut([[0, 0], [0.5, 0.7], [1, 1]]);
+  assert.ok(lift[128] > 160 && lift[0] === 0 && lift[255] === 255);
+  const px = run(solid(2, 2, 128, 128, 128), { curve: [[0, 0], [0.5, 0.7], [1, 1]] });
+  assert.ok(at(px, 0, 0)[0] > 160);
+});
+
+test("curve never overshoots (stays between 0 and 255 and keeps order)", () => {
+  const lut = curveLut([[0, 0.2], [0.3, 0.1], [0.6, 0.9], [1, 0.8]]);
+  for (let i = 0; i < 256; i++) assert.ok(lut[i] >= 0 && lut[i] <= 255);
+  const mono = curveLut([[0, 0], [0.25, 0.1], [0.75, 0.95], [1, 1]]);
+  for (let i = 1; i < 256; i++) assert.ok(mono[i] >= mono[i - 1]);
+});
+
+test("geometry: a plain picture stays plain (no empty corners) at any setting", () => {
+  for (const o of [{ straighten: 15 }, { straighten: -8 }, { vertical: 100 }, { horizontal: -100 }, { straighten: 5, vertical: 60, horizontal: 30 }]) {
+    const px = run(solid(60, 40, 200, 200, 200), o);
+    for (let i = 0; i < 60 * 40; i++) assert.ok(px.data[i * 4] >= 199 && px.data[i * 4 + 3] === 255, JSON.stringify(o));
+  }
+});
+
+test("geometry: straighten turns a vertical edge, top and bottom move opposite ways", () => {
+  const px = solid(80, 60, 0, 0, 0);
+  for (let y = 0; y < 60; y++) for (let x = 40; x < 80; x++) px.data.set([255, 255, 255, 255], (y * 80 + x) * 4);
+  run(px, { straighten: 8 });
+  const edgeAt = (y: number) => { for (let x = 0; x < 80; x++) if (at(px, x, y)[0] > 127) return x; return 80; };
+  assert.ok(edgeAt(5) !== edgeAt(55) && Math.abs(edgeAt(5) - edgeAt(55)) > 4);
+});
+
+test("geometry: vertical perspective makes the top wider than the bottom", () => {
+  const px = solid(80, 60, 0, 0, 0);
+  for (let y = 0; y < 60; y++) for (let x = 25; x < 55; x++) px.data.set([255, 255, 255, 255], (y * 80 + x) * 4);
+  run(px, { vertical: 100 });
+  const width = (y: number) => { let c = 0; for (let x = 0; x < 80; x++) if (at(px, x, y)[0] > 127) c++; return c; };
+  assert.ok(width(3) > width(56) + 6);
 });

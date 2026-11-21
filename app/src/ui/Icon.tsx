@@ -62,6 +62,11 @@ const P: Record<string, string> = {
   noise: "M3 12h2l2-5 3 10 3-14 3 12 2-3h3",
   vignette: "M3 5h18v14H3zM12 16a5 5 0 1 0 0-8 5 5 0 0 0 0 8z",
   grain: "M6 6h.01M12 5h.01M18 7h.01M5 12h.01M10 11h.01M16 12h.01M7 18h.01M13 17h.01M19 18h.01",
+  ruler: "M3 17L17 3l4 4L7 21zM8 13l2 2M11 10l2 2M14 7l2 2",
+  keystone: "M7 4h10l4 16H3z",
+  skew: "M4 7l16-3v16L4 17z",
+  mix: "M9 14a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM15 20a5 5 0 1 0 0-10 5 5 0 0 0 0 10z",
+  curve: "M3 21C10 21 10 3 21 3M3 21h18M3 21V3",
   cube: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
 };
 

@@ -184,7 +184,8 @@ export async function resizeTo(img: ImageData64, width: number, height: number):
 
 /** Pads a picture to an exact aspect ratio ("16:9"). The border is a blurred copy of the picture, so the model sees no hard edge. */
 export async function padToRatio(img: ImageData64, ratio: string): Promise<{ image: ImageData64; plan: PadPlan }> {
-  const plan = padPlan(img.width, img.height, ratio);
+  const size = await imageSize(img);
+  const plan = padPlan(size.width, size.height, ratio);
   if (plan.none) return { image: img, plan };
   const el = await loadImage(img);
   const [c, ctx] = makeCanvas(plan.width, plan.height);

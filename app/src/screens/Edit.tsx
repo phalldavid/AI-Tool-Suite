@@ -8,7 +8,9 @@ import type { ImageData64 } from "../core/types";
 import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, runUpscale, useEditFile } from "../actions";
 import type { UpscaleStrength } from "../core/upscale";
 import { pixelsOf, toDataUrl } from "../core/images";
-import { ADJUST_GROUPS, NEUTRAL, applyAdjust, isNeutral } from "../core/adjust";
+import { ADJUST_GROUPS, BANDS, IDENTITY_CURVE, NEUTRAL, applyAdjust, isIdentityCurve, isNeutral, mixControl } from "../core/adjust";
+import type { AdjustControl, MixKey, NumKey } from "../core/adjust";
+import { CurveEditor } from "../ui/CurveEditor";
 import { feel } from "../lib/feel";
 import { AdjustDial } from "../ui/AdjustDial";
 import { getAdjust, resetAdjust, setAdjust, useAdjust } from "../lib/adjustStore";
@@ -955,13 +957,17 @@ function AdjustStage({ v }: { v: Version }) {
   );
 }
 
-const ADJUST_ICON: Record<keyof typeof NEUTRAL, string> = {
+const ADJUST_ICON: Record<string, string> = {
   exposure: "exposure", contrast: "contrast", highlights: "highlights", shadows: "shadows", whites: "whites", blacks: "blacks",
   temperature: "thermo", tint: "drop", vibrance: "burst", saturation: "palette",
   clarity: "tri", texture: "waves", dehaze: "cloud", sharpen: "diamond", noise: "noise", vignette: "vignette", grain: "grain",
+  straighten: "ruler", vertical: "keystone", horizontal: "skew", mix: "mix", curve: "curve",
 };
 
 const ADJUST_ITEMS = ADJUST_GROUPS.flatMap((g) => g.items);
+
+type AdjustSel = NumKey | "mix" | "curve";
+const MIX_KINDS: ["h" | "s" | "l", string][] = [["h", "Hue"], ["s", "Saturation"], ["l", "Luminance"]];
 
 function AdjustPanel() {
   const v = useApp((s) => s.versions[s.activeVersion]);
@@ -970,9 +976,22 @@ function AdjustPanel() {
   const [busy, setBusy] = useState(false);
   useEffect(() => { resetAdjust(); }, [activeIdx]);
   const none = isNeutral(a);
-  const [sel, setSel] = useState<keyof typeof NEUTRAL>("exposure");
-  const cur = ADJUST_ITEMS.find((c) => c.key === sel) ?? ADJUST_ITEMS[0];
-  const show = (k: keyof typeof NEUTRAL, n: number) => (k === "exposure" ? `${n > 0 ? "+" : ""}${n.toFixed(2)}` : `${n > 0 && ADJUST_ITEMS.find((c) => c.key === k)!.min < 0 ? "+" : ""}${Math.round(n)}`);
+  const [sel, setSel] = useState<AdjustSel>("exposure");
+  const [mixKind, setMixKind] = useState<"h" | "s" | "l">("s");
+  const [band, setBand] = useState<(typeof BANDS)[number]["id"]>("red");
+  const ctl: AdjustControl | null = sel === "curve" ? null : sel === "mix" ? mixControl(mixKind, band) : ADJUST_ITEMS.find((c) => c.key === sel) ?? ADJUST_ITEMS[0];
+  const show = (k: NumKey, n: number) => (k === "exposure" ? `${n > 0 ? "+" : ""}${n.toFixed(2)}` : k === "straighten" ? `${n > 0 ? "+" : ""}${n.toFixed(1)}°` : `${n > 0 && n !== 0 ? "+" : ""}${Math.round(n)}`);
+  const mixChanged = (id: string) => (["h", "s", "l"] as const).some((k) => a[`${k}_${id}` as MixKey] !== 0);
+  const anyMix = BANDS.some((b) => mixChanged(b.id));
+  const tools: { key: AdjustSel; label: string; changed: boolean }[] = [
+    ...ADJUST_ITEMS.map((c) => ({ key: c.key as AdjustSel, label: c.label, changed: a[c.key] !== NEUTRAL[c.key] })),
+    { key: "mix", label: "Colour mix", changed: anyMix },
+    { key: "curve", label: "Curve", changed: !isIdentityCurve(a.curve) },
+  ];
+  const title = sel === "curve" ? "Curve" : sel === "mix" ? `${BANDS.find((b) => b.id === band)!.label} · ${MIX_KINDS.find((k) => k[0] === mixKind)![1]}` : ctl!.label;
+  const value = ctl ? show(ctl.key, a[ctl.key]) : isIdentityCurve(a.curve) ? "0" : `${a.curve.length} points`;
+  const atZero = ctl ? a[ctl.key] === NEUTRAL[ctl.key] : isIdentityCurve(a.curve);
+  const reset = () => (ctl ? setAdjust({ [ctl.key]: NEUTRAL[ctl.key] }) : setAdjust({ curve: IDENTITY_CURVE }));
   return (
     <>
       <div>
@@ -981,32 +1000,52 @@ function AdjustPanel() {
       </div>
       <section className="adj-pick" aria-label="Adjustments">
         <div className="adj-strip" role="tablist" aria-label="Adjustment tools">
-          {ADJUST_ITEMS.map((c) => {
-            const changed = a[c.key] !== NEUTRAL[c.key];
-            return (
-              <button
-                key={c.key}
-                type="button"
-                role="tab"
-                aria-selected={sel === c.key}
-                aria-label={c.label}
-                title={c.label}
-                className={`adj-tool${changed ? " changed" : ""}`}
-                ref={(el) => { if (el && sel === c.key) el.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); }}
-                onClick={() => setSel(c.key)}
-              >
-                <Icon name={ADJUST_ICON[c.key]} size={22} />
-              </button>
-            );
-          })}
+          {tools.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={sel === t.key}
+              aria-label={t.label}
+              title={t.label}
+              className={`adj-tool${t.changed ? " changed" : ""}`}
+              ref={(el) => { if (el && sel === t.key) el.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); }}
+              onClick={() => setSel(t.key)}
+            >
+              <Icon name={ADJUST_ICON[t.key]} size={22} />
+            </button>
+          ))}
         </div>
+        {sel === "mix" ? (
+          <>
+            <div className="adj-bands" role="radiogroup" aria-label="Colour">
+              {BANDS.map((b) => (
+                <button key={b.id} type="button" role="radio" aria-checked={band === b.id} aria-label={b.label} title={b.label} className={mixChanged(b.id) ? "changed" : undefined} style={{ ["--c" as string]: b.css }} onClick={() => setBand(b.id)} />
+              ))}
+            </div>
+            <div className="tabs3" role="radiogroup" aria-label="Hue, saturation or luminance" style={{ margin: "2px auto 0", maxWidth: 320 }}>
+              {MIX_KINDS.map(([k, name]) => (
+                <button key={k} type="button" role="radio" aria-checked={mixKind === k} onClick={() => setMixKind(k)}>{name}</button>
+              ))}
+            </div>
+          </>
+        ) : null}
         <div className="adj-read">
-          <span>{cur.label}</span>
-          <b className="num">{show(cur.key, a[cur.key])}</b>
-          <button type="button" className="adj-x" disabled={a[cur.key] === NEUTRAL[cur.key]} data-why="This one is already at zero." onClick={() => setAdjust({ [cur.key]: NEUTRAL[cur.key] })}>Reset</button>
+          <span>{title}</span>
+          <b className="num">{value}</b>
+          <button type="button" className="adj-x" disabled={atZero} data-why="This one is already at zero." onClick={reset}>Reset</button>
         </div>
-        <AdjustDial label={cur.label} min={cur.min} max={cur.max} step={cur.step} value={a[cur.key]} text={show(cur.key, a[cur.key])} onChange={(n) => setAdjust({ [cur.key]: n })} />
-        <p className="adj-hint">Drag, scroll or use arrow keys. Double-click to reset.</p>
+        {ctl ? (
+          <>
+            <AdjustDial label={title} min={ctl.min} max={ctl.max} step={ctl.step} value={a[ctl.key]} text={value} onChange={(n) => setAdjust({ [ctl.key]: n })} />
+            <p className="adj-hint">Drag, scroll or use arrow keys. Double-click to reset.</p>
+          </>
+        ) : (
+          <>
+            <CurveEditor curve={a.curve} onChange={(c) => setAdjust({ curve: c })} />
+            <p className="adj-hint">Drag a point. Click the line to add one. Double-click a point to remove it.</p>
+          </>
+        )}
       </section>
       <Foot inline>
         <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset all</button>

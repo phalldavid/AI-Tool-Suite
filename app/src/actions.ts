@@ -1,6 +1,6 @@
 // Everything that changes state or talks to a backend. Screens call these.
 
-import { NEUTRAL, isNeutral } from "./core/adjust";
+import { NEUTRAL, isIdentityCurve, isNeutral } from "./core/adjust";
 import type { Adjust } from "./core/adjust";
 import { getState, setState } from "./store";
 import type { AppState, NotesSlot, Version, VersionMeta } from "./store";
@@ -860,7 +860,8 @@ export async function runUpscale(strength: UpscaleStrength): Promise<void> {
   const out = await runProvider(prompt, [padded], ratio, kieEdit(), "Upscaling");
   if (!out.length) return;
   const result = await cropPadded(out[0], plan);
-  if (!sameShape(result.width, result.height, size.width, size.height)) {
+  const rsize = await imageSize(result);
+  if (!sameShape(rsize.width, rsize.height, size.width, size.height)) {
     toast("The result's shape doesn't match your picture, so it was not saved. Nothing of yours changed.", "error");
     return;
   }
@@ -868,7 +869,7 @@ export async function runUpscale(strength: UpscaleStrength): Promise<void> {
   const sent = sentPrompt(s, prompt, true, kieEdit());
   const id = await record("upscale", sent, src, result, { name: label, model: kieEdit() });
   setState((x) => ({ versions: [...x.versions, { image: result, label, prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
-  toast(`Done. ${size.width}×${size.height} → ${result.width}×${result.height}, same shape as your picture.`, "ok");
+  toast(`Done. ${size.width}×${size.height} → ${rsize.width}×${rsize.height}, same shape as your picture.`, "ok");
 }
 
 /** Bakes the Adjust sliders into a new version. Free, runs on this device, the original version stays. */
@@ -880,7 +881,10 @@ export async function applyAdjustments(a: Adjust): Promise<void> {
     return adjustFull(src, a);
   })());
   const label = "Adjusted";
-  const changed = (Object.keys(a) as (keyof Adjust)[]).filter((k) => a[k] !== NEUTRAL[k]).map((k) => `${k} ${a[k] > 0 ? "+" : ""}${a[k]}`).join(", ");
+  const changed = [
+    ...(Object.keys(a) as (keyof Adjust)[]).filter((k) => k !== "curve" && a[k] !== NEUTRAL[k]).map((k) => `${k} ${(a[k] as number) > 0 ? "+" : ""}${a[k]}`),
+    ...(isIdentityCurve(a.curve) ? [] : ["tone curve"]),
+  ].join(", ");
   const note = `Adjusted on this device: ${changed}`;
   const id = await record("adjust", note, src, out, { name: label });
   setState((x) => ({ versions: [...x.versions, { image: out, label, prompt: note, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
