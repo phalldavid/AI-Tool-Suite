@@ -9,6 +9,7 @@ import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightS
 import type { UpscaleStrength } from "../core/upscale";
 import { pixelsOf, toDataUrl } from "../core/images";
 import { ADJUST_GROUPS, NEUTRAL, applyAdjust, isNeutral } from "../core/adjust";
+import { feel } from "../lib/feel";
 import { getAdjust, resetAdjust, setAdjust, useAdjust } from "../lib/adjustStore";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
@@ -953,6 +954,12 @@ function AdjustStage({ v }: { v: Version }) {
   );
 }
 
+const ADJUST_ICON: Record<keyof typeof NEUTRAL, string> = {
+  exposure: "exposure", contrast: "contrast", highlights: "highlights", shadows: "shadows", whites: "whites", blacks: "blacks",
+  temperature: "thermo", tint: "drop", vibrance: "burst", saturation: "palette",
+  clarity: "tri", texture: "waves", dehaze: "cloud", sharpen: "diamond", noise: "noise", vignette: "vignette", grain: "grain",
+};
+
 function AdjustPanel() {
   const v = useApp((s) => s.versions[s.activeVersion]);
   const activeIdx = useApp((s) => s.activeVersion);
@@ -967,16 +974,38 @@ function AdjustPanel() {
         <p className="sub">Fix exposure, colour and detail, like Camera Raw. Free, runs on this device, nothing is sent. Saved as a new version; the original stays.</p>
       </div>
       {ADJUST_GROUPS.map((g) => (
-        <section key={g.id} className="step cq adj-group">
-          <h3 className="label">{g.title}</h3>
+        <section key={g.id} className="adj-card" aria-label={g.title}>
+          <h3 className="adj-title">{g.title}</h3>
           {g.items.map((c) => {
             const val = a[c.key];
+            const span = c.max - c.min;
+            const pct = ((val - c.min) / span) * 100;
+            const zero = ((0 - c.min) / span) * 100;
+            const lo = Math.min(pct, zero), hi = Math.max(pct, zero);
+            const changed = val !== NEUTRAL[c.key];
             const shown = c.key === "exposure" ? `${val > 0 ? "+" : ""}${val.toFixed(2)}` : `${val > 0 && c.min < 0 ? "+" : ""}${val}`;
+            const set = (n: number) => {
+              if ((val < 0 && n >= 0) || (val > 0 && n <= 0)) feel("tap");
+              setAdjust({ [c.key]: n });
+            };
             return (
-              <div key={c.key} className="adj-row">
+              <div key={c.key} className="adj-row" data-changed={changed ? "1" : undefined}>
+                <span className="adj-ico" aria-hidden="true"><Icon name={ADJUST_ICON[c.key]} size={16} /></span>
                 <label htmlFor={`adj-${c.key}`} title="Double-click to reset this slider" onDoubleClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })}>{c.label}</label>
-                <span className="num adj-val" data-changed={val !== NEUTRAL[c.key] ? "1" : undefined}>{shown}</span>
-                <input id={`adj-${c.key}`} type="range" min={c.min} max={c.max} step={c.step} value={val} onChange={(e) => setAdjust({ [c.key]: Number(e.target.value) })} onDoubleClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })} />
+                <button type="button" className="num adj-val" tabIndex={-1} aria-label={`Reset ${c.label}`} disabled={!changed} onClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })}>{shown}</button>
+                <input
+                  id={`adj-${c.key}`}
+                  className="adj-range"
+                  data-track={c.key === "temperature" ? "temp" : c.key === "tint" ? "tint" : undefined}
+                  type="range"
+                  min={c.min}
+                  max={c.max}
+                  step={c.step}
+                  value={val}
+                  style={{ ["--lo" as string]: `${lo}%`, ["--hi" as string]: `${hi}%` }}
+                  onChange={(e) => set(Number(e.target.value))}
+                  onDoubleClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })}
+                />
               </div>
             );
           })}
