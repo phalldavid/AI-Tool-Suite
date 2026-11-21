@@ -131,7 +131,7 @@ test("GPT Image 2.6 is estimated from token billing (medium + prompt + reference
   // real Sunburst bill, 2026-11-22: 754 prompt tokens, 1 reference image, 924 output tokens = 7.54
   assert.equal(creditsFor(findKieModel("gpt-image-2-6/sunburst-image-to-image"), "1K", { refs: 1, chars: 3016 }), 7.54);
   assert.deepEqual(creditRange(m, "4K", { refs: 1, chars: 3016 }), [10.96, 20.56]);
-  assert.match(priceText(m, "2K", { refs: 1, chars: 3016 }), /^est\. ~\$0.046$/);
+  assert.match(priceText(m, "2K", { refs: 1, chars: 3016 }), /^est\. ~\$0.045$/);
   const pub = findKieModel("nano-banana-pro");
   assert.equal(isEstimate(pub, "2K"), false);
   assert.equal(creditRange(pub, "2K"), null);
