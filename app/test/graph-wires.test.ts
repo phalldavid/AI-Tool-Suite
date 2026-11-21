@@ -41,6 +41,13 @@ test("a single input takes one wire, the images input takes many, outputs fan ou
   const second = canConnect(g, { node: "l1", port: "look" }, { node: "p", port: "look" });
   assert.equal(second.ok, false);
   assert.match((second as { reason: string }).reason, /already has a wire/);
+  // dragging a new wire onto it swaps the old wire out (Blender and 3ds Max do the same)
+  const swapped = connect(g, { node: "l1", port: "look" }, { node: "p", port: "look" }, "w9", true);
+  assert.ok("graph" in swapped);
+  const into = (swapped as { graph: typeof g }).graph.wires.filter((w) => w.to.node === "p" && w.to.port === "look");
+  assert.equal(into.length, 1);
+  assert.equal(into[0].from.node, "l1");
+  assert.equal((swapped as { graph: typeof g }).graph.wires.length, g.wires.length, "one out, one in");
   assert.equal(canConnect(g, { node: "a", port: "image" }, { node: "p", port: "images" }).ok, false, "same wire twice");
   // one look fans out to two nodes
   g = ok(g, "look", "look", "l1", "look", "w4");
@@ -75,4 +82,21 @@ test("connect never changes the graph it was given", () => {
   const g = base();
   connect(g, { node: "a", port: "image" }, { node: "p", port: "images" }, "w1");
   assert.equal(g.wires.length, 0);
+});
+
+test("a loose node dropped on a wire is spliced into it", async () => {
+  const { insertOnWire } = await import("../src/core/graph");
+  const g = ok(base(), "look", "look", "p", "look", "w1");
+  const r = insertOnWire(g, "l1", "w1");
+  assert.ok("graph" in r);
+  const pairs = r.graph.wires.map((w) => `${w.from.node}>${w.to.node}`).sort();
+  assert.deepEqual(pairs, ["l1>p", "look>l1"]);
+});
+
+test("a node that does not fit, or already has wires, is refused and nothing changes", async () => {
+  const { insertOnWire } = await import("../src/core/graph");
+  const g = ok(base(), "look", "look", "p", "look", "w1");
+  assert.ok("reason" in insertOnWire(g, "note", "w1")); // a note has no ports
+  assert.ok("reason" in insertOnWire(g, "look", "w1")); // already wired
+  assert.equal(g.wires.length, 1);
 });

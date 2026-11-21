@@ -1,6 +1,7 @@
 // Native <dialog>: focus trap, Esc, inert background, focus returns to the opener.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { reducedMotion } from "../prefs";
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
 
@@ -16,16 +17,29 @@ export function Sheet({ open, onClose, title, children, foot, small, className, 
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<Element | null>(null);
+  // Closing plays the same motion as opening, in reverse, before the dialog is really closed.
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) {
-      opener.current = document.activeElement;
-      d.showModal();
-    } else if (!open && d.open) {
-      d.close();
-      (opener.current as HTMLElement | null)?.focus?.();
+    if (open) {
+      setLeaving(false);
+      if (!d.open) {
+        opener.current = document.activeElement;
+        d.showModal();
+      }
+      return;
     }
+    if (!d.open) return;
+    const finish = () => {
+      setLeaving(false);
+      if (d.open) d.close();
+      (opener.current as HTMLElement | null)?.focus?.();
+    };
+    if (reducedMotion()) return finish();
+    setLeaving(true);
+    const t = window.setTimeout(finish, 220);
+    return () => window.clearTimeout(t);
   }, [open]);
   // Phones: drag the handle or the title bar down to close.
   const drag = useRef<{ y: number; dy: number } | null>(null);
@@ -56,6 +70,7 @@ export function Sheet({ open, onClose, title, children, foot, small, className, 
       ref={ref}
       className={`sheet${small ? " small" : ""}${className ? ` ${className}` : ""}`}
       aria-labelledby={labelledBy}
+      data-leaving={leaving ? "" : undefined}
       onCancel={(e) => {
         e.preventDefault();
         onClose();
@@ -64,7 +79,7 @@ export function Sheet({ open, onClose, title, children, foot, small, className, 
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {open ? (
+      {open || leaving ? (
         <>
           <div className="sheet-grab" aria-hidden="true" {...grab}><span /></div>
           {title ? (

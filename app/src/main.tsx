@@ -7,11 +7,12 @@ import { startTranslating } from "./lib/i18n";
 import { initSlidingPills } from "./ui/slide";
 import { initGuard } from "./ui/guard";
 import { installFeel } from "./lib/feel";
+import { toast } from "./toasts";
 
 applyPrefs();
 watchPrefs();
 initGuard();
-installFeel();
+installFeel((why) => toast(why, "warn"));
 // Closing or reloading mid-render would lose the result (Kie keeps the job, but this page wouldn't get it).
 window.addEventListener("beforeunload", (e) => {
   try {

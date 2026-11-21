@@ -15,7 +15,7 @@ const CARRIES: Record<WireType, string> = {
 export type WireCheck = { ok: true } | { ok: false; reason: string };
 
 /** Can `from` (an output port) be wired to `to` (an input port)? */
-export function canConnect(graph: Pick<Graph, "nodes" | "wires">, from: PortRef, to: PortRef): WireCheck {
+export function canConnect(graph: Pick<Graph, "nodes" | "wires">, from: PortRef, to: PortRef, replace = false): WireCheck {
   const a = graph.nodes.find((n) => n.id === from.node);
   const b = graph.nodes.find((n) => n.id === to.node);
   if (!a || !b) return { ok: false, reason: "One of these nodes no longer exists." };
@@ -34,7 +34,7 @@ export function canConnect(graph: Pick<Graph, "nodes" | "wires">, from: PortRef,
   if (into.some((w) => w.from.node === from.node && w.from.port === from.port)) {
     return { ok: false, reason: "These two are already wired." };
   }
-  if (!inp.multi && into.length) {
+  if (!inp.multi && into.length && !replace) {
     return { ok: false, reason: `"${inp.label}" already has a wire. Remove it first.` };
   }
   if (graph.wires.length >= LIMITS.wires) return { ok: false, reason: `A graph can have at most ${LIMITS.wires} wires.` };
@@ -43,9 +43,12 @@ export function canConnect(graph: Pick<Graph, "nodes" | "wires">, from: PortRef,
 }
 
 /** The graph with the new wire, or the reason it was refused. Never changes `graph`. */
-export function connect(graph: Graph, from: PortRef, to: PortRef, id: string): { graph: Graph } | { reason: string } {
-  const check = canConnect(graph, from, to);
+export function connect(graph: Graph, from: PortRef, to: PortRef, id: string, replace = false): { graph: Graph } | { reason: string } {
+  const check = canConnect(graph, from, to, replace);
   if (!check.ok) return { reason: check.reason };
   const wire: Wire = { id, from: { ...from }, to: { ...to } };
-  return { graph: { ...graph, wires: [...graph.wires, wire] } };
+  // Like Blender and 3ds Max: plugging into a single input that already has a wire swaps the old wire out.
+  const inp = inputPort(graph.nodes.find((n) => n.id === to.node)!.kind, to.port);
+  const keep = replace && inp && !inp.multi ? graph.wires.filter((w) => !(w.to.node === to.node && w.to.port === to.port)) : graph.wires;
+  return { graph: { ...graph, wires: [...keep, wire] } };
 }

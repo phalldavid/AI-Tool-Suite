@@ -55,3 +55,30 @@ export function fitView(nodes: Pick<GraphNode, "id" | "kind" | "x" | "y">[], w: 
   const zoom = Math.min(1.25, Math.max(0.2, Math.min((w - pad * 2) / (maxX - minX), (h - pad * 2) / (maxY - minY))));
   return { zoom, x: (w - (maxX - minX) * zoom) / 2 - minX * zoom, y: pad - minY * zoom };
 }
+
+type Pt = { x: number; y: number };
+
+/** Do segments a-b and c-d cross? */
+export function segmentsCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
+  const o = (p: Pt, q: Pt, r: Pt) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b);
+}
+
+/** Does the cut line a-b cross a wire drawn as the points `pts`? */
+export function lineCutsPolyline(a: Pt, b: Pt, pts: Pt[]): boolean {
+  for (let i = 1; i < pts.length; i++) if (segmentsCross(a, b, pts[i - 1], pts[i])) return true;
+  return false;
+}
+
+/** Shortest distance from `p` to the polyline `pts`. */
+export function distanceToPolyline(p: Pt, pts: Pt[]): number {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0;
+    best = Math.min(best, Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)));
+  }
+  return best;
+}

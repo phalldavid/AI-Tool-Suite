@@ -336,7 +336,7 @@ function RenderSide() {
         {busy ? (
           <StopButton />
         ) : (
-          <button type="button" className="cta sheen" disabled={!cap && !promptOnly} onClick={() => void openReview()}>
+          <button type="button" className="cta sheen" disabled={!cap && !promptOnly} data-why="Add an image first, then render." onClick={() => void openReview()}>
             <Icon name={promptOnly ? "clipboard" : "aperture"} size={18} className={promptOnly ? undefined : "spin-slow"} />
             {promptOnly ? "Get prompt · free" : `Render · ${cost.label}`}
             <span className="kbd">R</span>
@@ -648,7 +648,7 @@ export function AdditionalNotes({ slot, n = 5 }: { slot?: NotesSlot; n?: number 
           <textarea className="input" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Sentence for the prompt, e.g. Turn the red solid colors into red clay brick." aria-label="Prompt sentence" />
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button type="button" className="btn ghost" onClick={() => setAdding(false)}>Cancel</button>
-            <button type="button" className="btn primary" disabled={!text.trim()} onClick={add}>Save button</button>
+            <button type="button" className="btn primary" disabled={!text.trim()} data-why="Type the button text first." onClick={add}>Save button</button>
           </div>
         </div>
       ) : null}

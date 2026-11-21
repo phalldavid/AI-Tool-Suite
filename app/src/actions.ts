@@ -1,5 +1,7 @@
 // Everything that changes state or talks to a backend. Screens call these.
 
+import { NEUTRAL, isIdentityCurve, isNeutral } from "./core/adjust";
+import type { Adjust } from "./core/adjust";
 import { getState, setState } from "./store";
 import type { AppState, NotesSlot, Version, VersionMeta } from "./store";
 import { toast } from "./toasts";
@@ -8,7 +10,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SIT
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
-import { compositeMasked, fileToImage, imageSize, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
+import { adjustFull, compositeMasked, cropPadded, fileToImage, imageSize, padToRatio, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
 import { cropToRatio, findFrame } from "./core/frame";
 import { addHistory, listHistory, removeHistory, starHistory } from "./core/history";
 import { findLibraryItem } from "./core/library";
@@ -25,6 +27,8 @@ import { cameraPromptLine } from "./lib/camera";
 import { composeRenderPrompt, composeSlorCheam } from "./core/render-prompt";
 import { modelDnaTags, type ModelMaterial } from "./core/model-dna";
 import { VIEW_SUN, relightPrompt } from "./core/edit-prompts";
+import { sameShape, upscalePrompt } from "./core/upscale";
+import type { UpscaleStrength } from "./core/upscale";
 import { BUILT_IN_NOTES, loadCustomNotes, noteLines } from "./lib/notes";
 import { cameraViewPrompt, partOfDay, shotViewPrompt, sunWords } from "./lib/views";
 import { styleCopyPrompt, withOverride } from "./lib/lighting";
@@ -36,7 +40,7 @@ import { getPrefs } from "./prefs";
 import { holdUntilPresent, isPresent, revealResult } from "./ui/loader/bus";
 import { boardAspect, buildBoardPrompt, findBoardPreset, type BoardPin } from "./core/boards";
 import { composeSheet } from "./lib/board-sheet";
-import { feel } from "./lib/feel";
+import { feel, feelPressed } from "./lib/feel";
 
 export const DEFAULT_LOOK = "ext-mansion-tropical";
 
@@ -174,7 +178,7 @@ export async function useEditFileAs(file: File, name: string | undefined, target
 /** Paste the clipboard picture into one slot. */
 export async function pasteInto(target: "base" | "ref" | "shot"): Promise<void> {
   try {
-    for (const item of await navigator.clipboard.read()) {
+    for (const item of await feelPressed(navigator.clipboard.read())) {
       const type = item.types.find((t) => t.startsWith("image/"));
       if (type) return useEditFileAs(new File([await item.getType(type)], "Pasted image", { type }), "Pasted image", target);
     }
@@ -224,7 +228,7 @@ export async function useEditFile(file: File, name?: string, replace = false): P
 
 export async function pasteFromClipboard(): Promise<void> {
   try {
-    const items = await navigator.clipboard.read();
+    const items = await feelPressed(navigator.clipboard.read());
     for (const it of items) {
       const type = it.types.find((t) => t.startsWith("image/"));
       if (type) {
@@ -668,6 +672,7 @@ export async function record(tool: ToolId, prompt: string, before: ImageData64, 
   const st = getState();
   const s = opt.model ? { ...st.settings, kieModel: opt.model, imageCount: 1 } : { ...st.settings, imageCount: 1 };
   const cost = renderCost(s);
+  const local = tool === "adjust";
   const item: HistoryItem = {
     id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     createdAt: Date.now(),
@@ -677,9 +682,9 @@ export async function record(tool: ToolId, prompt: string, before: ImageData64, 
     prompt,
     before,
     after,
-    provider: s.testMode ? "Test mode" : s.backend === "kie" ? "Kie.ai" : s.backend === "gemini" ? "Gemini API" : s.backend === "comfyui" ? "ComfyUI" : "Browser",
+    provider: local ? "On this device" : s.testMode ? "Test mode" : s.backend === "kie" ? "Kie.ai" : s.backend === "gemini" ? "Gemini API" : s.backend === "comfyui" ? "ComfyUI" : "Browser",
     model: s.backend === "kie" ? s.kieModel : s.backend === "gemini" ? s.geminiModel : s.backend,
-    credits: cost.credits ?? undefined,
+    credits: local ? undefined : cost.credits ?? undefined,
     project: s.project || undefined,
   };
   try {
@@ -832,6 +837,60 @@ export async function runRelight(lightId: string): Promise<void> {
   setState((x) => ({ versions: [...x.versions, { image: out[0], label: "Relight", prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), scene: editLightScene(), light: light.replace(/^./, (ch) => ch.toUpperCase()), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
 }
 
+/**
+ * Upscale: the open picture goes through the same image models with a prompt that locks the design.
+ * It is padded to the nearest ratio the model takes and cropped back afterwards, so the result has
+ * exactly the original's aspect ratio. Saved as a new version; the original stays.
+ */
+export async function runUpscale(strength: UpscaleStrength): Promise<void> {
+  const src = activeImage();
+  if (!src) return;
+  const size = await imageSize(src);
+  const ratio = nearestAspectRatio(size.width, size.height);
+  let prompt = upscalePrompt(strength);
+  const s = getState().settings;
+  if (s.backend === "browser" && !s.testMode) {
+    setState({ handoff: { prompt, images: [src], before: src } });
+    return;
+  }
+  const { image: padded, plan } = await padToRatio(src, ratio);
+  const checked = await reviewFirst(prompt, [padded], ratio);
+  if (checked === null) return;
+  prompt = checked;
+  const out = await runProvider(prompt, [padded], ratio, kieEdit(), "Upscaling");
+  if (!out.length) return;
+  const result = await cropPadded(out[0], plan);
+  const rsize = await imageSize(result);
+  if (!sameShape(rsize.width, rsize.height, size.width, size.height)) {
+    toast("The result's shape doesn't match your picture, so it was not saved. Nothing of yours changed.", "error");
+    return;
+  }
+  const label = strength === "enhance" ? "Upscale · Enhance" : "Upscale";
+  const sent = sentPrompt(s, prompt, true, kieEdit());
+  const id = await record("upscale", sent, src, result, { name: label, model: kieEdit() });
+  setState((x) => ({ versions: [...x.versions, { image: result, label, prompt: sent, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), model: modelLabel(editModelId()), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+  toast(`Done. ${size.width}×${size.height} → ${rsize.width}×${rsize.height}, same shape as your picture.`, "ok");
+}
+
+/** Bakes the Adjust sliders into a new version. Free, runs on this device, the original version stays. */
+export async function applyAdjustments(a: Adjust): Promise<void> {
+  const src = activeImage();
+  if (!src || isNeutral(a)) return;
+  const out = await feelPressed((async () => {
+    await new Promise((r) => setTimeout(r, 40));
+    return adjustFull(src, a);
+  })());
+  const label = "Adjusted";
+  const changed = [
+    ...(Object.keys(a) as (keyof Adjust)[]).filter((k) => k !== "curve" && a[k] !== NEUTRAL[k]).map((k) => `${k} ${(a[k] as number) > 0 ? "+" : ""}${a[k]}`),
+    ...(isIdentityCurve(a.curve) ? [] : ["tone curve"]),
+  ].join(", ");
+  const note = `Adjusted on this device: ${changed}`;
+  const id = await record("adjust", note, src, out, { name: label });
+  setState((x) => ({ versions: [...x.versions, { image: out, label, prompt: note, kind: "version", meta: { ...(x.versions[x.activeVersion]?.meta ?? { at: Date.now() }), at: Date.now() }, historyId: id }], activeVersion: x.versions.length }));
+  toast(`Saved as a new version. ${out.width}×${out.height}, no credits used.`, "ok");
+}
+
 export function openHistoryItem(item: HistoryItem): void {
   setState({ before: item.before, versions: [{ image: item.after, label: item.presetName ?? "Render", prompt: item.prompt, historyId: item.id, kind: "version", meta: { look: item.presetName, model: item.model, at: item.createdAt } }], activeVersion: 0, lookIndex: 0, tab: "edit", editMode: "compare" });
 }
@@ -843,7 +902,7 @@ export async function deleteHistoryItem(id: string): Promise<void> {
 }
 
 export async function download(img: ImageData64, name: string): Promise<void> {
-  await getState().host.save(img, fileName(name));
+  await feelPressed(getState().host.save(img, fileName(name)));
 }
 
 /** "Takhmao-v3-2026-11-13": project, what it is, today's date. */
@@ -858,7 +917,7 @@ export function fileName(what: string): string {
 /** Copies a picture to the clipboard as PNG, ready to paste into chat or slides, with a toast. */
 export async function copyImageToClipboard(img: ImageData64): Promise<void> {
   try {
-    await copyImage(img);
+    await feelPressed(copyImage(img));
     toast("Image copied. Paste it anywhere with Ctrl V.", "ok");
   } catch {
     toast("Couldn't copy the image here. Use Download instead.", "error");

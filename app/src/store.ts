@@ -13,7 +13,7 @@ export type Tab = "render" | "edit" | "history" | "sun" | "advanced";
 
 export type NotesSlot = "view" | "style";
 
-export type EditMode = "compare" | "spot" | "relight" | "view" | "style" | "board";
+export type EditMode = "compare" | "spot" | "relight" | "view" | "style" | "board" | "upscale" | "adjust";
 
 export interface SunState {
   mode: "time" | "free" | "sketchup";

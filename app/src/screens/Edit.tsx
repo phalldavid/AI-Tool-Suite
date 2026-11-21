@@ -5,8 +5,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { EditMode, Version } from "../store";
 import type { ImageData64 } from "../core/types";
-import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, useEditFile } from "../actions";
-import { toDataUrl } from "../core/images";
+import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, runUpscale, useEditFile } from "../actions";
+import type { UpscaleStrength } from "../core/upscale";
+import { pixelsOf, toDataUrl } from "../core/images";
+import { ADJUST_GROUPS, BANDS, IDENTITY_CURVE, NEUTRAL, applyAdjust, isIdentityCurve, isNeutral, mixControl } from "../core/adjust";
+import type { AdjustControl, MixKey, NumKey } from "../core/adjust";
+import { CurveEditor } from "../ui/CurveEditor";
+import { feel } from "../lib/feel";
+import { AdjustDial } from "../ui/AdjustDial";
+import { getAdjust, resetAdjust, setAdjust, useAdjust } from "../lib/adjustStore";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
 import { dialTimeId } from "../core/prompt";
@@ -26,7 +33,7 @@ import { useRatio } from "../ui/useRatio";
 import { Foot, PhoneDock } from "../ui/PhoneBar";
 import { useViewport } from "../layout";
 import { hoverSlot, hoveredSlot, onHoverSlot } from "../lib/pasteTarget";
-import { copyImageToClipboard as copyImage, deleteVersion, renameVersion } from "../actions";
+import { applyAdjustments, copyImageToClipboard as copyImage, deleteVersion, renameVersion } from "../actions";
 import { INTERIOR_RELIGHT } from "../core/prompt";
 import { BoardPanel, BoardStage } from "./Board";
 
@@ -152,9 +159,11 @@ const TOOLS_ROW: [EditMode | "download" | "again" | "copy", string, string][] = 
   ["compare", "Compare", "compare"],
   ["spot", "Spot edit", "brush"],
   ["relight", "Relight", "sun"],
+  ["adjust", "Adjust", "sliders"],
   ["view", "Multi-View", "camera"],
   ["style", "Style copy", "layers"],
   ["board", "Board", "grid"],
+  ["upscale", "Upscale", "expand"],
   ["again", "Try again", "refresh"],
   ["copy", "Copy", "clipboard"],
   ["download", "Download", "download"],
@@ -192,13 +201,13 @@ function EditWork() {
         <ReplaceClear />
       </div>
       <div className="stage cq" style={{ background: "var(--field)" }}>
-        {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : mode === "board" ? <BoardStage /> : <CompareStage v={v} />}
+        {mode === "view" ? <ViewStage /> : mode === "style" ? <StyleStage /> : mode === "spot" ? <PaintStage key={active} /> : mode === "board" ? <BoardStage /> : mode === "adjust" && v ? <AdjustStage v={v} /> : <CompareStage v={v} />}
         <LoaderLayer />
         <LoaderStatus />
         {phone && v && (mode === "compare" || mode === "relight") ? (
           <div className="img-acts">
             <button type="button" className="chip-img" aria-label="Copy image" title="Copy image" onClick={() => void copyImage(v.image)}><Icon name="clipboard" size={16} /></button>
-            <button type="button" className="chip-img" aria-label="Try again" title="Try again" disabled={!cap || Boolean(busy)} onClick={() => void openReview()}><Icon name="refresh" size={16} /></button>
+            <button type="button" className="chip-img" aria-label="Try again" title="Try again" disabled={!cap || Boolean(busy)} data-why={busy ? "A render is running. Wait for it to finish." : "Try again needs a view on the Render tab."} onClick={() => void openReview()}><Icon name="refresh" size={16} /></button>
             {mode !== "compare" ? <button type="button" className="chip-img" aria-label="Download" title="Download" onClick={() => void download(v.image, `v${active + 1}`)}><Icon name="download" size={16} /></button> : null}
           </div>
         ) : null}
@@ -214,6 +223,7 @@ function EditWork() {
                 aria-label={label}
                 title={label}
                 disabled={!v && id !== "view" && id !== "style"}
+                data-why="Make a render first. This tool works on a finished picture."
                 onClick={() => (id === "view" ? setState((s) => ({ editMode: "view", lookIndex: s.editMode === "view" ? s.lookIndex : s.activeVersion })) : setState({ editMode: id as EditMode }))}
               >
                 <Icon name={icon} size={22} />
@@ -234,6 +244,7 @@ function EditWork() {
                   aria-label={label}
                   title={id === "again" && !cap ? "Try again needs the view on the Render tab" : id === "copy" ? "Copy image, then paste into chat or slides" : label}
                   disabled={disabled}
+                  data-why={id === "again" && busy ? "A render is running. Wait for it to finish." : id === "again" ? "Try again needs a view on the Render tab." : "Make a render first. This tool works on a finished picture."}
                   onClick={() => {
                     if (id === "download") return void (v && download(v.image, `v${active + 1}`));
                     if (id === "copy") return void (v && copyImage(v.image));
@@ -593,7 +604,7 @@ function EditSide() {
   if (mode === "style") return <StyleCopyPanel />;
   return (
     <div className="side-scroll thin">
-      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
+      {mode === "spot" ? <SpotEditPanel /> : mode === "relight" ? <RelightPanel /> : mode === "upscale" ? <UpscalePanel /> : mode === "adjust" ? <AdjustPanel /> : mode === "board" ? <BoardPanel /> : <><SummaryPanel /><CompareFoot /></>}
     </div>
   );
 }
@@ -863,7 +874,7 @@ function SpotEditPanel() {
         <input id="gen" className="input" aria-label="Your own global edit" value={general} onChange={(e) => setGeneral(e.target.value)} placeholder="Your own, e.g. make the sky clearer" />
       </section>
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" className="btn" style={{ flex: 1 }} aria-label="Undo, Ctrl Z" title="Undo · Ctrl Z" disabled={!p.canUndo()} onClick={() => { p.undo(); refresh(); }}>
+        <button type="button" className="btn" style={{ flex: 1 }} aria-label="Undo, Ctrl Z" title="Undo · Ctrl Z" disabled={!p.canUndo()} data-why="Nothing to undo yet." onClick={() => { p.undo(); refresh(); }}>
           <Icon name="undo" /> <span className="lbl-xs">Undo</span>
         </button>
         <button type="button" className="btn" style={{ flex: 1 }} aria-label="Clear all selections" title="Clear all" onClick={() => { p.clearAll(); refresh(); }}>
@@ -894,6 +905,200 @@ const RELIGHT_INTERIOR: typeof RELIGHT = [
   ...INTERIOR_RELIGHT.map((o) => ({ id: o.id, label: o.label, sub: o.sub ?? "", sky: (o.swatch ?? ["#3a2a1c", "#c98a4a"]) as [string, string] })),
   { id: "night", label: "Night", sub: "Lights only", sky: ["#05070f", "#1b2036"] },
 ];
+
+/** Live preview of the Adjust sliders on a small copy; hold the button to see the original. */
+function AdjustStage({ v }: { v: Version }) {
+  const a = useAdjust();
+  const r = useRatio(v.image);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const base = useRef<ImageData | null>(null);
+  const [ready, setReady] = useState(false);
+  const [showOrig, setShowOrig] = useState(false);
+  const src = useMemo(() => toDataUrl(v.image), [v.image]);
+  useEffect(() => {
+    let live = true;
+    setReady(false);
+    base.current = null;
+    pixelsOf(v.image, 960).then((px) => { if (live) { base.current = px; setReady(true); } }).catch(() => undefined);
+    return () => { live = false; };
+  }, [v.image]);
+  useEffect(() => {
+    const b = base.current, c = canvas.current;
+    if (!ready || !b || !c) return;
+    const id = window.setTimeout(() => {
+      const copy = new ImageData(new Uint8ClampedArray(b.data), b.width, b.height);
+      applyAdjust(copy, getAdjust());
+      c.width = b.width;
+      c.height = b.height;
+      c.getContext("2d")?.putImageData(copy, 0, 0);
+    }, 30);
+    return () => window.clearTimeout(id);
+  }, [a, ready]);
+  const same = isNeutral(a);
+  return (
+    <div className="fit">
+      <div className="frame rise" style={{ width: `min(100cqw, 100cqh * ${r.toFixed(4)})`, aspectRatio: `${r}`, position: "relative" }}>
+        <img src={src} alt="Original" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }} />
+        <canvas ref={canvas} aria-label="Adjusted preview" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", visibility: showOrig || same || !ready ? "hidden" : "visible" }} />
+        <button
+          type="button"
+          className="chip-img adj-hold"
+          disabled={same}
+          data-why="Move a slider first. Then you can hold this to see the original."
+          onPointerDown={() => setShowOrig(true)}
+          onPointerUp={() => setShowOrig(false)}
+          onPointerLeave={() => setShowOrig(false)}
+          onPointerCancel={() => setShowOrig(false)}
+        >
+          <Icon name="compare" size={16} /> Hold to see original
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const ADJUST_ICON: Record<string, string> = {
+  exposure: "exposure", contrast: "contrast", highlights: "highlights", shadows: "shadows", whites: "whites", blacks: "blacks",
+  temperature: "thermo", tint: "drop", vibrance: "burst", saturation: "palette",
+  clarity: "tri", texture: "waves", dehaze: "cloud", sharpen: "diamond", noise: "noise", vignette: "vignette", grain: "grain",
+  straighten: "ruler", vertical: "keystone", horizontal: "skew", mix: "mix", curve: "curve",
+};
+
+const ADJUST_ITEMS = ADJUST_GROUPS.flatMap((g) => g.items);
+
+type AdjustSel = NumKey | "mix" | "curve";
+const MIX_KINDS: ["h" | "s" | "l", string][] = [["h", "Hue"], ["s", "Saturation"], ["l", "Luminance"]];
+
+function AdjustPanel() {
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const activeIdx = useApp((s) => s.activeVersion);
+  const a = useAdjust();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { resetAdjust(); }, [activeIdx]);
+  const none = isNeutral(a);
+  const [sel, setSel] = useState<AdjustSel>("exposure");
+  const [mixKind, setMixKind] = useState<"h" | "s" | "l">("s");
+  const [band, setBand] = useState<(typeof BANDS)[number]["id"]>("red");
+  const ctl: AdjustControl | null = sel === "curve" ? null : sel === "mix" ? mixControl(mixKind, band) : ADJUST_ITEMS.find((c) => c.key === sel) ?? ADJUST_ITEMS[0];
+  const show = (k: NumKey, n: number) => (k === "exposure" ? `${n > 0 ? "+" : ""}${n.toFixed(2)}` : k === "straighten" ? `${n > 0 ? "+" : ""}${n.toFixed(1)}°` : `${n > 0 && n !== 0 ? "+" : ""}${Math.round(n)}`);
+  const mixChanged = (id: string) => (["h", "s", "l"] as const).some((k) => a[`${k}_${id}` as MixKey] !== 0);
+  const anyMix = BANDS.some((b) => mixChanged(b.id));
+  const tools: { key: AdjustSel; label: string; changed: boolean }[] = [
+    ...ADJUST_ITEMS.map((c) => ({ key: c.key as AdjustSel, label: c.label, changed: a[c.key] !== NEUTRAL[c.key] })),
+    { key: "mix", label: "Colour mix", changed: anyMix },
+    { key: "curve", label: "Curve", changed: !isIdentityCurve(a.curve) },
+  ];
+  const title = sel === "curve" ? "Curve" : sel === "mix" ? `${BANDS.find((b) => b.id === band)!.label} · ${MIX_KINDS.find((k) => k[0] === mixKind)![1]}` : ctl!.label;
+  const value = ctl ? show(ctl.key, a[ctl.key]) : isIdentityCurve(a.curve) ? "0" : `${a.curve.length} points`;
+  const atZero = ctl ? a[ctl.key] === NEUTRAL[ctl.key] : isIdentityCurve(a.curve);
+  const reset = () => (ctl ? setAdjust({ [ctl.key]: NEUTRAL[ctl.key] }) : setAdjust({ curve: IDENTITY_CURVE }));
+  return (
+    <>
+      <div>
+        <h2 style={{ fontSize: 22 }}>Adjust</h2>
+        <p className="sub">Fix exposure, colour and detail, like Camera Raw. Free, runs on this device, nothing is sent. Saved as a new version; the original stays.</p>
+      </div>
+      <section className="adj-pick" aria-label="Adjustments">
+        <div className="adj-strip" role="tablist" aria-label="Adjustment tools">
+          {tools.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={sel === t.key}
+              aria-label={t.label}
+              title={t.label}
+              className={`adj-tool${t.changed ? " changed" : ""}`}
+              ref={(el) => { if (el && sel === t.key) el.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); }}
+              onClick={() => setSel(t.key)}
+            >
+              <Icon name={ADJUST_ICON[t.key]} size={22} />
+            </button>
+          ))}
+        </div>
+        {sel === "mix" ? (
+          <>
+            <div className="adj-bands" role="radiogroup" aria-label="Colour">
+              {BANDS.map((b) => (
+                <button key={b.id} type="button" role="radio" aria-checked={band === b.id} aria-label={b.label} title={b.label} className={mixChanged(b.id) ? "changed" : undefined} style={{ ["--c" as string]: b.css }} onClick={() => setBand(b.id)} />
+              ))}
+            </div>
+            <div className="tabs3" role="radiogroup" aria-label="Hue, saturation or luminance" style={{ margin: "2px auto 0", maxWidth: 320 }}>
+              {MIX_KINDS.map(([k, name]) => (
+                <button key={k} type="button" role="radio" aria-checked={mixKind === k} onClick={() => setMixKind(k)}>{name}</button>
+              ))}
+            </div>
+          </>
+        ) : null}
+        <div className="adj-read">
+          <span>{title}</span>
+          <b className="num">{value}</b>
+          <button type="button" className="adj-x" disabled={atZero} data-why="This one is already at zero." onClick={reset}>Reset</button>
+        </div>
+        {ctl ? (
+          <>
+            <AdjustDial label={title} min={ctl.min} max={ctl.max} step={ctl.step} value={a[ctl.key]} text={value} onChange={(n) => setAdjust({ [ctl.key]: n })} />
+            <p className="adj-hint">Drag, scroll or use arrow keys. Double-click to reset.</p>
+          </>
+        ) : (
+          <>
+            <CurveEditor curve={a.curve} onChange={(c) => setAdjust({ curve: c })} />
+            <p className="adj-hint">Drag a point. Click the line to add one. Double-click a point to remove it.</p>
+          </>
+        )}
+      </section>
+      <Foot inline>
+        <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset all</button>
+        <button
+          type="button"
+          className="cta sheen"
+          disabled={!v || none || busy}
+          data-why={!v ? "Open or upload a picture first." : busy ? "Saving. One moment." : "Move a slider first."}
+          onClick={() => { setBusy(true); void applyAdjustments(getAdjust()).then(() => resetAdjust()).catch(() => toast("Couldn't adjust this picture.", "error")).finally(() => setBusy(false)); }}
+        >
+          <Icon name="check" size={18} /> {busy ? "Saving…" : "Save as new version"}
+        </button>
+      </Foot>
+    </>
+  );
+}
+
+function UpscalePanel() {
+  const v = useApp((s) => s.versions[s.activeVersion]);
+  const busy = useApp((s) => s.busy);
+  const s = useApp((x) => x.settings);
+  const [strength, setStrength] = useState<UpscaleStrength>("faithful");
+  const cost = renderCost(s, s.backend === "kie" ? editModelId() : s.kieModel);
+  const opts: [UpscaleStrength, string, string][] = [
+    ["faithful", "Faithful", "Sharper, with fine texture. The design stays exactly as it is."],
+    ["enhance", "Enhance", "Also makes materials look more real. May change small details, so check the result."],
+  ];
+  return (
+    <>
+      <div>
+        <h2 style={{ fontSize: 22 }}>Upscale</h2>
+        <p className="sub">More resolution and sharper detail. Same picture, same shape. Works on any image you paste, drop or upload, including ones from other AI tools.</p>
+      </div>
+      <section className="step cq">
+        <div className="tabs3" role="radiogroup" aria-label="Upscale strength" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          {opts.map(([id, label]) => (
+            <button key={id} type="button" role="radio" aria-checked={strength === id} onClick={() => setStrength(id)}>{label}</button>
+          ))}
+        </div>
+        <p className="sub" style={{ marginTop: 10 }}>{opts.find((o) => o[0] === strength)?.[2]}</p>
+        {v ? <p className="sub" style={{ marginTop: 6 }}>Your picture: <span className="num">{v.image.width}×{v.image.height} px</span></p> : null}
+        <p className="sub" style={{ marginTop: 6 }}>The result size follows the resolution you pick (1K, 2K or 4K).</p>
+        <p className="sub" style={{ marginTop: 6 }}>Small text and fine ornaments can be redrawn. Check signs and carvings before printing.</p>
+      </section>
+      <Foot inline>
+        <ModelPicker edit />
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!v} data-why="Open or upload a picture first." onClick={() => void runUpscale(strength)}>
+          <Icon name="expand" size={18} /> Upscale · {cost.label}
+        </button>}
+      </Foot>
+    </>
+  );
+}
 
 function RelightPanel() {
   useApp((s) => s.editScene);
@@ -1006,7 +1211,7 @@ function NewViewPanel() {
       </div>
       <Foot>
         <ModelPicker edit />
-        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!look || (source === "shot" && !shots.length)} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!look || (source === "shot" && !shots.length)} data-why={!look ? "Pick a camera angle first." : "Add a view first."} onClick={() => void openReview(source === "shot" ? "shots" : "view")}>
           <Icon name="camera" size={18} />
           {promptOnly ? "Get prompt · free" : source === "shot" ? (n > 1 ? `Render ${n} views · ${total}` : `Render this view · ${total}`) : `Render new camera · ${one.label}`}
         </button>}
@@ -1101,7 +1306,7 @@ function StyleCopyPanel() {
       </div>
       <Foot>
         <ModelPicker edit />
-        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!ref || !base} onClick={() => void openReview("style")}>
+        {busy ? <StopButton /> : <button type="button" className="cta sheen" disabled={!ref || !base} data-why={!base ? "Add the picture to restyle first." : "Add a style reference first."} onClick={() => void openReview("style")}>
           <Icon name="layers" size={18} />
           {promptOnly ? "Get prompt · free" : `Copy the style · ${cost.label}`}
         </button>}

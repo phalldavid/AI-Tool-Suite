@@ -13,6 +13,8 @@ const FILTERS: [string, string][] = [
   ["lighting", "Relights"],
   ["style-copy", "Style copies"],
   ["view", "Views"],
+  ["upscale", "Upscales"],
+  ["adjust", "Adjusted"],
 ];
 
 function matches(f: string, tool: ToolId, starred?: boolean): boolean {
@@ -46,7 +48,7 @@ export function HistoryScreen() {
         <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 22 }}>History</h1>
           <span className="num" style={{ color: "var(--muted)", fontSize: 13 }}>
-            {history.length} renders{credits ? ` · ${Math.round(credits * 100) / 100} credits spent on this device` : ""}
+            {history.length} render{history.length === 1 ? "" : "s"}{credits ? ` · ${Math.round(credits * 100) / 100} credits spent on this device` : ""}
           </span>
           {today.length ? (
             <span className="status neutral num" style={{ cursor: "default" }} title="Renders and credits since midnight">
@@ -81,7 +83,7 @@ export function HistoryScreen() {
                 </button>
                 <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 6 }}>
                   <button type="button" className="chip-img" style={{ padding: 8 }} aria-label="Copy image" title="Copy image" onClick={() => void copyImage(h.after)}>
-                    <Icon name="clipboard" size={14} />
+                    <Icon name="image" size={14} />
                   </button>
                   {h.prompt ? (
                     <button

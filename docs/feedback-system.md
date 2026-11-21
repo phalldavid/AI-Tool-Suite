@@ -39,3 +39,9 @@ They are driven from one place, `app/src/lib/feel.ts`, so they always agree.
 - Convert the long actions that have no toast to `withFeel` (download, copy image, save, paste).
 - Disabled buttons: a tap on one should say why it is off.
 - Sheets, menus and tab changes: one shared enter and exit motion.
+
+## Long actions, disabled buttons and shared motion
+
+- `feelPressed(promise)` (in `lib/feel.ts`): the button just pressed breathes while the work runs, then ticks or shakes. Used by `download`, `copyImageToClipboard` and the paste actions.
+- Disabled buttons: give a `button` the `data-why="..."` attribute. Pressing it while it is disabled shakes it and shows that text as a toast. Add a Khmer entry for each new string in `lib/i18n.ts`.
+- Motion: `--enter-ms`, `--leave-ms` and the `enter` / `leave` keyframes in `app.css`. Sheets now play the motion in reverse when they close (`data-leaving` in `ui/Sheet.tsx`); screens play `enter` when the tab changes. All are off under reduced motion.

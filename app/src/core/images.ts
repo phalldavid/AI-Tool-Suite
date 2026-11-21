@@ -1,6 +1,10 @@
 // Image helpers: conversion between base64, blobs, canvases and <img>.
 
+import { applyAdjust } from "./adjust";
+import type { Adjust } from "./adjust";
 import type { ImageData64 } from "./types";
+import { cropBox, padPlan } from "./upscale";
+import type { PadPlan } from "./upscale";
 
 export function toDataUrl(img: ImageData64): string {
   return `data:${img.mimeType};base64,${img.data}`;
@@ -178,6 +182,31 @@ export async function resizeTo(img: ImageData64, width: number, height: number):
   return canvasToImage(c, "image/png");
 }
 
+/** Pads a picture to an exact aspect ratio ("16:9"). The border is a blurred copy of the picture, so the model sees no hard edge. */
+export async function padToRatio(img: ImageData64, ratio: string): Promise<{ image: ImageData64; plan: PadPlan }> {
+  const size = await imageSize(img);
+  const plan = padPlan(size.width, size.height, ratio);
+  if (plan.none) return { image: img, plan };
+  const el = await loadImage(img);
+  const [c, ctx] = makeCanvas(plan.width, plan.height);
+  ctx.filter = "blur(24px)";
+  ctx.drawImage(el, -24, -24, plan.width + 48, plan.height + 48);
+  ctx.filter = "none";
+  ctx.drawImage(el, plan.x, plan.y, plan.srcW, plan.srcH);
+  return { image: canvasToImage(c, "image/png"), plan };
+}
+
+/** Cuts the original's area back out of a result made from a padded picture. */
+export async function cropPadded(img: ImageData64, plan: PadPlan): Promise<ImageData64> {
+  if (plan.none) return img;
+  const el = await loadImage(img);
+  const b = cropBox(el.naturalWidth, el.naturalHeight, plan.crop);
+  const [c, ctx] = makeCanvas(b.w, b.h);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(el, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+  return canvasToImage(c, "image/png");
+}
+
 /** A smaller JPEG copy, long side at most maxSide px (for analysis and uploads). */
 export async function shrinkJpeg(img: ImageData64, maxSide: number, quality = 0.88): Promise<ImageData64> {
   const el = await loadImage(img);
@@ -190,4 +219,30 @@ export async function shrinkJpeg(img: ImageData64, maxSide: number, quality = 0.
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(el, 0, 0, w, h);
   return canvasToImage(c, "image/jpeg", quality);
+}
+
+/** The picture's pixels, optionally scaled down so its longest side is at most `maxSide`. */
+export async function pixelsOf(img: ImageData64, maxSide = 0): Promise<ImageData> {
+  const el = await loadImage(img);
+  const k = maxSide ? Math.min(1, maxSide / Math.max(el.naturalWidth, el.naturalHeight)) : 1;
+  const w = Math.max(1, Math.round(el.naturalWidth * k));
+  const h = Math.max(1, Math.round(el.naturalHeight * k));
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("No canvas");
+  ctx.drawImage(el, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h);
+}
+
+/** Runs the Camera Raw adjustments on the full-size picture. */
+export async function adjustFull(img: ImageData64, a: Adjust): Promise<ImageData64> {
+  const px = await pixelsOf(img);
+  applyAdjust(px, a);
+  const c = document.createElement("canvas");
+  c.width = px.width;
+  c.height = px.height;
+  c.getContext("2d")?.putImageData(px, 0, 0);
+  return canvasToImage(c, "image/png");
 }

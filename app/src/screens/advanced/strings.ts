@@ -66,7 +66,7 @@ export const S = {
   saveAll: "Save all prompts",
   graphName: "Graph name",
   promptsOnly: "Prompts only. Nothing on this tab renders or spends credits.",
-  keysHelp: "Shift A or double-click: add node · Right-click: menu · Ctrl D: duplicate · Middle button: pan · Delete: remove · Ctrl Z: undo · 0: fit",
+  keysHelp: "Shift A or double-click: add node · Right-click: menu · Ctrl D: duplicate · Middle button: pan · Delete or X: remove · Ctrl + drag: cut wires · Ctrl Z: undo · 0: fit",
   narrowTitle: "The Advanced tab needs a wider screen",
   narrowBody: "Open it on a computer, in a window at least 900 pixels wide. On this screen, use the Render tab.",
   goRender: "Go to Render",

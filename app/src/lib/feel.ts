@@ -200,6 +200,15 @@ export async function withFeel<T>(el: Element | null | undefined, work: Promise<
 let lastPress: { el: Element; at: number } | null = null;
 const PRESS_WINDOW_MS = 1800;
 
+/**
+ * withFeel for code that has no button in hand (shared actions such as download or copy):
+ * the button that was just pressed breathes while the work runs, then ticks or shakes.
+ */
+export function feelPressed<T>(work: Promise<T>): Promise<T> {
+  const el = lastPress && Date.now() - lastPress.at < PRESS_WINDOW_MS ? lastPress.el : null;
+  return el ? withFeel(el, work) : work;
+}
+
 /** The button, tab or option under a pointer event, if it can be pressed. */
 function pressable(target: EventTarget | null): HTMLElement | null {
   const el = (target as Element | null)?.closest?.('button, [role="tab"], [role="radio"], [role="option"], a[href], label.switch, label.tour-never, label.fontopt') as HTMLElement | null;
@@ -228,9 +237,33 @@ export function notify(kind: "info" | "ok" | "error" | "warn"): void {
 let installed = false;
 
 /** Listens once for presses and switches anywhere in the app. */
-export function installFeel(): void {
+/** The disabled button under a pointer, if any. Disabled buttons swallow events, so find it by position. */
+function disabledAt(x: number, y: number): HTMLElement | null {
+  for (const b of document.querySelectorAll<HTMLElement>("button:disabled[data-why]")) {
+    const r = b.getBoundingClientRect();
+    if (r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return b;
+  }
+  return null;
+}
+
+/**
+ * onWhy shows the reason (the app passes a toast). Tapping a button that is switched off
+ * shakes it and says why, using its data-why text.
+ */
+export function installFeel(onWhy?: (text: string) => void): void {
   if (installed || typeof document === "undefined") return;
   installed = true;
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const off = disabledAt(e.clientX, e.clientY);
+      if (!off) return;
+      cue(off, "error");
+      const why = off.getAttribute("data-why");
+      if (why && onWhy) onWhy(why);
+    },
+    { capture: true, passive: true },
+  );
   document.addEventListener(
     "pointerdown",
     (e) => {
