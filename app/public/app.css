@@ -403,7 +403,8 @@ dialog.sheet.small { width: min(420px, calc(100vw - 32px)); }
 .lbl { font-size: 12.5px; color: var(--muted); }
 
 /* ---------- busy chip (replaces the long progress bar) ---------- */
-.busy-chip { position: absolute; left: 50%; bottom: 64px; translate: -50% 0; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 999px; background: var(--image-chip); backdrop-filter: blur(10px); color: var(--on-image); font-size: 13px; font-weight: 600; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); animation: rise 220ms var(--ease) both; }
+.busy-chip { position: absolute; left: 50%; bottom: 64px; translate: -50% 0; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 12px; border-radius: 999px; background: var(--image-chip); backdrop-filter: blur(10px); color: var(--on-image); font-size: 13px; font-weight: 600; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); animation: rise 220ms var(--ease) both; }
+.busy-chip:has(button) { padding-right: 6px; }
 .busy-chip button { width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, 0.14); color: inherit; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .busy-chip button:hover { background: rgba(255, 255, 255, 0.26); }
 
@@ -514,10 +515,10 @@ dialog.sheet.lib { width: min(980px, calc(100vw - 32px)); height: min(820px, cal
 .switch:active input:checked + span::after { transform: translateX(11px); }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .kelvins { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
-.kelvins button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; border: 0; border-radius: 10px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; }
+.kelvins button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 8px; border: 0; border-radius: 10px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; }
 .kelvins button[aria-checked="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
 .kelvins b { font-size: 12px; }
-.kelvins small { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.kelvins small { font-size: 10.5px; line-height: 1.35; text-align: center; color: var(--muted); white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
 .kdot { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px currentColor; }
 .levels { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fitg-line { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); font-style: italic; }
