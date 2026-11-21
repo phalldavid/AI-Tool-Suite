@@ -1085,25 +1085,21 @@ dialog.sheet[data-leaving]::backdrop { animation: veil-out var(--leave-ms) ease 
 .langsw .lbl-md { line-height: 1.8; }
 .mc-menu { max-height: 40vh; }
 
-/* Adjust tool: grouped cards, thin tracks, white thumbs (iOS style) */
-.adj-card { display: grid; gap: 2px; padding: 6px 14px 10px; border-radius: 18px; background: var(--field); }
-.adj-title { margin: 8px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--soft); }
-.adj-row { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; column-gap: 10px; row-gap: 0; padding: 8px 0 4px; font-size: 14px; }
-.adj-row + .adj-row { border-top: 1px solid color-mix(in srgb, var(--soft) 14%, transparent); }
-.adj-ico { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: var(--muted); background: color-mix(in srgb, var(--soft) 14%, transparent); transition: color var(--leave-ms, 200ms), background var(--leave-ms, 200ms); }
-.adj-row[data-changed] .adj-ico { color: var(--accent-ink); background: var(--accent); }
-.adj-row label { color: inherit; font-weight: 500; cursor: default; user-select: none; }
-.adj-val { min-width: 48px; padding: 2px 8px; border: 0; border-radius: 999px; background: transparent; color: var(--soft); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; cursor: default; }
-.adj-row[data-changed] .adj-val { color: var(--accent); font-weight: 700; cursor: pointer; }
-.adj-range { grid-column: 1 / -1; width: 100%; height: 30px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; touch-action: pan-y; cursor: pointer; }
-.adj-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
-.adj-range::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, color-mix(in srgb, var(--soft) 35%, transparent) 0 var(--lo), var(--accent) var(--lo) var(--hi), color-mix(in srgb, var(--soft) 35%, transparent) var(--hi) 100%); }
-.adj-range::-moz-range-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, color-mix(in srgb, var(--soft) 35%, transparent) 0 var(--lo), var(--accent) var(--lo) var(--hi), color-mix(in srgb, var(--soft) 35%, transparent) var(--hi) 100%); }
-.adj-range[data-track="temp"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #4a8dff, #cfd6e0 50%, #ffb23f); }
-.adj-range[data-track="temp"]::-moz-range-track { background: linear-gradient(to right, #4a8dff, #cfd6e0 50%, #ffb23f); }
-.adj-range[data-track="tint"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #3fbf6a, #cfd6e0 50%, #d65cc6); }
-.adj-range[data-track="tint"]::-moz-range-track { background: linear-gradient(to right, #3fbf6a, #cfd6e0 50%, #d65cc6); }
-.adj-range::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -10px; border-radius: 50%; border: 0; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 3px 8px rgba(0,0,0,.28); transition: transform 120ms var(--ease, ease-out); }
-.adj-range::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; border: 0; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 3px 8px rgba(0,0,0,.28); }
-.adj-range:active::-webkit-slider-thumb { transform: scale(1.12); }
+/* Adjust tool: bare icon strip and a dial that grows when touched (like iPhone Photos) */
+.adj-pick { display: grid; gap: 6px; padding: 10px 4px 6px; }
+.adj-strip { display: flex; gap: 2px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; padding: 2px 0 4px; -webkit-mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent); mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent); }
+.adj-strip::-webkit-scrollbar { display: none; }
+.adj-tool { flex: none; position: relative; display: grid; place-items: center; width: 42px; height: 42px; padding: 0; border: 0; background: transparent; color: var(--soft); cursor: pointer; scroll-snap-align: center; transition: color var(--leave-ms, 200ms), transform 160ms var(--ease, ease-out); }
+.adj-tool[aria-selected="true"] { color: var(--accent); transform: scale(1.12); }
+.adj-tool::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); opacity: 0; transition: opacity var(--leave-ms, 200ms); }
+.adj-tool.changed::after { opacity: 1; }
+.adj-read { display: flex; align-items: baseline; justify-content: center; gap: 8px; font-size: 14px; color: var(--muted); min-height: 24px; }
+.adj-read b { font-size: 17px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.adj-x { margin-left: 6px; padding: 2px 10px; border: 0; border-radius: 999px; background: transparent; color: var(--accent); font-size: 13px; cursor: pointer; }
+.adj-x:disabled { opacity: 0; pointer-events: none; }
+.adj-dial { display: block; width: 100%; max-width: 420px; margin: 0 auto; height: auto; color: var(--text); touch-action: none; cursor: grab; outline-offset: 2px; }
+.adj-dial:active { cursor: grabbing; }
+.adj-dial:focus { outline: none; }
+.adj-dial:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 10px; }
+.adj-hint { margin: 0; text-align: center; font-size: 12px; color: var(--soft); }
 .adj-hold { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; width: auto; border-radius: 999px; touch-action: none; user-select: none; }

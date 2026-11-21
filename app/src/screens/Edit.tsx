@@ -10,6 +10,7 @@ import type { UpscaleStrength } from "../core/upscale";
 import { pixelsOf, toDataUrl } from "../core/images";
 import { ADJUST_GROUPS, NEUTRAL, applyAdjust, isNeutral } from "../core/adjust";
 import { feel } from "../lib/feel";
+import { AdjustDial } from "../ui/AdjustDial";
 import { getAdjust, resetAdjust, setAdjust, useAdjust } from "../lib/adjustStore";
 import { ZONES, ZonePainter } from "../core/zones";
 import type { PaintTool } from "../core/zones";
@@ -960,6 +961,8 @@ const ADJUST_ICON: Record<keyof typeof NEUTRAL, string> = {
   clarity: "tri", texture: "waves", dehaze: "cloud", sharpen: "diamond", noise: "noise", vignette: "vignette", grain: "grain",
 };
 
+const ADJUST_ITEMS = ADJUST_GROUPS.flatMap((g) => g.items);
+
 function AdjustPanel() {
   const v = useApp((s) => s.versions[s.activeVersion]);
   const activeIdx = useApp((s) => s.activeVersion);
@@ -967,52 +970,46 @@ function AdjustPanel() {
   const [busy, setBusy] = useState(false);
   useEffect(() => { resetAdjust(); }, [activeIdx]);
   const none = isNeutral(a);
+  const [sel, setSel] = useState<keyof typeof NEUTRAL>("exposure");
+  const cur = ADJUST_ITEMS.find((c) => c.key === sel) ?? ADJUST_ITEMS[0];
+  const show = (k: keyof typeof NEUTRAL, n: number) => (k === "exposure" ? `${n > 0 ? "+" : ""}${n.toFixed(2)}` : `${n > 0 && ADJUST_ITEMS.find((c) => c.key === k)!.min < 0 ? "+" : ""}${Math.round(n)}`);
   return (
     <>
       <div>
         <h2 style={{ fontSize: 22 }}>Adjust</h2>
         <p className="sub">Fix exposure, colour and detail, like Camera Raw. Free, runs on this device, nothing is sent. Saved as a new version; the original stays.</p>
       </div>
-      {ADJUST_GROUPS.map((g) => (
-        <section key={g.id} className="adj-card" aria-label={g.title}>
-          <h3 className="adj-title">{g.title}</h3>
-          {g.items.map((c) => {
-            const val = a[c.key];
-            const span = c.max - c.min;
-            const pct = ((val - c.min) / span) * 100;
-            const zero = ((0 - c.min) / span) * 100;
-            const lo = Math.min(pct, zero), hi = Math.max(pct, zero);
-            const changed = val !== NEUTRAL[c.key];
-            const shown = c.key === "exposure" ? `${val > 0 ? "+" : ""}${val.toFixed(2)}` : `${val > 0 && c.min < 0 ? "+" : ""}${val}`;
-            const set = (n: number) => {
-              if ((val < 0 && n >= 0) || (val > 0 && n <= 0)) feel("tap");
-              setAdjust({ [c.key]: n });
-            };
+      <section className="adj-pick" aria-label="Adjustments">
+        <div className="adj-strip" role="tablist" aria-label="Adjustment tools">
+          {ADJUST_ITEMS.map((c) => {
+            const changed = a[c.key] !== NEUTRAL[c.key];
             return (
-              <div key={c.key} className="adj-row" data-changed={changed ? "1" : undefined}>
-                <span className="adj-ico" aria-hidden="true"><Icon name={ADJUST_ICON[c.key]} size={16} /></span>
-                <label htmlFor={`adj-${c.key}`} title="Double-click to reset this slider" onDoubleClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })}>{c.label}</label>
-                <button type="button" className="num adj-val" tabIndex={-1} aria-label={`Reset ${c.label}`} disabled={!changed} onClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })}>{shown}</button>
-                <input
-                  id={`adj-${c.key}`}
-                  className="adj-range"
-                  data-track={c.key === "temperature" ? "temp" : c.key === "tint" ? "tint" : undefined}
-                  type="range"
-                  min={c.min}
-                  max={c.max}
-                  step={c.step}
-                  value={val}
-                  style={{ ["--lo" as string]: `${lo}%`, ["--hi" as string]: `${hi}%` }}
-                  onChange={(e) => set(Number(e.target.value))}
-                  onDoubleClick={() => setAdjust({ [c.key]: NEUTRAL[c.key] })}
-                />
-              </div>
+              <button
+                key={c.key}
+                type="button"
+                role="tab"
+                aria-selected={sel === c.key}
+                aria-label={c.label}
+                title={c.label}
+                className={`adj-tool${changed ? " changed" : ""}`}
+                ref={(el) => { if (el && sel === c.key) el.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); }}
+                onClick={() => setSel(c.key)}
+              >
+                <Icon name={ADJUST_ICON[c.key]} size={22} />
+              </button>
             );
           })}
-        </section>
-      ))}
+        </div>
+        <div className="adj-read">
+          <span>{cur.label}</span>
+          <b className="num">{show(cur.key, a[cur.key])}</b>
+          <button type="button" className="adj-x" disabled={a[cur.key] === NEUTRAL[cur.key]} data-why="This one is already at zero." onClick={() => setAdjust({ [cur.key]: NEUTRAL[cur.key] })}>Reset</button>
+        </div>
+        <AdjustDial label={cur.label} min={cur.min} max={cur.max} step={cur.step} value={a[cur.key]} text={show(cur.key, a[cur.key])} onChange={(n) => setAdjust({ [cur.key]: n })} />
+        <p className="adj-hint">Drag the dial. Double-click to reset.</p>
+      </section>
       <Foot inline>
-        <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset</button>
+        <button type="button" className="btn" disabled={none} data-why="Nothing to reset. All sliders are at zero." onClick={resetAdjust}>Reset all</button>
         <button
           type="button"
           className="cta sheen"
