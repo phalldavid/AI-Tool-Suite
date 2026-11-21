@@ -85,6 +85,13 @@ export const NODE_DEFS: { [K in NodeKind]: NodeDef<K> } = {
     outputs: [{ id: "results", type: "result", label: "Results out" }],
     defaults: () => ({}),
   },
+  batch: {
+    kind: "batch",
+    label: "Batch render",
+    inputs: [{ id: "images", type: "image", label: "Images in", multi: true }],
+    outputs: [resultsOut],
+    defaults: () => ({ master: "" }),
+  },
   result: {
     kind: "result",
     label: "Result",

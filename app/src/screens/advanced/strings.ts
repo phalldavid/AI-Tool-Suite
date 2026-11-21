@@ -94,6 +94,7 @@ export const S = {
   prompt: "Prompt",
   note: "Note",
   result: "Result",
+  batchRender: "Batch render",
   relight: "Relight",
   newView: "New view",
   editNode: "Edit",
@@ -166,6 +167,18 @@ export const S = {
   useBuilt: "Use the built text",
   edited: "Edited",
   fromName: "Look from the file name",
+  // batch render node
+  masterPrompt: "Master prompt",
+  masterHint: "Every picture wired into this node is rendered with this same text.",
+  masterPlaceholder: "Paste or write the master prompt here",
+  useStandard: "Fill in a standard master prompt",
+  wireBatch: "Wire your images into this node and write the master prompt above. Then press Render at the top right.",
+  // downloads and render animation
+  download: "Download",
+  downloadAll: "Download all images",
+  imagesSaved: "Images saved",
+  noImagesYet: "No finished renders to download yet.",
+  renderingNow: "Rendering. This can take a minute.",
   // note node
   notePlaceholder: "Write a note for yourself",
   // toasts and status
