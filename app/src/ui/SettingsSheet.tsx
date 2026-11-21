@@ -10,6 +10,7 @@ import { backendStatus } from "../lib/status";
 import { Sheet } from "./Sheet";
 import { Icon } from "./Icon";
 import { setDev, unlockDev, useDev } from "../lib/dev";
+import { feel, setFeel, useFeel } from "../lib/feel";
 import { setAdvancedSwitch, setRunCap, useAdvancedSwitch, useRunCap } from "../lib/advanced";
 import { S } from "../screens/advanced/strings";
 import { startTour } from "./Tour";
@@ -93,6 +94,24 @@ function RunCapField() {
       <input className="input num" type="number" min={1} max={100} value={cap} onChange={(e) => setRunCap(Number(e.target.value))} style={{ width: 110 }} />
       <small style={{ color: "var(--muted)" }}>{S.capHint}</small>
     </label>
+  );
+}
+
+/** Haptics and sound: how the app answers a press, a success or an error. */
+function FeelSection() {
+  const f = useFeel();
+  return (
+    <section className="step">
+      <h2 style={{ fontSize: 16 }}>Feel</h2>
+      <label className="fontopt" style={{ cursor: "pointer" }}>
+        <input type="checkbox" checked={f.haptics} onChange={(e) => { setFeel({ haptics: e.target.checked }); if (e.target.checked) feel("success"); }} style={{ accentColor: "var(--accent)" }} />
+        <span style={{ flex: 1, textAlign: "left" }}>Vibration on phones: a light tick for presses, successes and errors</span>
+      </label>
+      <label className="fontopt" style={{ cursor: "pointer" }}>
+        <input type="checkbox" checked={f.sound} onChange={(e) => { setFeel({ sound: e.target.checked }); if (e.target.checked) window.setTimeout(() => feel("success"), 0); }} style={{ accentColor: "var(--accent)" }} />
+        <span style={{ flex: 1, textAlign: "left" }}>Soft sounds for switches, successes, errors and finished renders</span>
+      </label>
+    </section>
   );
 }
 
@@ -323,6 +342,8 @@ export function SettingsSheet() {
             <textarea id="avoid" className="input" rows={2} value={s.avoid} onChange={(e) => void updateSettings({ avoid: e.target.value })} />
           </div>
         </section>
+
+        <FeelSection />
 
         <section className="step">
           <h2 style={{ fontSize: 16 }}>Moving from v1</h2>

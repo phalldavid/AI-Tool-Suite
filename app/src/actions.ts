@@ -36,6 +36,7 @@ import { getPrefs } from "./prefs";
 import { holdUntilPresent, isPresent, revealResult } from "./ui/loader/bus";
 import { boardAspect, buildBoardPrompt, findBoardPreset, type BoardPin } from "./core/boards";
 import { composeSheet } from "./lib/board-sheet";
+import { feel } from "./lib/feel";
 
 export const DEFAULT_LOOK = "ext-mansion-tropical";
 
@@ -575,6 +576,7 @@ async function runProvider(prompt: string, images: ImageData64[], aspectRatio: s
   const key = `${settings.backend}:${settings.kieModel}:${settings.kieResolution}`;
   const n = settings.backend === "browser" ? 1 : Math.max(1, Math.min(4, settings.imageCount));
   abort = typeof AbortController === "undefined" ? null : new AbortController();
+  feel("start");
   setState({ busy: { label: label ?? (n > 1 ? `Creating ${n} images` : "Creating your image"), since: Date.now(), typical: typicalMs(key) } });
   try {
     const runs = await Promise.allSettled(Array.from({ length: n }, () => provider.render({ prompt, images, aspectRatio }, abort?.signal)));
@@ -589,6 +591,7 @@ async function runProvider(prompt: string, images: ImageData64[], aspectRatio: s
     if (!isPresent(originTab)) toast(`Your render is ready. Go back to the ${originTab === "edit" ? "Edit" : "Render"} tab to see it.`, "ok");
     const waited = await holdUntilPresent(originTab);
     await revealResult(ok[0]);
+    feel("done");
     if (failed) toast(`${ok.length} of ${n} done. One failed: ${(failed.reason as Error).message}`, "warn");
     else if (!waited) toast("Render ready", "ok");
     return ok;

@@ -1,6 +1,7 @@
 // Stacked toasts (Sonner-style): newest on top, pause on hover, action button.
 
 import { useSyncExternalStore } from "react";
+import { notify } from "./lib/feel";
 
 export interface Toast {
   id: number;
@@ -54,6 +55,8 @@ export function toast(text: string, kind: Toast["kind"] = "info", action?: Toast
   toasts = [...toasts, { id, kind, text, action, ms }].slice(-3);
   arm(id, ms);
   emit();
+  // Every toast is felt: haptic, sound if on, and a tick or shake on the button just pressed.
+  notify(kind);
   return id;
 }
 
