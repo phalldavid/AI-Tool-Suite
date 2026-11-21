@@ -157,6 +157,8 @@ function readSettings<K extends NodeKind>(r: Reader, kind: K, raw: unknown): Set
     case "render":
     case "result":
       return {} as SettingsByKind[K];
+    case "batch":
+      return { master: r.text(get(o, "master"), LIMITS.master, "A master prompt") } as SettingsByKind[K];
     case "relight": {
       const lighting = get(o, "lighting");
       const scene = get(o, "scene");

@@ -5,8 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { setState, useApp } from "../store";
 import { toast } from "../toasts";
 import { Icon } from "../ui/Icon";
+import { ThinkingDots } from "../ui/RenderLoader";
 import { useViewport } from "../layout";
-import { RUNNER_KINDS, TEMPLATES, allJobs, planRun, runBlocker, runCost, allPrompts, applyTemplate, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, zipFiles } from "../core/graph";
+import { RUNNER_KINDS, TEMPLATES, imageFiles, resultKey, allJobs, planRun, runBlocker, runCost, allPrompts, applyTemplate, defaultsFromSettings, evaluateGraph, graphFileName, parseGraph, promptFiles, rename, serializeGraph, setView, zipFiles } from "../core/graph";
 import type { EvalCache } from "../core/graph";
 import { Canvas, addPictureFiles } from "./advanced/Canvas";
 import { commit, commitView, endTypingRun, graph, openAdd, redo, replaceGraph, setPanel, undo, useCanvas } from "./advanced/session";
@@ -140,6 +141,18 @@ function AdvancedDesktop() {
     else toast(S.saveFailed, "error");
   };
 
+  // Every finished render of this visit, as one .zip (one download, so the browser does not block a string of them).
+  const downloadAll = () => {
+    const done = allJobs(g, result.ok ? result.outputs : new Map())
+      .map((j) => ({ name: j.kind === "render" ? j.name : `${j.name} ${j.kind}`, image: results[resultKey(j)]?.image }))
+      .filter((x): x is { name: string; image: NonNullable<typeof x.image> } => Boolean(x.image));
+    if (!done.length) return void toast(S.noImagesYet, "warn");
+    const zip = zipFiles(imageFiles(done));
+    const name = graphFileName(graph()).replace(/\.graph\.json$/, "-images.zip");
+    if (download(name, zip, "application/zip")) toast(S.imagesSaved, "ok");
+    else toast(S.saveFailed, "error");
+  };
+
   const openFile = async (file: File) => {
     const r = parseGraph(await file.text().catch(() => ""));
     if (!r.ok) return void toast(r.error, "error");
@@ -254,7 +267,7 @@ function AdvancedDesktop() {
             {/* The only button that spends. It opens the confirm step; Stop all takes its place while a run is going. */}
             {running ? (
               <button type="button" className="btn danger grender" onClick={stopAll}>
-                <Icon name="stop" size={18} />
+                <ThinkingDots size={18} />
                 {S.stopAll}
               </button>
             ) : (
@@ -298,6 +311,7 @@ function AdvancedDesktop() {
             <p className="gmuted">{S.templatesKeep}</p>
           </div>
         ) : null}
+        {running ? <div className="gprogress" role="progressbar" aria-label={S.rendering} /> : null}
         <div className="gstatus">
           <span className="num">{`${prompts.length} prompts ready`}</span>
           <span className="num">{`${images} of 30 images`}</span>
@@ -307,7 +321,7 @@ function AdvancedDesktop() {
         </div>
         <div className="grow-main">
           <Canvas outputs={outputs} fitSignal={fitSignal} />
-          <Panel outputs={outputs} plan={plan} cost={cost} blocker={blocker} where={whereLabel()} again={again} setAgain={setAgain} />
+          <Panel outputs={outputs} plan={plan} cost={cost} blocker={blocker} where={whereLabel()} again={again} setAgain={setAgain} onDownloadAll={downloadAll} />
         </div>
         {confirm ? (
           <ConfirmRun

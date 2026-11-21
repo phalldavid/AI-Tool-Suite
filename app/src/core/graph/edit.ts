@@ -129,6 +129,7 @@ export const ADD_MENU: { kind: NodeKind; words: string }[] = [
   { kind: "prompt", words: "prompt text output copy" },
   { kind: "note", words: "note comment text reminder" },
   { kind: "render", words: "render run image ai make generate" },
+  { kind: "batch", words: "batch render all images one master prompt same prompt many" },
   { kind: "result", words: "result output picture before after" },
   { kind: "relight", words: "relight light time night day sky change light" },
   { kind: "view", words: "new view camera angle orbit multi view move" },

@@ -9,6 +9,35 @@ export interface TextFile {
   text: string;
 }
 
+/** A file that is not text, such as a picture. */
+export interface BinFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
+/** Base64 (as the pictures are kept) to bytes. */
+export function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp" };
+
+/** One picture file per finished render: names made unique, extension from the picture's own type. */
+export function imageFiles(items: { name: string; image: { mimeType: string; data: string } }[]): BinFile[] {
+  const used = new Set<string>();
+  return items.map((it, i) => {
+    const ext = EXT[it.image.mimeType] ?? "png";
+    const base = safeName(baseName(it.name) || `image ${i + 1}`);
+    let name = `${base}.${ext}`;
+    for (let k = 2; used.has(name.toLowerCase()); k++) name = `${base}-${k}.${ext}`;
+    used.add(name.toLowerCase());
+    return { name, bytes: base64ToBytes(it.image.data) };
+  });
+}
+
 /** prompts.json entries, as the command-line batch writes them. */
 export interface BatchEntry {
   image: string;
@@ -71,7 +100,7 @@ function dosTime(d: Date): [number, number] {
 }
 
 /** A .zip holding the files as they are (UTF-8 names). */
-export function zipFiles(files: TextFile[], when = new Date()): Uint8Array<ArrayBuffer> {
+export function zipFiles(files: (TextFile | BinFile)[], when = new Date()): Uint8Array<ArrayBuffer> {
   const enc = new TextEncoder();
   const [time, date] = dosTime(when);
   const parts: Uint8Array[] = [];
@@ -79,7 +108,7 @@ export function zipFiles(files: TextFile[], when = new Date()): Uint8Array<Array
   let offset = 0;
   for (const f of files) {
     const name = enc.encode(f.name);
-    const data = enc.encode(f.text);
+    const data = "bytes" in f ? f.bytes : enc.encode(f.text);
     const crc = crc32(data);
     const local = new Uint8Array(30 + name.length);
     const lv = new DataView(local.buffer);
