@@ -10,6 +10,8 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SIT
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
+import { boxToRect, entryFor, FIX_SCHEMA, parseFixFile, patchPrompt, setStatus } from "./core/fixes";
+import type { Finding, FixFile, FixStatus } from "./core/fixes";
 import { buildProvenance, embedProvenance, fingerprint, provenanceOf, readProvenanceB64, rememberProvenance } from "./core/provenance";
 import type { Provenance } from "./core/provenance";
 import { adjustFull, blobToBase64, compositeMasked, cropPadded, fileToImage, imageSize, padToRatio, resizeTo, shrinkJpeg, toDataUrl, zoneOutlines } from "./core/images";
@@ -20,8 +22,7 @@ import { rememberDuration, typicalMs } from "./core/progress";
 import { friendlyError } from "./core/errors";
 import { KieProvider, fetchTransport, hostTransport } from "./core/providers/kie";
 import { ProviderError } from "./core/providers/types";
-import { ZONES } from "./core/zones";
-import type { ZonePainter } from "./core/zones";
+import { ZONES, ZonePainter } from "./core/zones";
 import { lintPrompt } from "./lib/lint";
 import { renderCost } from "./lib/cost";
 import { sunPromptLine, solar, toCamera as ringAngle } from "./lib/sun";
@@ -57,6 +58,13 @@ export async function init(): Promise<AppState> {
   const host = detectHost();
   const settings = await loadSettings(host).catch(() => ({ ...DEFAULT_SETTINGS }));
   const history = await listHistory().catch(() => []);
+  let fixes: FixFile | null = null;
+  try {
+    const saved = await host.getSetting("fixes");
+    if (saved) fixes = parseFixFile(saved);
+  } catch {
+    /* an old or damaged saved list is dropped */
+  }
   const frameId = settings.frameId && findFrame(settings.frameId) ? settings.frameId : "free";
   return {
     host,
@@ -105,6 +113,10 @@ export async function init(): Promise<AppState> {
     customiseOpen: false,
     dragging: false,
     paintRev: 0,
+    fixes,
+    fixSheet: false,
+    fixImage: null,
+    editName: "",
   };
 }
 
@@ -208,6 +220,7 @@ export async function useEditFile(file: File, name?: string, replace = false): P
     const img = await fileToImage(file, 4096);
     hintHistory(img, file);
     const label = name ?? file.name ?? "Pasted image";
+    if (!(st.editMode === "style" && st.versions.length)) setState({ editName: file.name || label });
     if (replace || (!st.versions.length && (st.editMode === "style" || st.editMode === "view"))) {
       setState({ before: null, versions: [{ image: img, label: label === "Pasted image" ? "Pasted" : "Uploaded", prompt: "", kind: "version", meta: { at: Date.now() } }], activeVersion: 0, lookIndex: 0 });
       toast(replace ? "Image replaced" : "Base image added", "ok");
@@ -952,6 +965,7 @@ export async function openImageWithHistory(file: File): Promise<void> {
     lookIndex: 0,
     tab: "edit",
     editMode: "compare",
+    editName: file.name,
   });
   toast(`Prompt and history restored · ${rec.chain.length + 1} step${rec.chain.length ? "s" : ""}`, "ok");
 }
@@ -1095,4 +1109,111 @@ export async function exportBoardSheet(): Promise<void> {
   } catch (e) {
     toast(`Couldn't make the sheet: ${(e as Error).message}`, "error");
   }
+}
+
+
+// ---------- fix list (inspection snag list) ----------
+
+async function saveFixes(file: FixFile | null): Promise<void> {
+  setState({ fixes: file });
+  try {
+    await getState().host.setSetting("fixes", file ? JSON.stringify(file) : "");
+  } catch {
+    /* the list still works for this session */
+  }
+}
+
+/** Reads a fix list file and opens the Fix queue. */
+export async function importFixFile(file: File): Promise<void> {
+  try {
+    const list = parseFixFile(await file.text());
+    await saveFixes(list);
+    setState({ fixSheet: true, fixImage: null });
+    const n = list.images.reduce((c, e) => c + e.findings.length, 0);
+    toast(`Fix list loaded: ${n} item${n === 1 ? "" : "s"} on ${list.images.length} picture${list.images.length === 1 ? "" : "s"}`, "ok");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+export function openFixQueue(open = true): void {
+  setState({ fixSheet: open });
+}
+
+/** The fix-list entry for the picture on screen: by embedded id, then file name, else the one the user picked. */
+export function currentFixEntry(): import("./core/fixes").FixEntry | undefined {
+  const st = getState();
+  if (!st.fixes) return undefined;
+  if (st.fixImage) return st.fixes.images.find((e) => e.image === st.fixImage);
+  const img = activeImage();
+  return entryFor(st.fixes, st.editName, img ? provenanceOf(img.data)?.id : undefined);
+}
+
+export async function setFixStatus(image: string, id: string, status: FixStatus): Promise<void> {
+  const f = getState().fixes;
+  if (f) await saveFixes(setStatus(f, image, id, status));
+}
+
+/** The original prompt the picture was made with: from its embedded history, else the version's prompt. */
+function originalPrompt(): string {
+  const st = getState();
+  const img = activeImage();
+  return (img && provenanceOf(img.data)?.prompt) || st.versions[st.activeVersion]?.prompt || "";
+}
+
+/** The text to copy for a finding. For a re-render it is the original prompt with the correction applied. */
+export function fixText(f: Finding): { text: string; notes: string[] } {
+  if (f.fix.method === "re-render" && (f.fix.patch || !f.fix.prompt.trim())) {
+    const orig = originalPrompt();
+    if (orig) {
+      const r = patchPrompt(orig, f.fix.patch ?? { add: [f.fix.prompt] });
+      return { text: r.prompt, notes: r.notes };
+    }
+    return { text: f.fix.prompt, notes: ["The original prompt isn't in this picture, so only the correction is shown. Add it to your prompt by hand."] };
+  }
+  return { text: f.fix.prompt, notes: [] };
+}
+
+export async function copyFix(f: Finding): Promise<void> {
+  const { text, notes } = fixText(f);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(notes[0] ?? "Fix copied", notes.length ? "warn" : "ok");
+  } catch {
+    toast("Couldn't copy. Select the text and press Ctrl C.", "error");
+  }
+}
+
+/** Runs a fix the app can do by itself: a spot edit on the marked box, or a relight. You still see the prompt and cost first. */
+export async function runFix(image: string, f: Finding): Promise<void> {
+  const src = activeImage();
+  if (!src) return void toast("Open the picture first: drop it on the Edit tab, or use Open image with history.", "warn");
+  const before = getState().versions.length;
+  if (f.fix.method === "relight") {
+    await runRelight(f.fix.light || "night");
+  } else if (f.fix.method === "spot-edit" && f.box && f.fix.prompt.trim()) {
+    const size = await imageSize(src);
+    const painter = new ZonePainter();
+    painter.fit(size.width, size.height);
+    const r = boxToRect(f.box, painter.width, painter.height);
+    const ctx = painter.ctx("A");
+    ctx.fillStyle = "#ff2a2a";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    setState({ tab: "edit" });
+    await runSpotEdit(painter, { A: f.fix.prompt }, "");
+  } else {
+    return void toast("This one can't run by itself. Copy the fix instead.", "info");
+  }
+  if (getState().versions.length > before) await setFixStatus(image, f.id, "applied");
+}
+
+/** Saves the fix list with its current statuses, to send back for re-inspection. */
+export function exportFixFile(): void {
+  const f = getState().fixes;
+  if (!f) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ ...f, schema: FIX_SCHEMA }, null, 2)], { type: "application/json" }));
+  a.download = `fixes-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }

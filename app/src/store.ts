@@ -153,6 +153,12 @@ export interface AppState {
   dragging: boolean;
   /** Bumped whenever a spot-edit selection changes. */
   paintRev: number;
+  /** Fix list from a render inspection, and the picture in it being worked on (null = match automatically). */
+  fixes: import("./core/fixes").FixFile | null;
+  fixSheet: boolean;
+  fixImage: string | null;
+  /** File name of the picture last dropped on the Edit tab, to match it with the fix list. */
+  editName: string;
 }
 
 type Listener = () => void;

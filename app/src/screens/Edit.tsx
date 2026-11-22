@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getState, setState, useApp } from "../store";
 import type { EditMode, Version } from "../store";
 import type { ImageData64 } from "../core/types";
-import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openReview, pasteFromClipboard, runRelight, runSpotEdit, runUpscale, useEditFile } from "../actions";
+import { activeImage, clearBase, clearEdit, pasteInto, useEditFileAs, editLightScene, editModelId, captureFromSketchUp, download, openFixQueue, openReview, pasteFromClipboard, runRelight, runSpotEdit, runUpscale, useEditFile } from "../actions";
 import type { UpscaleStrength } from "../core/upscale";
 import { pixelsOf, toDataUrl } from "../core/images";
 import { ADJUST_GROUPS, BANDS, IDENTITY_CURVE, NEUTRAL, applyAdjust, isIdentityCurve, isNeutral, mixControl } from "../core/adjust";
@@ -194,6 +194,9 @@ function EditWork() {
             {views.map((r, n) => pill(r, n + 1, "View "))}
           </>
         ) : null}
+        <button type="button" className="pill again" title="Inspection fix list for this picture" onClick={() => openFixQueue()}>
+          <Icon name="check" size={14} /> Fix queue
+        </button>
         {!phone ? (
           <button type="button" className="pill again" disabled={!cap || Boolean(busy)} title="Render this picture again as a new version" data-why={busy ? "A render is running. Wait for it to finish." : "Try again needs a view on the Render tab."} onClick={() => void openReview()}>
             <Icon name="refresh" size={14} /> Try again

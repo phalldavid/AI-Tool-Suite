@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { forgetThumbs } from "../lib/thumbs";
 import { Thumb } from "../ui/HistoryThumb";
 import { useApp } from "../store";
-import { copyImageToClipboard as copyImage, deleteHistoryItem, download, openHistoryItem, openImageWithHistory, toggleStar } from "../actions";
+import { copyImageToClipboard as copyImage, deleteHistoryItem, download, openHistoryItem, openFixQueue, openImageWithHistory, toggleStar } from "../actions";
 import type { ToolId } from "../core/types";
 
 const FILTERS: [string, string][] = [
@@ -68,6 +68,9 @@ export function HistoryScreen() {
               }}
             />
           </label>
+          <button type="button" className="btn ghost" title="Inspection fix list: what is wrong in each render and how to fix it" onClick={() => openFixQueue()}>
+            Fix queue
+          </button>
           <input className="input" style={{ width: 260 }} placeholder="Search history" aria-label="Search history" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <div className="chips-row" role="radiogroup" aria-label="Show" style={{ flex: "none" }}>

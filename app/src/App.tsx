@@ -7,6 +7,7 @@ import { Customise } from "./ui/Customise";
 import { SettingsSheet } from "./ui/SettingsSheet";
 import { ReviewSheet } from "./ui/ReviewSheet";
 import { HandoffSheet } from "./ui/HandoffSheet";
+import { FixQueueSheet } from "./ui/FixQueueSheet";
 import { Palette } from "./ui/Palette";
 import { Toasts } from "./ui/Toasts";
 import { RenderScreen } from "./screens/Render";
@@ -115,6 +116,7 @@ export function App() {
       <SettingsSheet />
       <ReviewSheet />
       <HandoffSheet />
+      <FixQueueSheet />
       <Palette />
       <LibrarySheet />
       <EnvPicturesSheet />
