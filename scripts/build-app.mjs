@@ -49,5 +49,9 @@ if (serve) {
   console.log(`Open http://localhost:${port}/${base}/`);
 } else {
   await esbuild.build(options);
+  // A new file name per build, so a deploy shows up straight away instead of after the browser's cache runs out.
+  const stamp = Date.now().toString(36);
+  const page = `${outdir}/index.html`;
+  writeFileSync(page, readFileSync(page, "utf8").replace('href="app.css"', `href="app.css?v=${stamp}"`).replace('src="app.js"', `src="app.js?v=${stamp}"`));
   console.log(`Built v2 into ${outdir}`);
 }

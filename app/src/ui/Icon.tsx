@@ -72,7 +72,7 @@ const P: Record<string, string> = {
 
 export function Icon({ name, size = 16, stroke = 2, className, style }: { name: string; size?: number; stroke?: number; className?: string; style?: React.CSSProperties }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className} style={{ flex: "none", ...style }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`ico ico-${name}${className ? ` ${className}` : ""}`} style={{ flex: "none", ...style }}>
       <path d={P[name] ?? P.info} />
     </svg>
   );
