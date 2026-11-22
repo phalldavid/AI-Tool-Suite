@@ -66,8 +66,8 @@ const zp = (key: NumKey, label: string): AdjustControl => ({ key, label, min: 0,
 export const ADJUST_GROUPS: AdjustGroup[] = [
   { id: "light", title: "Light", items: [{ key: "exposure", label: "Exposure", min: -3, max: 3, step: 0.05 }, pm("contrast", "Contrast"), pm("highlights", "Highlights"), pm("shadows", "Shadows"), pm("whites", "Whites"), pm("blacks", "Blacks")] },
   { id: "colour", title: "Colour", items: [pm("temperature", "Temperature"), pm("tint", "Tint"), pm("vibrance", "Vibrance"), pm("saturation", "Saturation")] },
-  { id: "detail", title: "Detail", items: [pm("clarity", "Clarity"), pm("texture", "Texture"), pm("dehaze", "Dehaze"), zp("sharpen", "Sharpening"), zp("noise", "Noise reduction")] },
-  { id: "effects", title: "Effects", items: [pm("vignette", "Vignette"), zp("grain", "Grain")] },
+  { id: "effects", title: "Effects", items: [pm("texture", "Texture"), pm("clarity", "Clarity"), pm("dehaze", "Dehaze"), pm("vignette", "Vignette"), zp("grain", "Grain")] },
+  { id: "detail", title: "Detail", items: [zp("sharpen", "Sharpening"), zp("noise", "Noise reduction")] },
   { id: "geometry", title: "Geometry", items: [{ key: "straighten", label: "Straighten", min: -15, max: 15, step: 0.1 }, pm("vertical", "Vertical"), pm("horizontal", "Horizontal")] },
 ];
 
