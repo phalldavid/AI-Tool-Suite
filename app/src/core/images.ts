@@ -2,6 +2,7 @@
 
 import { applyAdjust } from "./adjust";
 import type { Adjust } from "./adjust";
+import { readProvenanceB64, rememberProvenance } from "./provenance";
 import type { ImageData64 } from "./types";
 import { cropBox, padPlan } from "./upscale";
 import type { PadPlan } from "./upscale";
@@ -52,6 +53,8 @@ function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingCo
 /** Reads an uploaded file, scaling it so the long side is at most maxSide px. */
 export async function fileToImage(file: File, maxSide = 2048): Promise<ImageData64> {
   const data = await blobToBase64(file);
+  // A render saved by this app carries its prompt and history; note it before the pixels are re-encoded.
+  const prov = readProvenanceB64(data);
   const src: ImageData64 = { mimeType: file.type || "image/png", data };
   const el = await loadImage(src);
   const scale = Math.min(1, maxSide / Math.max(el.naturalWidth, el.naturalHeight));
@@ -59,7 +62,9 @@ export async function fileToImage(file: File, maxSide = 2048): Promise<ImageData
   const h = Math.round(el.naturalHeight * scale);
   const [c, ctx] = makeCanvas(w, h);
   ctx.drawImage(el, 0, 0, w, h);
-  return canvasToImage(c, "image/jpeg", 0.92);
+  const out = canvasToImage(c, "image/jpeg", 0.92);
+  if (prov) rememberProvenance(out.data, prov);
+  return out;
 }
 
 export async function imageSize(img: ImageData64): Promise<{ width: number; height: number }> {

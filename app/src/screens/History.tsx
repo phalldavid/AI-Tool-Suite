@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { forgetThumbs } from "../lib/thumbs";
 import { Thumb } from "../ui/HistoryThumb";
 import { useApp } from "../store";
-import { copyImageToClipboard as copyImage, deleteHistoryItem, download, openHistoryItem, toggleStar } from "../actions";
+import { copyImageToClipboard as copyImage, deleteHistoryItem, download, openHistoryItem, openImageWithHistory, toggleStar } from "../actions";
 import type { ToolId } from "../core/types";
 
 const FILTERS: [string, string][] = [
@@ -55,7 +55,20 @@ export function HistoryScreen() {
               Today · {today.length} render{today.length > 1 ? "s" : ""}{todayCr ? ` · ${todayCr} credits` : ""}
             </span>
           ) : null}
-          <input className="input" style={{ marginLeft: "auto", width: 260 }} placeholder="Search history" aria-label="Search history" value={q} onChange={(e) => setQ(e.target.value)} />
+          <label className="btn ghost" style={{ marginLeft: "auto", cursor: "pointer" }} title="Open a PNG or JPG saved from this app. Its prompt and history are inside the file.">
+            Open image with history
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void openImageWithHistory(f);
+              }}
+            />
+          </label>
+          <input className="input" style={{ width: 260 }} placeholder="Search history" aria-label="Search history" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <div className="chips-row" role="radiogroup" aria-label="Show" style={{ flex: "none" }}>
           {FILTERS.filter(([id]) => id === "all" || counts[id]).map(([id, label]) => (

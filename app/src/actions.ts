@@ -10,7 +10,9 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, makeProvider, BROWSER_SIT
 import type { Settings } from "./core/settings";
 import { buildZoneEditPrompt, dialTimeId, nearestAspectRatio, relightText, lightingText } from "./core/prompt";
 import type { Capture, HistoryItem, ImageData64, Preset, ToolId } from "./core/types";
-import { adjustFull, compositeMasked, cropPadded, fileToImage, imageSize, padToRatio, resizeTo, toDataUrl, zoneOutlines } from "./core/images";
+import { buildProvenance, embedProvenance, fingerprint, provenanceOf, readProvenanceB64, rememberProvenance } from "./core/provenance";
+import type { Provenance } from "./core/provenance";
+import { adjustFull, blobToBase64, compositeMasked, cropPadded, fileToImage, imageSize, padToRatio, resizeTo, shrinkJpeg, toDataUrl, zoneOutlines } from "./core/images";
 import { cropToRatio, findFrame } from "./core/frame";
 import { addHistory, listHistory, removeHistory, starHistory } from "./core/history";
 import { findLibraryItem } from "./core/library";
@@ -149,6 +151,7 @@ export async function useFile(file: File, name?: string): Promise<void> {
   if (getState().tab === "edit") return useEditFile(file, name);
   try {
     const view = await fileToImage(file, getState().settings.captureSize || 1600);
+    hintHistory(view, file);
     const cap: Capture = { view, source: "upload" };
     setState({ capture: cap, captureName: name ?? file.name ?? "Pasted image", before: null });
     toast("Image added. Pick a look and render.", "ok");
@@ -203,6 +206,7 @@ export async function useEditFile(file: File, name?: string, replace = false): P
   try {
     const st = getState();
     const img = await fileToImage(file, 4096);
+    hintHistory(img, file);
     const label = name ?? file.name ?? "Pasted image";
     if (replace || (!st.versions.length && (st.editMode === "style" || st.editMode === "view"))) {
       setState({ before: null, versions: [{ image: img, label: label === "Pasted image" ? "Pasted" : "Uploaded", prompt: "", kind: "version", meta: { at: Date.now() } }], activeVersion: 0, lookIndex: 0 });
@@ -901,8 +905,61 @@ export async function deleteHistoryItem(id: string): Promise<void> {
   toast("Removed from History", "info");
 }
 
+/** The record that goes inside a downloaded picture: from History if the picture is one of ours, else the one it arrived with. */
+async function provenanceFor(img: ImageData64): Promise<Provenance | undefined> {
+  const fp = fingerprint(img.data);
+  const item = getState().history.find((h) => fingerprint(h.after.data) === fp);
+  if (!item) return provenanceOf(img.data);
+  const parent = provenanceOf(item.before.data);
+  let thumb: ImageData64 | undefined;
+  try {
+    thumb = await shrinkJpeg(item.before, 512, 0.8);
+  } catch {
+    /* the record still goes in without a small copy of the source */
+  }
+  return buildProvenance(item, parent, thumb);
+}
+
+/** Saves a picture with its prompt, settings and history written inside the file (PNG and JPEG). */
 export async function download(img: ImageData64, name: string): Promise<void> {
-  await feelPressed(getState().host.save(img, fileName(name)));
+  let out = img;
+  try {
+    const rec = await provenanceFor(img);
+    if (rec) {
+      out = embedProvenance(img, rec);
+      rememberProvenance(out.data, rec);
+    }
+  } catch {
+    /* embedding is a bonus; the download must never fail because of it */
+  }
+  await feelPressed(getState().host.save(out, fileName(name)));
+}
+
+/** Opens a picture saved by this app: shows it with its prompt, and the source it was made from as "before". */
+export async function openImageWithHistory(file: File): Promise<void> {
+  if (!file.type.startsWith("image/")) return void toast("That isn't an image. Use PNG or JPG.", "error");
+  const data = await blobToBase64(file);
+  const rec = readProvenanceB64(data);
+  if (!rec) return void toast("No prompt or history inside this image. Messaging apps, screenshots and Save as JPG remove it.", "warn");
+  const image: ImageData64 = { mimeType: file.type, data };
+  rememberProvenance(data, rec);
+  const src = rec.inputs[0];
+  const before: ImageData64 | null = src ? { mimeType: "image/jpeg", data: src.thumb, width: src.w, height: src.h } : null;
+  setState({
+    before,
+    versions: [{ image, label: rec.preset ?? "Render", prompt: rec.prompt, kind: "version", meta: { look: rec.preset, model: rec.model, at: rec.createdAt } }],
+    activeVersion: 0,
+    lookIndex: 0,
+    tab: "edit",
+    editMode: "compare",
+  });
+  toast(`Prompt and history restored · ${rec.chain.length + 1} step${rec.chain.length ? "s" : ""}`, "ok");
+}
+
+/** A file dropped into the app that has history inside: say so, and offer to open it. */
+function hintHistory(img: ImageData64, file: File): void {
+  const rec = provenanceOf(img.data);
+  if (rec) toast(`This image carries its prompt and ${rec.chain.length + 1} step${rec.chain.length ? "s" : ""} of history.`, "info", { label: "Open", run: () => void openImageWithHistory(file) });
 }
 
 /** "Takhmao-v3-2026-11-13": project, what it is, today's date. */
