@@ -1136,3 +1136,86 @@ dialog.sheet[data-leaving]::backdrop { animation: veil-out var(--leave-ms) ease 
 .adj-actions .cta { flex: 1; }
 .phonebar .adj-actions { display: contents; }
 .body.flow .adj-dock { position: sticky; bottom: calc(150px + env(safe-area-inset-bottom)); z-index: 3; margin: 0 -14px; padding: 8px 14px 6px; background: var(--panel); box-shadow: 0 -1px 0 var(--line); }
+
+/* Hover animation for icons: each one moves the way it behaves (refresh spins, gear turns, download dips). Plain CSS, no library. Desktop pointers and keyboard focus only; off for reduced motion. */
+.ico { transform-origin: 50% 50%; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  @keyframes ico-refresh { to{transform:rotate(360deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-refresh { animation: ico-refresh 560ms cubic-bezier(.4,0,.2,1); }
+  @keyframes ico-settings { to{transform:rotate(90deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-settings { animation: ico-settings 520ms cubic-bezier(.4,0,.2,1); }
+  @keyframes ico-aperture { to{transform:rotate(90deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-aperture { animation: ico-aperture 520ms cubic-bezier(.4,0,.2,1); }
+  @keyframes ico-sun { 50%{transform:rotate(45deg) scale(1.15)}to{transform:rotate(90deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-sun { animation: ico-sun 640ms ease-in-out; }
+  @keyframes ico-exposure { to{transform:rotate(90deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-exposure { animation: ico-exposure 520ms ease-in-out; }
+  @keyframes ico-burst { 50%{transform:scale(1.25) rotate(20deg)}to{transform:scale(1) rotate(45deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-burst { animation: ico-burst 520ms ease-out; }
+  @keyframes ico-download { 40%{transform:translateY(3px)}70%{transform:translateY(-1px)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-download { animation: ico-download 520ms ease-out; }
+  @keyframes ico-external { 50%{transform:translate(2px,-2px)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-external { animation: ico-external 420ms ease-out; }
+  @keyframes ico-camera { 30%{transform:scale(1.14) rotate(-6deg)}60%{transform:scale(1.14) rotate(5deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-camera { animation: ico-camera 560ms ease-in-out; }
+  @keyframes ico-view { 30%{transform:scale(1.14) rotate(-6deg)}60%{transform:scale(1.14) rotate(5deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-view { animation: ico-view 560ms ease-in-out; }
+  @keyframes ico-brush { 30%{transform:rotate(-14deg)}65%{transform:rotate(8deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-brush { animation: ico-brush 560ms ease-in-out; }
+  @keyframes ico-pencil { 30%{transform:rotate(-12deg) translate(-1px,1px)}65%{transform:rotate(6deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-pencil { animation: ico-pencil 520ms ease-in-out; }
+  @keyframes ico-layers { 40%{transform:translateY(-3px)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-layers { animation: ico-layers 460ms ease-out; }
+  @keyframes ico-grid { 40%{transform:scale(1.18)}70%{transform:scale(.94)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-grid { animation: ico-grid 460ms ease-out; }
+  @keyframes ico-expand { 45%{transform:scale(1.22)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-expand { animation: ico-expand 420ms ease-out; }
+  @keyframes ico-clipboard { 35%{transform:rotate(-10deg)}70%{transform:rotate(6deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-clipboard { animation: ico-clipboard 460ms ease-in-out; }
+  @keyframes ico-check { 45%{transform:scale(1.3)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-check { animation: ico-check 380ms cubic-bezier(.3,1.5,.5,1); }
+  @keyframes ico-compare { 40%{transform:scaleX(.7)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-compare { animation: ico-compare 420ms ease-in-out; }
+  @keyframes ico-sliders { 25%{transform:translateX(-2px)}60%{transform:translateX(2px)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-sliders { animation: ico-sliders 460ms ease-in-out; }
+  @keyframes ico-contrast { to{transform:rotate(180deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-contrast { animation: ico-contrast 520ms ease-in-out; }
+  @keyframes ico-star { 50%{transform:scale(1.25) rotate(36deg)}to{transform:rotate(72deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-star { animation: ico-star 520ms ease-out; }
+  @keyframes ico-bulb { 40%{transform:scale(1.15)}70%{transform:scale(.97)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-bulb { animation: ico-bulb 460ms ease-out; }
+  @keyframes ico-trash { 30%{transform:rotate(-10deg)}65%{transform:rotate(7deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-trash { animation: ico-trash 420ms ease-in-out; }
+  @keyframes ico-lock { 20%{transform:translateX(-2px)}50%{transform:translateX(2px)}80%{transform:translateX(-1px)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-lock { animation: ico-lock 420ms ease-in-out; }
+  @keyframes ico-search { 30%{transform:translate(-1.5px,1.5px) rotate(-8deg)}65%{transform:translate(1px,-1px) rotate(6deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-search { animation: ico-search 520ms ease-in-out; }
+  @keyframes ico-close { to{transform:rotate(90deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-close { animation: ico-close 320ms ease-out; }
+  @keyframes ico-plus { to{transform:rotate(90deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-plus { animation: ico-plus 320ms ease-out; }
+  @keyframes ico-undo { 40%{transform:rotate(-28deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-undo { animation: ico-undo 420ms ease-out; }
+  @keyframes ico-redo { 40%{transform:rotate(28deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-redo { animation: ico-redo 420ms ease-out; }
+  @keyframes ico-history { to{transform:rotate(-360deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-history { animation: ico-history 700ms ease-in-out; }
+  @keyframes ico-moon { 40%{transform:rotate(-18deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-moon { animation: ico-moon 460ms ease-in-out; }
+  @keyframes ico-palette { 40%{transform:rotate(-14deg)}70%{transform:rotate(8deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-palette { animation: ico-palette 480ms ease-in-out; }
+  @keyframes ico-thermo { 40%{transform:translateY(-2px)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-thermo { animation: ico-thermo 420ms ease-out; }
+  @keyframes ico-drop { 40%{transform:translateY(2.5px) scaleY(.92)}70%{transform:translateY(-1px)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-drop { animation: ico-drop 460ms ease-out; }
+  @keyframes ico-swap { 50%{transform:rotate(180deg)}to{transform:rotate(180deg)} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-swap { animation: ico-swap 420ms ease-in-out; }
+  @keyframes ico-sparkles { 50%{transform:scale(1.2) rotate(12deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-sparkles { animation: ico-sparkles 460ms ease-out; }
+  @keyframes ico-map { 40%{transform:skewX(-8deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-map { animation: ico-map 420ms ease-out; }
+  @keyframes ico-warn { 20%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}80%{transform:rotate(-4deg)}to{transform:none} }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico-warn { animation: ico-warn 460ms ease-in-out; }
+  :is(button, a, summary, [role="tab"], [role="radio"], [role="option"], [role="menuitem"]):not(:disabled, [aria-disabled="true"]):is(:hover, :focus-visible) .ico:not(.ico-refresh, .ico-settings, .ico-aperture, .ico-sun, .ico-exposure, .ico-burst, .ico-download, .ico-external, .ico-camera, .ico-view, .ico-brush, .ico-pencil, .ico-layers, .ico-grid, .ico-expand, .ico-clipboard, .ico-check, .ico-compare, .ico-sliders, .ico-contrast, .ico-star, .ico-bulb, .ico-trash, .ico-lock, .ico-search, .ico-close, .ico-plus, .ico-undo, .ico-redo, .ico-history, .ico-moon, .ico-palette, .ico-thermo, .ico-drop, .ico-swap, .ico-sparkles, .ico-map, .ico-warn) { animation: ico-pop 360ms ease-out; }
+  @keyframes ico-pop { 40% { transform: scale(1.14); } to { transform: none; } }
+}
