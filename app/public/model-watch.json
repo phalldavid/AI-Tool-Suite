@@ -1,0 +1,65 @@
+{
+  "checkedAt": "2026-11-23T10:02:40.053Z",
+  "new": [
+    {
+      "name": "Flux 2 Flex",
+      "source": "https://kie.ai/pricing"
+    },
+    {
+      "name": "Flux 3 Klein",
+      "source": "https://kie.ai/pricing"
+    },
+    {
+      "name": "Flux Kontext",
+      "source": "https://docs.kie.ai/"
+    },
+    {
+      "name": "GPT Image 2.5",
+      "source": "https://kie.ai/pricing"
+    },
+    {
+      "name": "GPT Image 2.6",
+      "source": "https://kie.ai/pricing"
+    },
+    {
+      "name": "GPT Image 2.6 Access",
+      "source": "https://kie.ai/market"
+    },
+    {
+      "name": "GPT Image 2.6 Economy",
+      "source": "https://docs.kie.ai/"
+    },
+    {
+      "name": "GPT Image 2.6 Kimi",
+      "source": "https://kie.ai/pricing"
+    },
+    {
+      "name": "GPT Image 2.6 Text",
+      "source": "https://kie.ai/market"
+    },
+    {
+      "name": "GPT Image-1.5",
+      "source": "https://docs.kie.ai/"
+    },
+    {
+      "name": "Nano Banana 2",
+      "source": "https://docs.kie.ai/"
+    },
+    {
+      "name": "Nano Banana 2.0",
+      "source": "https://kie.ai/pricing"
+    },
+    {
+      "name": "Qwen Image 2",
+      "source": "https://kie.ai/pricing"
+    },
+    {
+      "name": "Qwen Image 2.1",
+      "source": "https://kie.ai/market"
+    },
+    {
+      "name": "Qwen-Image-2.1",
+      "source": "https://kie.ai/pricing"
+    }
+  ]
+}
